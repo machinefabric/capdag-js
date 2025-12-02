@@ -1,0 +1,33 @@
+{
+  "name": "capns",
+  "version": "1.0.0",
+  "description": "JavaScript implementation of Cap URN (Capability Uniform Resource Names) with strict validation and matching",
+  "main": "capns.js",
+  "scripts": {
+    "test": "node capns.test.js"
+  },
+  "keywords": [
+    "cap",
+    "urn", 
+    "capability",
+    "namespace",
+    "validation",
+    "matching"
+  ],
+  "author": "FMIO Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fmio/capns.git",
+    "directory": "capns-js"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "files": [
+    "capns.js",
+    "capns.test.js",
+    "RULES.md",
+    "README.md"
+  ]
+}
