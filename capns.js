@@ -100,7 +100,7 @@ class CapUrn {
 
       // Validate key and value characters
       if (!CapUrn._isValidTagComponent(key, true) || !CapUrn._isValidTagComponent(value, false)) {
-        throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, `Invalid character in tag (use alphanumeric, _, -, /, :, * in values only): ${trimmedTag}`);
+        throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, `Invalid character in tag (use alphanumeric, _, -, /, :, ., * in values only): ${trimmedTag}`);
       }
 
       tags[key] = value;
@@ -119,7 +119,7 @@ class CapUrn {
    */
   static _isValidTagComponent(s, isKey) {
     for (const char of s) {
-      const isValid = /[a-zA-Z0-9_\-\/:]/.test(char) || (!isKey && char === '*');
+      const isValid = /[a-zA-Z0-9_\-\/:.]/.test(char) || (!isKey && char === '*');
       if (!isValid) {
         return false;
       }
