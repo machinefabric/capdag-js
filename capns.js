@@ -687,7 +687,7 @@ class Cap {
    * @returns {Cap} The capability instance
    */
   static fromJSON(json) {
-    const urn = new CapUrn(json.urn.tags);
+    const urn = CapUrn.fromString(json.urn);
     const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata);
     cap.arguments = json.arguments || { required: [], optional: [] };
     cap.output = json.output;
