@@ -509,6 +509,212 @@ class CapMatcher {
   }
 }
 
+/**
+ * Capability definition class
+ */
+class Cap {
+  /**
+   * Create a new capability
+   * @param {CapUrn} urn - The capability URN
+   * @param {string} title - The human-readable title (required)
+   * @param {string} command - The command string
+   * @param {string|null} capDescription - Optional description
+   * @param {Object} metadata - Optional metadata object
+   */
+  constructor(urn, title, command, capDescription = null, metadata = {}) {
+    if (!(urn instanceof CapUrn)) {
+      throw new Error('URN must be a CapUrn instance');
+    }
+    if (!title || typeof title !== 'string') {
+      throw new Error('Title is required and must be a string');
+    }
+    if (!command || typeof command !== 'string') {
+      throw new Error('Command is required and must be a string');
+    }
+
+    this.urn = urn;
+    this.title = title;
+    this.command = command;
+    this.cap_description = capDescription;
+    this.metadata = metadata || {};
+    this.arguments = { required: [], optional: [] };
+    this.output = null;
+    this.accepts_stdin = false;
+  }
+
+  /**
+   * Get the URN as a string
+   * @returns {string} The URN string representation
+   */
+  urnString() {
+    return this.urn.toString();
+  }
+
+  /**
+   * Check if this capability matches a request string
+   * @param {string} request - The request string
+   * @returns {boolean} Whether this capability matches the request
+   */
+  matchesRequest(request) {
+    try {
+      const requestUrn = CapUrn.fromString(request);
+      return this.urn.canHandle(requestUrn);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Check if this capability can handle a request URN
+   * @param {CapUrn} requestUrn - The request URN
+   * @returns {boolean} Whether this capability can handle the request
+   */
+  canHandleRequest(requestUrn) {
+    return this.urn.canHandle(requestUrn);
+  }
+
+  /**
+   * Check if this capability is more specific than another
+   * @param {Cap} other - The other capability
+   * @returns {boolean} Whether this capability is more specific
+   */
+  isMoreSpecificThan(other) {
+    if (!other) return true;
+    return this.urn.isMoreSpecificThan(other.urn);
+  }
+
+  /**
+   * Get metadata value by key
+   * @param {string} key - The metadata key
+   * @returns {string|undefined} The metadata value
+   */
+  getMetadata(key) {
+    return this.metadata[key];
+  }
+
+  /**
+   * Set metadata value
+   * @param {string} key - The metadata key
+   * @param {string} value - The metadata value
+   */
+  setMetadata(key, value) {
+    this.metadata[key] = value;
+  }
+
+  /**
+   * Remove metadata value
+   * @param {string} key - The metadata key to remove
+   * @returns {boolean} Whether the key existed
+   */
+  removeMetadata(key) {
+    const existed = this.metadata.hasOwnProperty(key);
+    delete this.metadata[key];
+    return existed;
+  }
+
+  /**
+   * Check if this capability has specific metadata
+   * @param {string} key - The metadata key
+   * @returns {boolean} Whether the metadata exists
+   */
+  hasMetadata(key) {
+    return this.metadata.hasOwnProperty(key);
+  }
+
+  /**
+   * Add a required argument
+   * @param {Object} arg - The argument definition
+   */
+  addRequiredArgument(arg) {
+    this.arguments.required.push(arg);
+  }
+
+  /**
+   * Add an optional argument
+   * @param {Object} arg - The argument definition
+   */
+  addOptionalArgument(arg) {
+    this.arguments.optional.push(arg);
+  }
+
+  /**
+   * Set the output definition
+   * @param {Object} output - The output definition
+   */
+  setOutput(output) {
+    this.output = output;
+  }
+
+  /**
+   * Check if this capability equals another
+   * @param {Cap} other - The other capability
+   * @returns {boolean} Whether the capabilities are equal
+   */
+  equals(other) {
+    if (!other || !(other instanceof Cap)) {
+      return false;
+    }
+
+    return this.urn.equals(other.urn) &&
+           this.title === other.title &&
+           this.command === other.command &&
+           this.cap_description === other.cap_description &&
+           JSON.stringify(this.metadata) === JSON.stringify(other.metadata);
+  }
+
+  /**
+   * Convert to JSON representation
+   * @returns {Object} JSON representation
+   */
+  toJSON() {
+    return {
+      urn: {
+        tags: this.urn.tags
+      },
+      title: this.title,
+      command: this.command,
+      cap_description: this.cap_description,
+      metadata: this.metadata,
+      arguments: this.arguments,
+      output: this.output,
+      accepts_stdin: this.accepts_stdin
+    };
+  }
+
+  /**
+   * Create a capability from JSON representation
+   * @param {Object} json - The JSON data
+   * @returns {Cap} The capability instance
+   */
+  static fromJSON(json) {
+    const urn = new CapUrn(json.urn.tags);
+    const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata);
+    cap.arguments = json.arguments || { required: [], optional: [] };
+    cap.output = json.output;
+    cap.accepts_stdin = json.accepts_stdin || false;
+    return cap;
+  }
+}
+
+/**
+ * Helper functions for creating capabilities
+ */
+function createCap(urn, title, command) {
+  return new Cap(urn, title, command);
+}
+
+function createCapWithDescription(urn, title, command, description) {
+  return new Cap(urn, title, command, description);
+}
+
+function createCapWithMetadata(urn, title, command, metadata) {
+  return new Cap(urn, title, command, null, metadata);
+}
+
+function createCapWithDescriptionAndMetadata(urn, title, command, description, metadata) {
+  return new Cap(urn, title, command, description, metadata);
+}
+
 // Export for both CommonJS and ES modules
 if (typeof module !== 'undefined' && module.exports) {
   // CommonJS
@@ -517,7 +723,12 @@ if (typeof module !== 'undefined' && module.exports) {
     CapUrnBuilder,
     CapMatcher,
     CapUrnError,
-    ErrorCodes
+    ErrorCodes,
+    Cap,
+    createCap,
+    createCapWithDescription,
+    createCapWithMetadata,
+    createCapWithDescriptionAndMetadata
   };
 }
 
@@ -528,4 +739,9 @@ if (typeof window !== 'undefined') {
   window.CapMatcher = CapMatcher;
   window.CapUrnError = CapUrnError;
   window.CapUrnErrorCodes = ErrorCodes;
+  window.Cap = Cap;
+  window.createCap = createCap;
+  window.createCapWithDescription = createCapWithDescription;
+  window.createCapWithMetadata = createCapWithMetadata;
+  window.createCapWithDescriptionAndMetadata = createCapWithDescriptionAndMetadata;
 }
