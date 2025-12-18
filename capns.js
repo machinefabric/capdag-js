@@ -751,6 +751,382 @@ function createCapWithDescriptionAndMetadata(urn, title, command, description, m
   return new Cap(urn, title, command, description, metadata);
 }
 
+// ============================================================================
+// VALIDATION SYSTEM
+// ============================================================================
+
+/**
+ * Validation error types with descriptive failure information
+ */
+class ValidationError extends Error {
+  constructor(type, capUrn, details = {}) {
+    const message = ValidationError.formatMessage(type, capUrn, details);
+    super(message);
+    this.name = 'ValidationError';
+    this.type = type;
+    this.capUrn = capUrn;
+    this.details = details;
+  }
+
+  static formatMessage(type, capUrn, details) {
+    switch (type) {
+      case 'UnknownCap':
+        return `Unknown cap '${capUrn}' - cap not registered or advertised`;
+      case 'MissingRequiredArgument':
+        return `Cap '${capUrn}' requires argument '${details.argumentName}' but it was not provided`;
+      case 'UnknownArgument':
+        return `Cap '${capUrn}' does not accept argument '${details.argumentName}' - check capability definition for valid arguments`;
+      case 'InvalidArgumentType':
+        return `Cap '${capUrn}' argument '${details.argumentName}' expects type '${details.expectedType}' but received '${details.actualType}' with value: ${JSON.stringify(details.actualValue)}`;
+      case 'ArgumentValidationFailed':
+        return `Cap '${capUrn}' argument '${details.argumentName}' failed validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
+      case 'InvalidOutputType':
+        return `Cap '${capUrn}' output expects type '${details.expectedType}' but received '${details.actualType}' with value: ${JSON.stringify(details.actualValue)}`;
+      case 'OutputValidationFailed':
+        return `Cap '${capUrn}' output failed validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
+      case 'InvalidCapSchema':
+        return `Cap '${capUrn}' has invalid schema: ${details.issue}`;
+      case 'TooManyArguments':
+        return `Cap '${capUrn}' expects at most ${details.maxExpected} arguments but received ${details.actualCount}`;
+      case 'JsonParseError':
+        return `Cap '${capUrn}' JSON parsing failed: ${details.error}`;
+      case 'SchemaValidationFailed':
+        return `Cap '${capUrn}' schema validation failed for '${details.fieldName}': ${details.schemaErrors}`;
+      default:
+        return `Cap validation error: ${type}`;
+    }
+  }
+}
+
+/**
+ * Input argument validator
+ */
+class InputValidator {
+  /**
+   * Validate positional arguments against cap input schema
+   */
+  static validatePositionalArguments(cap, arguments) {
+    const capUrn = cap.urnString();
+    const args = cap.arguments;
+    
+    // Check if too many arguments provided
+    const maxArgs = args.required.length + args.optional.length;
+    if (arguments.length > maxArgs) {
+      throw new ValidationError('TooManyArguments', capUrn, {
+        maxExpected: maxArgs,
+        actualCount: arguments.length
+      });
+    }
+    
+    // Validate required arguments
+    for (let i = 0; i < args.required.length; i++) {
+      if (i >= arguments.length) {
+        throw new ValidationError('MissingRequiredArgument', capUrn, {
+          argumentName: args.required[i].name
+        });
+      }
+      
+      InputValidator.validateSingleArgument(cap, args.required[i], arguments[i]);
+    }
+    
+    // Validate optional arguments if provided
+    const requiredCount = args.required.length;
+    for (let i = 0; i < args.optional.length; i++) {
+      const argIndex = requiredCount + i;
+      if (argIndex < arguments.length) {
+        InputValidator.validateSingleArgument(cap, args.optional[i], arguments[argIndex]);
+      }
+    }
+  }
+
+  /**
+   * Validate named arguments against cap input schema
+   */
+  static validateNamedArguments(cap, namedArgs) {
+    const capUrn = cap.urnString();
+    const args = cap.arguments;
+    
+    // Extract named argument values into a map
+    const providedArgs = new Map();
+    for (const arg of namedArgs) {
+      if (typeof arg === 'object' && arg.name && arg.hasOwnProperty('value')) {
+        providedArgs.set(arg.name, arg.value);
+      }
+    }
+    
+    // Check that all required arguments are provided as named arguments
+    for (const reqArg of args.required) {
+      if (!providedArgs.has(reqArg.name)) {
+        throw new ValidationError('MissingRequiredArgument', capUrn, {
+          argumentName: `${reqArg.name} (expected as named argument)`
+        });
+      }
+      
+      // Validate the provided argument value
+      const providedValue = providedArgs.get(reqArg.name);
+      InputValidator.validateSingleArgument(cap, reqArg, providedValue);
+    }
+    
+    // Validate optional arguments if provided
+    for (const optArg of args.optional) {
+      if (providedArgs.has(optArg.name)) {
+        const providedValue = providedArgs.get(optArg.name);
+        InputValidator.validateSingleArgument(cap, optArg, providedValue);
+      }
+    }
+    
+    // Check for unknown arguments
+    const knownArgNames = new Set([
+      ...args.required.map(arg => arg.name),
+      ...args.optional.map(arg => arg.name)
+    ]);
+    
+    for (const providedName of providedArgs.keys()) {
+      if (!knownArgNames.has(providedName)) {
+        throw new ValidationError('UnknownArgument', capUrn, {
+          argumentName: providedName
+        });
+      }
+    }
+  }
+
+  /**
+   * Validate a single argument against its definition
+   */
+  static validateSingleArgument(cap, argDef, value) {
+    // Type validation
+    InputValidator.validateArgumentType(cap, argDef, value);
+    
+    // Validation rules
+    InputValidator.validateArgumentRules(cap, argDef, value);
+  }
+
+  /**
+   * Validate argument type
+   */
+  static validateArgumentType(cap, argDef, value) {
+    const capUrn = cap.urnString();
+    const actualType = InputValidator.getJsonTypeName(value);
+    
+    let typeMatches = false;
+    switch (argDef.argType) {
+      case 'string':
+        typeMatches = typeof value === 'string';
+        break;
+      case 'integer':
+        typeMatches = Number.isInteger(value);
+        break;
+      case 'number':
+        typeMatches = typeof value === 'number' && !isNaN(value);
+        break;
+      case 'boolean':
+        typeMatches = typeof value === 'boolean';
+        break;
+      case 'array':
+        typeMatches = Array.isArray(value);
+        break;
+      case 'object':
+        typeMatches = typeof value === 'object' && value !== null && !Array.isArray(value);
+        break;
+      case 'binary':
+        typeMatches = typeof value === 'string'; // Binary as base64 string
+        break;
+      default:
+        typeMatches = false;
+    }
+    
+    if (!typeMatches) {
+      throw new ValidationError('InvalidArgumentType', capUrn, {
+        argumentName: argDef.name,
+        expectedType: argDef.argType,
+        actualType: actualType,
+        actualValue: value
+      });
+    }
+  }
+
+  /**
+   * Validate argument rules (min/max, length, pattern, allowed values)
+   */
+  static validateArgumentRules(cap, argDef, value) {
+    const capUrn = cap.urnString();
+    const validation = argDef.validation;
+    
+    if (!validation) return;
+    
+    // Min/max validation for numbers
+    if (typeof value === 'number') {
+      if (validation.min !== undefined && value < validation.min) {
+        throw new ValidationError('ArgumentValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          validationRule: `min value ${validation.min}`,
+          actualValue: value
+        });
+      }
+      if (validation.max !== undefined && value > validation.max) {
+        throw new ValidationError('ArgumentValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          validationRule: `max value ${validation.max}`,
+          actualValue: value
+        });
+      }
+    }
+    
+    // Length validation for strings and arrays
+    if (typeof value === 'string' || Array.isArray(value)) {
+      const length = value.length;
+      if (validation.minLength !== undefined && length < validation.minLength) {
+        throw new ValidationError('ArgumentValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          validationRule: `min length ${validation.minLength}`,
+          actualValue: value
+        });
+      }
+      if (validation.maxLength !== undefined && length > validation.maxLength) {
+        throw new ValidationError('ArgumentValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          validationRule: `max length ${validation.maxLength}`,
+          actualValue: value
+        });
+      }
+    }
+    
+    // Pattern validation for strings
+    if (typeof value === 'string' && validation.pattern) {
+      const regex = new RegExp(validation.pattern);
+      if (!regex.test(value)) {
+        throw new ValidationError('ArgumentValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          validationRule: `pattern ${validation.pattern}`,
+          actualValue: value
+        });
+      }
+    }
+    
+    // Allowed values validation
+    if (validation.allowedValues && Array.isArray(validation.allowedValues)) {
+      if (!validation.allowedValues.includes(value)) {
+        throw new ValidationError('ArgumentValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          validationRule: `allowed values [${validation.allowedValues.join(', ')}]`,
+          actualValue: value
+        });
+      }
+    }
+  }
+
+  /**
+   * Get JSON type name for a value
+   */
+  static getJsonTypeName(value) {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return 'array';
+    if (typeof value === 'object') return 'object';
+    if (Number.isInteger(value)) return 'integer';
+    return typeof value;
+  }
+}
+
+/**
+ * Output validator
+ */
+class OutputValidator {
+  /**
+   * Validate output against cap output schema
+   */
+  static validateOutput(cap, output) {
+    const capUrn = cap.urnString();
+    const outputDef = cap.output;
+    
+    if (!outputDef) return; // No output definition to validate against
+    
+    const actualType = InputValidator.getJsonTypeName(output);
+    
+    // Type validation
+    let typeMatches = false;
+    switch (outputDef.outputType) {
+      case 'string':
+        typeMatches = typeof output === 'string';
+        break;
+      case 'integer':
+        typeMatches = Number.isInteger(output);
+        break;
+      case 'number':
+        typeMatches = typeof output === 'number' && !isNaN(output);
+        break;
+      case 'boolean':
+        typeMatches = typeof output === 'boolean';
+        break;
+      case 'array':
+        typeMatches = Array.isArray(output);
+        break;
+      case 'object':
+        typeMatches = typeof output === 'object' && output !== null && !Array.isArray(output);
+        break;
+      case 'binary':
+        typeMatches = typeof output === 'string'; // Binary as base64 string
+        break;
+      default:
+        typeMatches = false;
+    }
+    
+    if (!typeMatches) {
+      throw new ValidationError('InvalidOutputType', capUrn, {
+        expectedType: outputDef.outputType,
+        actualType: actualType,
+        actualValue: output
+      });
+    }
+  }
+}
+
+/**
+ * Cap validator
+ */
+class CapValidator {
+  /**
+   * Validate cap schema
+   */
+  static validateCap(cap) {
+    const capUrn = cap.urnString();
+    
+    // Validate basic cap structure
+    if (!cap.title || typeof cap.title !== 'string') {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: 'Cap must have a valid title'
+      });
+    }
+    
+    if (!cap.command || typeof cap.command !== 'string') {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: 'Cap must have a valid command'
+      });
+    }
+    
+    // Validate arguments structure
+    if (cap.arguments) {
+      if (cap.arguments.required && !Array.isArray(cap.arguments.required)) {
+        throw new ValidationError('InvalidCapSchema', capUrn, {
+          issue: 'Required arguments must be an array'
+        });
+      }
+      
+      if (cap.arguments.optional && !Array.isArray(cap.arguments.optional)) {
+        throw new ValidationError('InvalidCapSchema', capUrn, {
+          issue: 'Optional arguments must be an array'
+        });
+      }
+    }
+    
+    // Validate output structure
+    if (cap.output && typeof cap.output !== 'object') {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: 'Cap output must be an object'
+      });
+    }
+  }
+}
+
 // Export for both CommonJS and ES modules
 if (typeof module !== 'undefined' && module.exports) {
   // CommonJS
@@ -764,7 +1140,11 @@ if (typeof module !== 'undefined' && module.exports) {
     createCap,
     createCapWithDescription,
     createCapWithMetadata,
-    createCapWithDescriptionAndMetadata
+    createCapWithDescriptionAndMetadata,
+    ValidationError,
+    InputValidator,
+    OutputValidator,
+    CapValidator
   };
 }
 
@@ -780,4 +1160,8 @@ if (typeof window !== 'undefined') {
   window.createCapWithDescription = createCapWithDescription;
   window.createCapWithMetadata = createCapWithMetadata;
   window.createCapWithDescriptionAndMetadata = createCapWithDescriptionAndMetadata;
+  window.ValidationError = ValidationError;
+  window.InputValidator = InputValidator;
+  window.OutputValidator = OutputValidator;
+  window.CapValidator = CapValidator;
 }
