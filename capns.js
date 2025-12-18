@@ -521,8 +521,9 @@ class Cap {
    * @param {string|null} capDescription - Optional description
    * @param {Object} metadata - Optional metadata object
    * @param {string|null} category - Optional category for visual grouping
+   * @param {Object|null} metadataJson - Optional arbitrary metadata as JSON object
    */
-  constructor(urn, title, command, capDescription = null, metadata = {}, category = null) {
+  constructor(urn, title, command, capDescription = null, metadata = {}, category = null, metadataJson = null) {
     if (!(urn instanceof CapUrn)) {
       throw new Error('URN must be a CapUrn instance');
     }
@@ -542,6 +543,7 @@ class Cap {
     this.arguments = { required: [], optional: [] };
     this.output = null;
     this.accepts_stdin = false;
+    this.metadata_json = metadataJson;
   }
 
   /**
@@ -648,6 +650,29 @@ class Cap {
   }
 
   /**
+   * Get metadata JSON
+   * @returns {Object|null} The metadata JSON
+   */
+  getMetadataJSON() {
+    return this.metadata_json;
+  }
+
+  /**
+   * Set metadata JSON
+   * @param {Object} metadata - The metadata JSON object
+   */
+  setMetadataJSON(metadata) {
+    this.metadata_json = metadata;
+  }
+
+  /**
+   * Clear metadata JSON
+   */
+  clearMetadataJSON() {
+    this.metadata_json = null;
+  }
+
+  /**
    * Check if this capability equals another
    * @param {Cap} other - The other capability
    * @returns {boolean} Whether the capabilities are equal
@@ -662,7 +687,8 @@ class Cap {
            this.category === other.category &&
            this.command === other.command &&
            this.cap_description === other.cap_description &&
-           JSON.stringify(this.metadata) === JSON.stringify(other.metadata);
+           JSON.stringify(this.metadata) === JSON.stringify(other.metadata) &&
+           JSON.stringify(this.metadata_json) === JSON.stringify(other.metadata_json);
   }
 
   /**
@@ -670,7 +696,7 @@ class Cap {
    * @returns {Object} JSON representation
    */
   toJSON() {
-    return {
+    const result = {
       urn: {
         tags: this.urn.tags
       },
@@ -683,6 +709,12 @@ class Cap {
       output: this.output,
       accepts_stdin: this.accepts_stdin
     };
+
+    if (this.metadata_json !== null && this.metadata_json !== undefined) {
+      result.metadata_json = this.metadata_json;
+    }
+
+    return result;
   }
 
   /**
@@ -692,7 +724,7 @@ class Cap {
    */
   static fromJSON(json) {
     const urn = CapUrn.fromString(json.urn);
-    const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.category);
+    const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.category, json.metadata_json);
     cap.arguments = json.arguments || { required: [], optional: [] };
     cap.output = json.output;
     cap.accepts_stdin = json.accepts_stdin || false;
