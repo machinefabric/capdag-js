@@ -520,10 +520,9 @@ class Cap {
    * @param {string} command - The command string
    * @param {string|null} capDescription - Optional description
    * @param {Object} metadata - Optional metadata object
-   * @param {string|null} category - Optional category for visual grouping
    * @param {Object|null} metadataJson - Optional arbitrary metadata as JSON object
    */
-  constructor(urn, title, command, capDescription = null, metadata = {}, category = null, metadataJson = null) {
+  constructor(urn, title, command, capDescription = null, metadata = {}, metadataJson = null) {
     if (!(urn instanceof CapUrn)) {
       throw new Error('URN must be a CapUrn instance');
     }
@@ -536,7 +535,6 @@ class Cap {
 
     this.urn = urn;
     this.title = title;
-    this.category = category;
     this.command = command;
     this.cap_description = capDescription;
     this.metadata = metadata || {};
@@ -684,7 +682,6 @@ class Cap {
 
     return this.urn.equals(other.urn) &&
            this.title === other.title &&
-           this.category === other.category &&
            this.command === other.command &&
            this.cap_description === other.cap_description &&
            JSON.stringify(this.metadata) === JSON.stringify(other.metadata) &&
@@ -701,7 +698,6 @@ class Cap {
         tags: this.urn.tags
       },
       title: this.title,
-      category: this.category,
       command: this.command,
       cap_description: this.cap_description,
       metadata: this.metadata,
@@ -724,7 +720,7 @@ class Cap {
    */
   static fromJSON(json) {
     const urn = CapUrn.fromString(json.urn);
-    const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.category, json.metadata_json);
+    const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.metadata_json);
     cap.arguments = json.arguments || { required: [], optional: [] };
     cap.output = json.output;
     cap.accepts_stdin = json.accepts_stdin || false;
