@@ -14,11 +14,11 @@
     "validation",
     "matching"
   ],
-  "author": "FMIO Team",
+  "author": "FGRND Team",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fmio/capns.git",
+    "url": "https://github.com/fgrnd/capns.git",
     "directory": "capns-js"
   },
   "engines": {
