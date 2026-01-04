@@ -4,13 +4,13 @@ Production-ready JavaScript implementation of Cap URN (Capability Uniform Resour
 
 ## Features
 
-- ✅ **Strict Rule Enforcement** - Follows exact same rules as Rust, Go, and Objective-C implementations
-- ✅ **Case Insensitive** - All input normalized to lowercase
-- ✅ **Tag Order Independent** - Canonical alphabetical sorting 
-- ✅ **Wildcard Support** - `*` matching in values only
-- ✅ **Extended Characters** - Support for `/` and `:` in tag components
-- ✅ **Production Ready** - No fallbacks, fails hard on invalid input
-- ✅ **Comprehensive Tests** - Full test suite verifying all 21 rules
+- OK **Strict Rule Enforcement** - Follows exact same rules as Rust, Go, and Objective-C implementations
+- OK **Case Insensitive** - All input normalized to lowercase
+- OK **Tag Order Independent** - Canonical alphabetical sorting 
+- OK **Wildcard Support** - `*` matching in values only
+- OK **Extended Characters** - Support for `/` and `:` in tag components
+- OK **Production Ready** - No fallbacks, fails hard on invalid input
+- OK **Comprehensive Tests** - Full test suite verifying all 21 rules
 
 ## Installation
 

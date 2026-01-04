@@ -51,7 +51,7 @@ function runTests() {
   testDuplicateKeyRejection();
   testNumericKeyRestriction();
 
-  console.log('✅ All tests passed!');
+  console.log('OK All tests passed!');
 }
 
 function testCapUrnCreation() {
@@ -391,7 +391,7 @@ if (require.main === module) {
     runTests();
     process.exit(0);
   } catch (error) {
-    console.error('\n❌ Test failed:', error.message);
+    console.error('\nERR Test failed:', error.message);
     process.exit(1);
   }
 }
