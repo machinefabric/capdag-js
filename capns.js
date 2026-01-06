@@ -656,6 +656,231 @@ class CapMatcher {
   }
 }
 
+// ============================================================================
+// MEDIA SPEC PARSING
+// ============================================================================
+
+/**
+ * MediaSpec error types
+ */
+class MediaSpecError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'MediaSpecError';
+    this.code = code;
+  }
+}
+
+const MediaSpecErrorCodes = {
+  MISSING_CONTENT_TYPE: 1,
+  EMPTY_CONTENT_TYPE: 2,
+  UNTERMINATED_QUOTE: 3
+};
+
+/**
+ * Parsed MediaSpec structure
+ *
+ * Parses media_spec values in the format:
+ * `content-type: <mime-type>; profile=<url>`
+ *
+ * Examples:
+ * - `content-type: application/json; profile="https://capns.org/schema/document-outline"`
+ * - `content-type: image/png; profile="https://capns.org/schema/thumbnail-image"`
+ * - `content-type: text/plain; profile=https://capns.org/schema/utf8-text`
+ */
+class MediaSpec {
+  /**
+   * Create a new MediaSpec
+   * @param {string} contentType - The MIME content type
+   * @param {string|null} profile - Optional profile URL
+   */
+  constructor(contentType, profile = null) {
+    this.contentType = contentType;
+    this.profile = profile;
+  }
+
+  /**
+   * Parse a media_spec string
+   * Format: `content-type: <mime-type>; profile=<url>`
+   * @param {string} s - The media_spec string
+   * @returns {MediaSpec} The parsed MediaSpec
+   * @throws {MediaSpecError} If parsing fails
+   */
+  static parse(s) {
+    const trimmed = s.trim();
+
+    // Must start with "content-type:" (case-insensitive)
+    const lower = trimmed.toLowerCase();
+    if (!lower.startsWith('content-type:')) {
+      throw new MediaSpecError(MediaSpecErrorCodes.MISSING_CONTENT_TYPE, "media_spec must start with 'content-type:'");
+    }
+
+    // Get everything after "content-type:"
+    const afterPrefix = trimmed.slice(13).trim();
+
+    // Split by semicolon to separate mime type from parameters
+    const semicolonPos = afterPrefix.indexOf(';');
+    let contentType, paramsStr;
+
+    if (semicolonPos === -1) {
+      contentType = afterPrefix.trim();
+      paramsStr = null;
+    } else {
+      contentType = afterPrefix.slice(0, semicolonPos).trim();
+      paramsStr = afterPrefix.slice(semicolonPos + 1).trim();
+    }
+
+    if (contentType === '') {
+      throw new MediaSpecError(MediaSpecErrorCodes.EMPTY_CONTENT_TYPE, "content-type value cannot be empty");
+    }
+
+    // Parse profile if present
+    let profile = null;
+    if (paramsStr) {
+      profile = MediaSpec.parseProfile(paramsStr);
+    }
+
+    return new MediaSpec(contentType, profile);
+  }
+
+  /**
+   * Parse profile parameter from params string
+   * @param {string} params - The parameters string after semicolon
+   * @returns {string|null} The profile value or null
+   */
+  static parseProfile(params) {
+    // Look for profile= (case-insensitive)
+    const lower = params.toLowerCase();
+    const pos = lower.indexOf('profile=');
+    if (pos === -1) {
+      return null;
+    }
+
+    const afterProfile = params.slice(pos + 8);
+
+    // Handle quoted value
+    if (afterProfile.startsWith('"')) {
+      const rest = afterProfile.slice(1);
+      const endPos = rest.indexOf('"');
+      if (endPos === -1) {
+        throw new MediaSpecError(MediaSpecErrorCodes.UNTERMINATED_QUOTE, "unterminated quote in profile value");
+      }
+      return rest.slice(0, endPos);
+    }
+
+    // Unquoted value - take until semicolon or end
+    const semicolonPos = afterProfile.indexOf(';');
+    if (semicolonPos !== -1) {
+      return afterProfile.slice(0, semicolonPos).trim();
+    }
+    return afterProfile.trim();
+  }
+
+  /**
+   * Check if this media spec represents binary output
+   * @returns {boolean} True if binary
+   */
+  isBinary() {
+    const ct = this.contentType.toLowerCase();
+
+    // Binary content types
+    return ct.startsWith('image/') ||
+           ct.startsWith('audio/') ||
+           ct.startsWith('video/') ||
+           ct === 'application/octet-stream' ||
+           ct === 'application/pdf' ||
+           ct.startsWith('application/x-') ||
+           ct.includes('+zip') ||
+           ct.includes('+gzip');
+  }
+
+  /**
+   * Check if this media spec represents JSON output
+   * @returns {boolean} True if JSON
+   */
+  isJSON() {
+    const ct = this.contentType.toLowerCase();
+    return ct === 'application/json' || ct.endsWith('+json');
+  }
+
+  /**
+   * Check if this media spec represents text output
+   * @returns {boolean} True if text
+   */
+  isText() {
+    const ct = this.contentType.toLowerCase();
+    return ct.startsWith('text/') || (!this.isBinary() && !this.isJSON());
+  }
+
+  /**
+   * Get the primary type (e.g., "image" from "image/png")
+   * @returns {string} The primary type
+   */
+  primaryType() {
+    return this.contentType.split('/')[0];
+  }
+
+  /**
+   * Get the subtype (e.g., "png" from "image/png")
+   * @returns {string|undefined} The subtype
+   */
+  subtype() {
+    const parts = this.contentType.split('/');
+    return parts.length > 1 ? parts[1] : undefined;
+  }
+
+  /**
+   * Get the canonical string representation
+   * @returns {string} The media_spec as a string
+   */
+  toString() {
+    if (this.profile) {
+      return `content-type: ${this.contentType}; profile="${this.profile}"`;
+    }
+    return `content-type: ${this.contentType}`;
+  }
+
+  /**
+   * Get MediaSpec from a CapUrn using the 'out' tag
+   * @param {CapUrn} capUrn - The cap URN
+   * @returns {MediaSpec|null} The parsed MediaSpec or null if not found
+   */
+  static fromCapUrn(capUrn) {
+    const spec = capUrn.getTag('out');
+
+    if (!spec) {
+      return null;
+    }
+
+    try {
+      return MediaSpec.parse(spec);
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
+/**
+ * Check if a CapUrn represents binary output
+ * @param {CapUrn} capUrn - The cap URN
+ * @returns {boolean} True if binary
+ */
+function isBinaryCapUrn(capUrn) {
+  const mediaSpec = MediaSpec.fromCapUrn(capUrn);
+  return mediaSpec ? mediaSpec.isBinary() : false;
+}
+
+/**
+ * Check if a CapUrn represents JSON output
+ * @param {CapUrn} capUrn - The cap URN
+ * @returns {boolean} True if JSON
+ */
+function isJSONCapUrn(capUrn) {
+  const mediaSpec = MediaSpec.fromCapUrn(capUrn);
+  // Default to text/plain (not JSON) if no media_spec is specified
+  return mediaSpec ? mediaSpec.isJSON() : false;
+}
+
 /**
  * Capability definition class
  */
@@ -1287,7 +1512,12 @@ if (typeof module !== 'undefined' && module.exports) {
     ValidationError,
     InputValidator,
     OutputValidator,
-    CapValidator
+    CapValidator,
+    MediaSpec,
+    MediaSpecError,
+    MediaSpecErrorCodes,
+    isBinaryCapUrn,
+    isJSONCapUrn
   };
 }
 
@@ -1307,4 +1537,9 @@ if (typeof window !== 'undefined') {
   window.InputValidator = InputValidator;
   window.OutputValidator = OutputValidator;
   window.CapValidator = CapValidator;
+  window.MediaSpec = MediaSpec;
+  window.MediaSpecError = MediaSpecError;
+  window.MediaSpecErrorCodes = MediaSpecErrorCodes;
+  window.isBinaryCapUrn = isBinaryCapUrn;
+  window.isJSONCapUrn = isJSONCapUrn;
 }
