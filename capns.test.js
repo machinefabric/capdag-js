@@ -436,7 +436,7 @@ function testBuiltinSpecIds() {
   assert(isBuiltinSpecId(SPEC_ID_BINARY), 'SPEC_ID_BINARY should be built-in');
 
   // Non-existent spec should not be built-in
-  assert(!isBuiltinSpecId('capns:ms:nonexistent.v1'), 'Non-existent spec should not be built-in');
+  assert(!isBuiltinSpecId('std:nonexistent.v1'), 'Non-existent spec should not be built-in');
 
   console.log('  ✓ Built-in spec IDs');
 }
@@ -516,7 +516,7 @@ function testSpecIdResolutionFailHard() {
 function testCapWithMediaSpecs() {
   console.log('Testing Cap with mediaSpecs...');
 
-  const urn = CapUrn.fromString('cap:op=test;in=capns:ms:str.v1;out=my:output.v1');
+  const urn = CapUrn.fromString('cap:op=test;in=std:str.v1;out=my:output.v1');
   const cap = new Cap(urn, 'Test Cap', 'test_command');
 
   // Set custom mediaSpecs

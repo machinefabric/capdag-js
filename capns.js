@@ -686,17 +686,17 @@ const MediaSpecErrorCodes = {
  * Well-known built-in spec ID constants
  * These spec IDs are implicitly available and do not need to be declared in mediaSpecs
  */
-const SPEC_ID_STR = 'capns:ms:str.v1';
-const SPEC_ID_INT = 'capns:ms:int.v1';
-const SPEC_ID_NUM = 'capns:ms:num.v1';
-const SPEC_ID_BOOL = 'capns:ms:bool.v1';
-const SPEC_ID_OBJ = 'capns:ms:obj.v1';
-const SPEC_ID_STR_ARRAY = 'capns:ms:str-array.v1';
-const SPEC_ID_INT_ARRAY = 'capns:ms:int-array.v1';
-const SPEC_ID_NUM_ARRAY = 'capns:ms:num-array.v1';
-const SPEC_ID_BOOL_ARRAY = 'capns:ms:bool-array.v1';
-const SPEC_ID_OBJ_ARRAY = 'capns:ms:obj-array.v1';
-const SPEC_ID_BINARY = 'capns:ms:binary.v1';
+const SPEC_ID_STR = 'std:str.v1';
+const SPEC_ID_INT = 'std:int.v1';
+const SPEC_ID_NUM = 'std:num.v1';
+const SPEC_ID_BOOL = 'std:bool.v1';
+const SPEC_ID_OBJ = 'std:obj.v1';
+const SPEC_ID_STR_ARRAY = 'std:str-array.v1';
+const SPEC_ID_INT_ARRAY = 'std:int-array.v1';
+const SPEC_ID_NUM_ARRAY = 'std:num-array.v1';
+const SPEC_ID_BOOL_ARRAY = 'std:bool-array.v1';
+const SPEC_ID_OBJ_ARRAY = 'std:obj-array.v1';
+const SPEC_ID_BINARY = 'std:binary.v1';
 
 /**
  * Built-in spec ID definitions - canonical media spec strings
@@ -915,10 +915,10 @@ class MediaSpec {
  *
  * Resolution algorithm:
  * 1. Look up spec_id in mediaSpecs table
- * 2. If not found AND spec_id is a known built-in (capns:ms:*): use built-in definition
+ * 2. If not found AND spec_id is a known built-in (std:*): use built-in definition
  * 3. If not found and not a built-in: FAIL HARD
  *
- * @param {string} specId - The spec ID (e.g., "capns:ms:str.v1")
+ * @param {string} specId - The spec ID (e.g., "std:str.v1")
  * @param {Object} mediaSpecs - The mediaSpecs lookup table
  * @returns {MediaSpec} The resolved MediaSpec
  * @throws {MediaSpecError} If spec ID cannot be resolved
@@ -1030,7 +1030,7 @@ class Cap {
 
   /**
    * Resolve a spec ID to a MediaSpec using this cap's mediaSpecs table
-   * @param {string} specId - The spec ID (e.g., "capns:ms:str.v1")
+   * @param {string} specId - The spec ID (e.g., "std:str.v1")
    * @returns {MediaSpec} The resolved MediaSpec
    * @throws {MediaSpecError} If spec ID cannot be resolved
    */
