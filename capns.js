@@ -672,66 +672,112 @@ class MediaSpecError extends Error {
 }
 
 const MediaSpecErrorCodes = {
-  MISSING_CONTENT_TYPE: 1,
-  EMPTY_CONTENT_TYPE: 2,
-  UNTERMINATED_QUOTE: 3
+  EMPTY_CONTENT_TYPE: 1,
+  UNTERMINATED_QUOTE: 2,
+  LEGACY_FORMAT: 3,
+  UNRESOLVABLE_SPEC_ID: 4
+};
+
+// ============================================================================
+// BUILT-IN SPEC IDS AND DEFINITIONS
+// ============================================================================
+
+/**
+ * Well-known built-in spec ID constants
+ * These spec IDs are implicitly available and do not need to be declared in mediaSpecs
+ */
+const SPEC_ID_STR = 'capns:ms:str.v1';
+const SPEC_ID_INT = 'capns:ms:int.v1';
+const SPEC_ID_NUM = 'capns:ms:num.v1';
+const SPEC_ID_BOOL = 'capns:ms:bool.v1';
+const SPEC_ID_OBJ = 'capns:ms:obj.v1';
+const SPEC_ID_STR_ARRAY = 'capns:ms:str-array.v1';
+const SPEC_ID_INT_ARRAY = 'capns:ms:int-array.v1';
+const SPEC_ID_NUM_ARRAY = 'capns:ms:num-array.v1';
+const SPEC_ID_BOOL_ARRAY = 'capns:ms:bool-array.v1';
+const SPEC_ID_OBJ_ARRAY = 'capns:ms:obj-array.v1';
+const SPEC_ID_BINARY = 'capns:ms:binary.v1';
+
+/**
+ * Built-in spec ID definitions - canonical media spec strings
+ * Maps spec ID to canonical format: <media-type>; profile=<url>
+ */
+const BUILTIN_SPECS = {
+  [SPEC_ID_STR]: 'text/plain; profile=https://capns.org/schema/str',
+  [SPEC_ID_INT]: 'text/plain; profile=https://capns.org/schema/int',
+  [SPEC_ID_NUM]: 'text/plain; profile=https://capns.org/schema/num',
+  [SPEC_ID_BOOL]: 'text/plain; profile=https://capns.org/schema/bool',
+  [SPEC_ID_OBJ]: 'application/json; profile=https://capns.org/schema/obj',
+  [SPEC_ID_STR_ARRAY]: 'application/json; profile=https://capns.org/schema/str-array',
+  [SPEC_ID_INT_ARRAY]: 'application/json; profile=https://capns.org/schema/int-array',
+  [SPEC_ID_NUM_ARRAY]: 'application/json; profile=https://capns.org/schema/num-array',
+  [SPEC_ID_BOOL_ARRAY]: 'application/json; profile=https://capns.org/schema/bool-array',
+  [SPEC_ID_OBJ_ARRAY]: 'application/json; profile=https://capns.org/schema/obj-array',
+  [SPEC_ID_BINARY]: 'application/octet-stream'
 };
 
 /**
  * Parsed MediaSpec structure
  *
- * Parses media_spec values in the format:
- * `content-type: <mime-type>; profile=<url>`
+ * Parses media_spec values in the canonical format:
+ * `<media-type>; profile=<url>`
  *
  * Examples:
- * - `content-type: application/json; profile="https://capns.org/schema/document-outline"`
- * - `content-type: image/png; profile="https://capns.org/schema/thumbnail-image"`
- * - `content-type: text/plain; profile=https://capns.org/schema/utf8-text`
+ * - `application/json; profile="https://capns.org/schema/document-outline"`
+ * - `image/png; profile="https://capns.org/schema/thumbnail-image"`
+ * - `text/plain; profile=https://capns.org/schema/str`
+ *
+ * NOTE: The legacy "content-type:" prefix is NO LONGER SUPPORTED and will cause a hard failure.
  */
 class MediaSpec {
   /**
    * Create a new MediaSpec
    * @param {string} contentType - The MIME content type
    * @param {string|null} profile - Optional profile URL
+   * @param {Object|null} schema - Optional JSON Schema for local validation
    */
-  constructor(contentType, profile = null) {
+  constructor(contentType, profile = null, schema = null) {
     this.contentType = contentType;
     this.profile = profile;
+    this.schema = schema;
   }
 
   /**
-   * Parse a media_spec string
-   * Format: `content-type: <mime-type>; profile=<url>`
+   * Parse a media_spec string in canonical format
+   * Format: `<media-type>; profile=<url>`
+   *
+   * IMPORTANT: Legacy "content-type:" prefix is NOT supported and will FAIL HARD
+   *
    * @param {string} s - The media_spec string
    * @returns {MediaSpec} The parsed MediaSpec
-   * @throws {MediaSpecError} If parsing fails
+   * @throws {MediaSpecError} If parsing fails or legacy format detected
    */
   static parse(s) {
     const trimmed = s.trim();
-
-    // Must start with "content-type:" (case-insensitive)
     const lower = trimmed.toLowerCase();
-    if (!lower.startsWith('content-type:')) {
-      throw new MediaSpecError(MediaSpecErrorCodes.MISSING_CONTENT_TYPE, "media_spec must start with 'content-type:'");
+
+    // FAIL HARD on legacy format - no backward compatibility
+    if (lower.startsWith('content-type:')) {
+      throw new MediaSpecError(
+        MediaSpecErrorCodes.LEGACY_FORMAT,
+        "Legacy 'content-type:' prefix is no longer supported. Use canonical format: '<media-type>; profile=<url>'"
+      );
     }
 
-    // Get everything after "content-type:"
-    const afterPrefix = trimmed.slice(13).trim();
-
     // Split by semicolon to separate mime type from parameters
-    const semicolonPos = afterPrefix.indexOf(';');
+    const semicolonPos = trimmed.indexOf(';');
     let contentType, paramsStr;
 
     if (semicolonPos === -1) {
-      contentType = afterPrefix.trim();
+      contentType = trimmed.trim();
       paramsStr = null;
     } else {
-      contentType = afterPrefix.slice(0, semicolonPos).trim();
-      paramsStr = afterPrefix.slice(semicolonPos + 1).trim();
+      contentType = trimmed.slice(0, semicolonPos).trim();
+      paramsStr = trimmed.slice(semicolonPos + 1).trim();
     }
 
     if (contentType === '') {
-      throw new MediaSpecError(MediaSpecErrorCodes.EMPTY_CONTENT_TYPE, "content-type value cannot be empty");
+      throw new MediaSpecError(MediaSpecErrorCodes.EMPTY_CONTENT_TYPE, "media_type cannot be empty");
     }
 
     // Parse profile if present
@@ -831,29 +877,33 @@ class MediaSpec {
 
   /**
    * Get the canonical string representation
+   * Format: <media-type>; profile="<url>" (no content-type: prefix)
    * @returns {string} The media_spec as a string
    */
   toString() {
     if (this.profile) {
-      return `content-type: ${this.contentType}; profile="${this.profile}"`;
+      return `${this.contentType}; profile="${this.profile}"`;
     }
-    return `content-type: ${this.contentType}`;
+    return this.contentType;
   }
 
   /**
    * Get MediaSpec from a CapUrn using the 'out' tag
+   * NOTE: The 'out' tag now contains a spec ID, not an embedded media spec
    * @param {CapUrn} capUrn - The cap URN
+   * @param {Object} mediaSpecs - Optional mediaSpecs lookup table for resolution
    * @returns {MediaSpec|null} The parsed MediaSpec or null if not found
    */
-  static fromCapUrn(capUrn) {
-    const spec = capUrn.getTag('out');
+  static fromCapUrn(capUrn, mediaSpecs = {}) {
+    const specId = capUrn.getTag('out');
 
-    if (!spec) {
+    if (!specId) {
       return null;
     }
 
     try {
-      return MediaSpec.parse(spec);
+      // Resolve the spec ID to a MediaSpec
+      return resolveSpecId(specId, mediaSpecs);
     } catch (e) {
       return null;
     }
@@ -861,22 +911,83 @@ class MediaSpec {
 }
 
 /**
+ * Resolve a spec ID to a MediaSpec
+ *
+ * Resolution algorithm:
+ * 1. Look up spec_id in mediaSpecs table
+ * 2. If not found AND spec_id is a known built-in (capns:ms:*): use built-in definition
+ * 3. If not found and not a built-in: FAIL HARD
+ *
+ * @param {string} specId - The spec ID (e.g., "capns:ms:str.v1")
+ * @param {Object} mediaSpecs - The mediaSpecs lookup table
+ * @returns {MediaSpec} The resolved MediaSpec
+ * @throws {MediaSpecError} If spec ID cannot be resolved
+ */
+function resolveSpecId(specId, mediaSpecs = {}) {
+  // First check local mediaSpecs table
+  if (mediaSpecs && mediaSpecs[specId]) {
+    const def = mediaSpecs[specId];
+
+    if (typeof def === 'string') {
+      // String form: canonical media spec string
+      return MediaSpec.parse(def);
+    } else if (typeof def === 'object') {
+      // Object form: { media_type, profile_uri, schema? }
+      const mediaType = def.media_type || def.mediaType;
+      const profileUri = def.profile_uri || def.profileUri;
+      const schema = def.schema || null;
+
+      if (!mediaType) {
+        throw new MediaSpecError(
+          MediaSpecErrorCodes.UNRESOLVABLE_SPEC_ID,
+          `Spec ID '${specId}' has invalid object definition: missing media_type`
+        );
+      }
+
+      return new MediaSpec(mediaType, profileUri, schema);
+    }
+  }
+
+  // Check built-in specs
+  if (BUILTIN_SPECS[specId]) {
+    return MediaSpec.parse(BUILTIN_SPECS[specId]);
+  }
+
+  // FAIL HARD - no fallbacks, no guessing
+  throw new MediaSpecError(
+    MediaSpecErrorCodes.UNRESOLVABLE_SPEC_ID,
+    `Cannot resolve spec ID: '${specId}'. Not found in mediaSpecs table and not a known built-in.`
+  );
+}
+
+/**
+ * Check if a spec ID is a known built-in
+ * @param {string} specId - The spec ID to check
+ * @returns {boolean} True if built-in
+ */
+function isBuiltinSpecId(specId) {
+  return BUILTIN_SPECS.hasOwnProperty(specId);
+}
+
+/**
  * Check if a CapUrn represents binary output
  * @param {CapUrn} capUrn - The cap URN
+ * @param {Object} mediaSpecs - Optional mediaSpecs lookup table
  * @returns {boolean} True if binary
  */
-function isBinaryCapUrn(capUrn) {
-  const mediaSpec = MediaSpec.fromCapUrn(capUrn);
+function isBinaryCapUrn(capUrn, mediaSpecs = {}) {
+  const mediaSpec = MediaSpec.fromCapUrn(capUrn, mediaSpecs);
   return mediaSpec ? mediaSpec.isBinary() : false;
 }
 
 /**
  * Check if a CapUrn represents JSON output
  * @param {CapUrn} capUrn - The cap URN
+ * @param {Object} mediaSpecs - Optional mediaSpecs lookup table
  * @returns {boolean} True if JSON
  */
-function isJSONCapUrn(capUrn) {
-  const mediaSpec = MediaSpec.fromCapUrn(capUrn);
+function isJSONCapUrn(capUrn, mediaSpecs = {}) {
+  const mediaSpec = MediaSpec.fromCapUrn(capUrn, mediaSpecs);
   // Default to text/plain (not JSON) if no media_spec is specified
   return mediaSpec ? mediaSpec.isJSON() : false;
 }
@@ -910,10 +1021,21 @@ class Cap {
     this.command = command;
     this.cap_description = capDescription;
     this.metadata = metadata || {};
+    this.mediaSpecs = {};  // Spec ID resolution table
     this.arguments = { required: [], optional: [] };
     this.output = null;
     this.accepts_stdin = false;
     this.metadata_json = metadataJson;
+  }
+
+  /**
+   * Resolve a spec ID to a MediaSpec using this cap's mediaSpecs table
+   * @param {string} specId - The spec ID (e.g., "capns:ms:str.v1")
+   * @returns {MediaSpec} The resolved MediaSpec
+   * @throws {MediaSpecError} If spec ID cannot be resolved
+   */
+  resolveSpecId(specId) {
+    return resolveSpecId(specId, this.mediaSpecs);
   }
 
   /**
@@ -1073,6 +1195,7 @@ class Cap {
       command: this.command,
       cap_description: this.cap_description,
       metadata: this.metadata,
+      media_specs: this.mediaSpecs,
       arguments: this.arguments,
       output: this.output,
       accepts_stdin: this.accepts_stdin
@@ -1091,8 +1214,18 @@ class Cap {
    * @returns {Cap} The capability instance
    */
   static fromJSON(json) {
-    const urn = CapUrn.fromString(json.urn);
+    // Handle both string and object URN formats
+    let urn;
+    if (typeof json.urn === 'string') {
+      urn = CapUrn.fromString(json.urn);
+    } else if (json.urn && json.urn.tags) {
+      urn = new CapUrn(json.urn.tags, true);
+    } else {
+      throw new Error('Invalid URN format in JSON');
+    }
+
     const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.metadata_json);
+    cap.mediaSpecs = json.media_specs || json.mediaSpecs || {};
     cap.arguments = json.arguments || { required: [], optional: [] };
     cap.output = json.output;
     cap.accepts_stdin = json.accepts_stdin || false;
@@ -1279,22 +1412,25 @@ class InputValidator {
 
   /**
    * Validate argument type using MediaSpec
+   * Resolves spec ID to MediaSpec before validation
    */
   static validateArgumentType(cap, argDef, value) {
     const capUrn = cap.urnString();
 
-    // Parse MediaSpec from media_spec field
-    if (!argDef.mediaSpec) {
+    // Get media_spec field (now contains a spec ID)
+    const specId = argDef.mediaSpec || argDef.media_spec;
+    if (!specId) {
       // No media_spec - skip validation
       return;
     }
 
+    // Resolve spec ID to MediaSpec - FAIL HARD if unresolvable
     let mediaSpec;
     try {
-      mediaSpec = MediaSpec.parse(argDef.mediaSpec);
+      mediaSpec = cap.resolveSpecId(specId);
     } catch (e) {
       throw new ValidationError('InvalidCapSchema', capUrn, {
-        issue: `Invalid media_spec for argument '${argDef.name}': ${e.message}`
+        issue: `Cannot resolve spec ID '${specId}' for argument '${argDef.name}': ${e.message}`
       });
     }
 
@@ -1303,7 +1439,7 @@ class InputValidator {
       if (typeof value !== 'string') {
         throw new ValidationError('InvalidArgumentType', capUrn, {
           argumentName: argDef.name,
-          expectedMediaSpec: argDef.mediaSpec,
+          expectedMediaSpec: specId,
           actualValue: value,
           schemaErrors: ['Expected base64-encoded string for binary type']
         });
@@ -1311,15 +1447,19 @@ class InputValidator {
       return;
     }
 
-    // For JSON types with profile, validate against profile
-    // Note: Full profile validation would require downloading JSON schemas
-    // For now, we do basic type checking based on common profile patterns
+    // If the resolved media spec has a local schema, validate against it
+    if (mediaSpec.schema) {
+      // TODO: Full JSON Schema validation would require a JSON Schema library
+      // For now, skip local schema validation
+    }
+
+    // For types with profile, validate against profile
     if (mediaSpec.profile) {
       const valid = InputValidator.validateAgainstProfile(mediaSpec.profile, value);
       if (!valid) {
         throw new ValidationError('InvalidArgumentType', capUrn, {
           argumentName: argDef.name,
-          expectedMediaSpec: argDef.mediaSpec,
+          expectedMediaSpec: specId,
           actualValue: value,
           schemaErrors: [`Value does not match profile schema`]
         });
@@ -1334,33 +1474,37 @@ class InputValidator {
    * @returns {boolean} True if valid
    */
   static validateAgainstProfile(profile, value) {
-    // Match against standard capns.org schemas
-    if (profile.includes('/schemas/str')) {
+    // Match against standard capns.org schemas (both /schema/ and /schemas/ for compatibility)
+    if (profile.includes('/schema/str') || profile.includes('/schemas/str')) {
       return typeof value === 'string';
     }
-    if (profile.includes('/schemas/int')) {
+    if (profile.includes('/schema/int') || profile.includes('/schemas/int')) {
       return Number.isInteger(value);
     }
-    if (profile.includes('/schemas/num')) {
+    if (profile.includes('/schema/num') || profile.includes('/schemas/num')) {
       return typeof value === 'number' && !isNaN(value);
     }
-    if (profile.includes('/schemas/bool')) {
+    if (profile.includes('/schema/bool') || profile.includes('/schemas/bool')) {
       return typeof value === 'boolean';
     }
-    if (profile.includes('/schemas/obj')) {
+    if (profile.includes('/schema/obj') || profile.includes('/schemas/obj')) {
+      // Check obj before obj-array
+      if (profile.includes('-array')) {
+        return Array.isArray(value) && value.every(v => typeof v === 'object' && v !== null && !Array.isArray(v));
+      }
       return typeof value === 'object' && value !== null && !Array.isArray(value);
     }
-    if (profile.includes('/schemas/str-array')) {
+    if (profile.includes('/schema/str-array') || profile.includes('/schemas/str-array')) {
       return Array.isArray(value) && value.every(v => typeof v === 'string');
     }
-    if (profile.includes('/schemas/num-array')) {
+    if (profile.includes('/schema/int-array') || profile.includes('/schemas/int-array')) {
+      return Array.isArray(value) && value.every(v => Number.isInteger(v));
+    }
+    if (profile.includes('/schema/num-array') || profile.includes('/schemas/num-array')) {
       return Array.isArray(value) && value.every(v => typeof v === 'number');
     }
-    if (profile.includes('/schemas/bool-array')) {
+    if (profile.includes('/schema/bool-array') || profile.includes('/schemas/bool-array')) {
       return Array.isArray(value) && value.every(v => typeof v === 'boolean');
-    }
-    if (profile.includes('/schemas/obj-array')) {
-      return Array.isArray(value) && value.every(v => typeof v === 'object' && v !== null && !Array.isArray(v));
     }
 
     // Unknown profile - allow any JSON value
@@ -1455,6 +1599,7 @@ class InputValidator {
 class OutputValidator {
   /**
    * Validate output against cap output schema using MediaSpec
+   * Resolves spec ID to MediaSpec before validation
    */
   static validateOutput(cap, output) {
     const capUrn = cap.urnString();
@@ -1462,18 +1607,20 @@ class OutputValidator {
 
     if (!outputDef) return; // No output definition to validate against
 
-    // Parse MediaSpec from media_spec field
-    if (!outputDef.mediaSpec) {
+    // Get media_spec field (now contains a spec ID)
+    const specId = outputDef.mediaSpec || outputDef.media_spec;
+    if (!specId) {
       // No media_spec - skip validation
       return;
     }
 
+    // Resolve spec ID to MediaSpec - FAIL HARD if unresolvable
     let mediaSpec;
     try {
-      mediaSpec = MediaSpec.parse(outputDef.mediaSpec);
+      mediaSpec = cap.resolveSpecId(specId);
     } catch (e) {
       throw new ValidationError('InvalidCapSchema', capUrn, {
-        issue: `Invalid media_spec for output: ${e.message}`
+        issue: `Cannot resolve spec ID '${specId}' for output: ${e.message}`
       });
     }
 
@@ -1481,7 +1628,7 @@ class OutputValidator {
     if (mediaSpec.isBinary()) {
       if (typeof output !== 'string') {
         throw new ValidationError('InvalidOutputType', capUrn, {
-          expectedMediaSpec: outputDef.mediaSpec,
+          expectedMediaSpec: specId,
           actualValue: output,
           schemaErrors: ['Expected base64-encoded string for binary type']
         });
@@ -1489,12 +1636,18 @@ class OutputValidator {
       return;
     }
 
-    // For JSON types with profile, validate against profile
+    // If the resolved media spec has a local schema, validate against it
+    if (mediaSpec.schema) {
+      // TODO: Full JSON Schema validation would require a JSON Schema library
+      // For now, skip local schema validation
+    }
+
+    // For types with profile, validate against profile
     if (mediaSpec.profile) {
       const valid = InputValidator.validateAgainstProfile(mediaSpec.profile, output);
       if (!valid) {
         throw new ValidationError('InvalidOutputType', capUrn, {
-          expectedMediaSpec: outputDef.mediaSpec,
+          expectedMediaSpec: specId,
           actualValue: output,
           schemaErrors: [`Value does not match profile schema`]
         });
@@ -1572,7 +1725,22 @@ if (typeof module !== 'undefined' && module.exports) {
     MediaSpecError,
     MediaSpecErrorCodes,
     isBinaryCapUrn,
-    isJSONCapUrn
+    isJSONCapUrn,
+    // New spec ID exports
+    resolveSpecId,
+    isBuiltinSpecId,
+    BUILTIN_SPECS,
+    SPEC_ID_STR,
+    SPEC_ID_INT,
+    SPEC_ID_NUM,
+    SPEC_ID_BOOL,
+    SPEC_ID_OBJ,
+    SPEC_ID_STR_ARRAY,
+    SPEC_ID_INT_ARRAY,
+    SPEC_ID_NUM_ARRAY,
+    SPEC_ID_BOOL_ARRAY,
+    SPEC_ID_OBJ_ARRAY,
+    SPEC_ID_BINARY
   };
 }
 
@@ -1597,4 +1765,19 @@ if (typeof window !== 'undefined') {
   window.MediaSpecErrorCodes = MediaSpecErrorCodes;
   window.isBinaryCapUrn = isBinaryCapUrn;
   window.isJSONCapUrn = isJSONCapUrn;
+  // New spec ID exports
+  window.resolveSpecId = resolveSpecId;
+  window.isBuiltinSpecId = isBuiltinSpecId;
+  window.BUILTIN_SPECS = BUILTIN_SPECS;
+  window.SPEC_ID_STR = SPEC_ID_STR;
+  window.SPEC_ID_INT = SPEC_ID_INT;
+  window.SPEC_ID_NUM = SPEC_ID_NUM;
+  window.SPEC_ID_BOOL = SPEC_ID_BOOL;
+  window.SPEC_ID_OBJ = SPEC_ID_OBJ;
+  window.SPEC_ID_STR_ARRAY = SPEC_ID_STR_ARRAY;
+  window.SPEC_ID_INT_ARRAY = SPEC_ID_INT_ARRAY;
+  window.SPEC_ID_NUM_ARRAY = SPEC_ID_NUM_ARRAY;
+  window.SPEC_ID_BOOL_ARRAY = SPEC_ID_BOOL_ARRAY;
+  window.SPEC_ID_OBJ_ARRAY = SPEC_ID_OBJ_ARRAY;
+  window.SPEC_ID_BINARY = SPEC_ID_BINARY;
 }

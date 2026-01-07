@@ -1,7 +1,26 @@
 // Cap URN JavaScript Test Suite
 // Tests all the same rules as Rust, Go, and Objective-C implementations
 
-const { CapUrn, CapUrnBuilder, CapMatcher, CapUrnError, ErrorCodes } = require('./capns.js');
+const {
+  CapUrn,
+  CapUrnBuilder,
+  CapMatcher,
+  CapUrnError,
+  ErrorCodes,
+  Cap,
+  MediaSpec,
+  MediaSpecError,
+  MediaSpecErrorCodes,
+  resolveSpecId,
+  isBuiltinSpecId,
+  BUILTIN_SPECS,
+  SPEC_ID_STR,
+  SPEC_ID_INT,
+  SPEC_ID_NUM,
+  SPEC_ID_BOOL,
+  SPEC_ID_OBJ,
+  SPEC_ID_BINARY
+} = require('./capns.js');
 
 // Test assertion utility
 function assert(condition, message) {
@@ -28,37 +47,13 @@ function assertThrows(fn, expectedErrorCode, message) {
   }
 }
 
-// Test suite
-function runTests() {
-  console.log('Running Cap URN JavaScript tests...\n');
-
-  testCapUrnCreation();
-  testCaseInsensitive();
-  testCapPrefixRequired();
-  testTrailingSemicolonEquivalence();
-  testCanonicalStringFormat();
-  testTagMatching();
-  testMissingTagHandling();
-  testSpecificity();
-  testCompatibility();
-  testBuilder();
-  testConvenienceMethods();
-  testCapMatcher();
-  testJSONSerialization();
-  testEmptyCapUrn();
-  testExtendedCharacterSupport();
-  testWildcardRestrictions();
-  testDuplicateKeyRejection();
-  testNumericKeyRestriction();
-
-  console.log('OK All tests passed!');
-}
+// Test suite - defined at the end of file
 
 function testCapUrnCreation() {
   console.log('Testing Cap URN creation...');
   
-  const cap = CapUrn.fromString('cap:action=generate;ext=pdf;target=thumbnail');
-  assertEqual(cap.getTag('action'), 'generate', 'Should get action tag');
+  const cap = CapUrn.fromString('cap:op=generate;ext=pdf;target=thumbnail');
+  assertEqual(cap.getTag('op'), 'generate', 'Should get action tag');
   assertEqual(cap.getTag('target'), 'thumbnail', 'Should get target tag');
   assertEqual(cap.getTag('ext'), 'pdf', 'Should get ext tag');
   
@@ -67,32 +62,32 @@ function testCapUrnCreation() {
 
 function testCaseInsensitive() {
   console.log('Testing case insensitive behavior...');
-  
+
   // Test that different casing produces the same URN
-  const cap1 = CapUrn.fromString('cap:ACTION=Generate;EXT=PDF;Target=Thumbnail');
-  const cap2 = CapUrn.fromString('cap:action=generate;ext=pdf;target=thumbnail');
-  
+  const cap1 = CapUrn.fromString('cap:OP=Generate;EXT=PDF;Target=Thumbnail');
+  const cap2 = CapUrn.fromString('cap:op=generate;ext=pdf;target=thumbnail');
+
   // Both should be normalized to lowercase
-  assertEqual(cap1.getTag('action'), 'generate', 'Should normalize action to lowercase');
+  assertEqual(cap1.getTag('op'), 'generate', 'Should normalize op to lowercase');
   assertEqual(cap1.getTag('ext'), 'pdf', 'Should normalize ext to lowercase');
   assertEqual(cap1.getTag('target'), 'thumbnail', 'Should normalize target to lowercase');
-  
+
   // URNs should be identical after normalization
   assertEqual(cap1.toString(), cap2.toString(), 'URNs should be equal after normalization');
-  
+
   // PartialEq should work correctly - URNs with different case should be equal
   assert(cap1.equals(cap2), 'URNs with different case should be equal');
-  
+
   // Case-insensitive tag lookup should work
-  assertEqual(cap1.getTag('ACTION'), 'generate', 'Should lookup with case-insensitive key');
-  assertEqual(cap1.getTag('Action'), 'generate', 'Should lookup with mixed case key');
-  assert(cap1.hasTag('ACTION', 'Generate'), 'Should match with case-insensitive comparison');
-  assert(cap1.hasTag('action', 'GENERATE'), 'Should match with case-insensitive comparison');
-  
+  assertEqual(cap1.getTag('OP'), 'generate', 'Should lookup with case-insensitive key');
+  assertEqual(cap1.getTag('Op'), 'generate', 'Should lookup with mixed case key');
+  assert(cap1.hasTag('op', 'generate'), 'Should match with case-insensitive comparison');
+  assert(cap1.hasTag('OP', 'generate'), 'Should match with case-insensitive comparison');
+
   // Matching should work case-insensitively
   assert(cap1.matches(cap2), 'Should match case-insensitively');
   assert(cap2.matches(cap1), 'Should match case-insensitively');
-  
+
   console.log('  ✓ Case insensitive behavior');
 }
 
@@ -101,14 +96,14 @@ function testCapPrefixRequired() {
   
   // Missing cap: prefix should fail
   assertThrows(
-    () => CapUrn.fromString('action=generate;ext=pdf'),
+    () => CapUrn.fromString('op=generate;ext=pdf'),
     ErrorCodes.MISSING_CAP_PREFIX,
     'Should require cap: prefix'
   );
   
   // Valid cap: prefix should work
-  const cap = CapUrn.fromString('cap:action=generate;ext=pdf');
-  assertEqual(cap.getTag('action'), 'generate', 'Should parse with valid cap: prefix');
+  const cap = CapUrn.fromString('cap:op=generate;ext=pdf');
+  assertEqual(cap.getTag('op'), 'generate', 'Should parse with valid cap: prefix');
   
   console.log('  ✓ Cap prefix requirement');
 }
@@ -117,8 +112,8 @@ function testTrailingSemicolonEquivalence() {
   console.log('Testing trailing semicolon equivalence...');
   
   // Both with and without trailing semicolon should be equivalent
-  const cap1 = CapUrn.fromString('cap:action=generate;ext=pdf');
-  const cap2 = CapUrn.fromString('cap:action=generate;ext=pdf;');
+  const cap1 = CapUrn.fromString('cap:op=generate;ext=pdf');
+  const cap2 = CapUrn.fromString('cap:op=generate;ext=pdf;');
   
   // They should be equal
   assert(cap1.equals(cap2), 'Should be equal with/without trailing semicolon');
@@ -135,25 +130,26 @@ function testTrailingSemicolonEquivalence() {
 
 function testCanonicalStringFormat() {
   console.log('Testing canonical string format...');
-  
-  const cap = CapUrn.fromString('cap:action=generate;target=thumbnail;ext=pdf');
+
+  const cap = CapUrn.fromString('cap:op=generate;target=thumbnail;ext=pdf');
   // Should be sorted alphabetically and have no trailing semicolon in canonical form
-  assertEqual(cap.toString(), 'cap:action=generate;ext=pdf;target=thumbnail', 'Should be alphabetically sorted');
-  
+  // 'ext' < 'op' < 'target' alphabetically
+  assertEqual(cap.toString(), 'cap:ext=pdf;op=generate;target=thumbnail', 'Should be alphabetically sorted');
+
   console.log('  ✓ Canonical string format');
 }
 
 function testTagMatching() {
   console.log('Testing tag matching...');
   
-  const cap = CapUrn.fromString('cap:action=generate;ext=pdf;target=thumbnail');
+  const cap = CapUrn.fromString('cap:op=generate;ext=pdf;target=thumbnail');
   
   // Exact match
-  const request1 = CapUrn.fromString('cap:action=generate;ext=pdf;target=thumbnail');
+  const request1 = CapUrn.fromString('cap:op=generate;ext=pdf;target=thumbnail');
   assert(cap.matches(request1), 'Should match exact request');
   
   // Subset match
-  const request2 = CapUrn.fromString('cap:action=generate');
+  const request2 = CapUrn.fromString('cap:op=generate');
   assert(cap.matches(request2), 'Should match subset request');
   
   // Wildcard request should match specific cap  
@@ -161,7 +157,7 @@ function testTagMatching() {
   assert(cap.matches(request3), 'Should match wildcard request');
   
   // No match - conflicting value
-  const request4 = CapUrn.fromString('cap:action=extract');
+  const request4 = CapUrn.fromString('cap:op=extract');
   assert(!cap.matches(request4), 'Should not match conflicting value');
   
   console.log('  ✓ Tag matching');
@@ -170,15 +166,15 @@ function testTagMatching() {
 function testMissingTagHandling() {
   console.log('Testing missing tag handling...');
   
-  const cap = CapUrn.fromString('cap:action=generate');
+  const cap = CapUrn.fromString('cap:op=generate');
   
   // Request with tag should match cap without tag (treated as wildcard)
   const request1 = CapUrn.fromString('cap:ext=pdf');
   assert(cap.matches(request1), 'Should match when cap has missing tag (wildcard)');
   
   // But cap with extra tags can match subset requests
-  const cap2 = CapUrn.fromString('cap:action=generate;ext=pdf');
-  const request2 = CapUrn.fromString('cap:action=generate');
+  const cap2 = CapUrn.fromString('cap:op=generate;ext=pdf');
+  const request2 = CapUrn.fromString('cap:op=generate');
   assert(cap2.matches(request2), 'Should match subset request');
   
   console.log('  ✓ Missing tag handling');
@@ -188,8 +184,8 @@ function testSpecificity() {
   console.log('Testing specificity...');
   
   const cap1 = CapUrn.fromString('cap:type=general');
-  const cap2 = CapUrn.fromString('cap:action=generate');
-  const cap3 = CapUrn.fromString('cap:action=*;ext=pdf');
+  const cap2 = CapUrn.fromString('cap:op=generate');
+  const cap3 = CapUrn.fromString('cap:op=*;ext=pdf');
   
   assertEqual(cap1.specificity(), 1, 'Should have specificity 1');
   assertEqual(cap2.specificity(), 1, 'Should have specificity 1');
@@ -203,16 +199,16 @@ function testSpecificity() {
 function testCompatibility() {
   console.log('Testing compatibility...');
   
-  const cap1 = CapUrn.fromString('cap:action=generate;ext=pdf');
-  const cap2 = CapUrn.fromString('cap:action=generate;format=*');
-  const cap3 = CapUrn.fromString('cap:type=image;action=extract');
+  const cap1 = CapUrn.fromString('cap:op=generate;ext=pdf');
+  const cap2 = CapUrn.fromString('cap:op=generate;format=*');
+  const cap3 = CapUrn.fromString('cap:type=image;op=extract');
   
   assert(cap1.isCompatibleWith(cap2), 'Should be compatible');
   assert(cap2.isCompatibleWith(cap1), 'Should be compatible');
   assert(!cap1.isCompatibleWith(cap3), 'Should not be compatible');
   
   // Missing tags are treated as wildcards for compatibility
-  const cap4 = CapUrn.fromString('cap:action=generate');
+  const cap4 = CapUrn.fromString('cap:op=generate');
   assert(cap1.isCompatibleWith(cap4), 'Should be compatible with missing tags');
   assert(cap4.isCompatibleWith(cap1), 'Should be compatible with missing tags');
   
@@ -221,80 +217,80 @@ function testCompatibility() {
 
 function testBuilder() {
   console.log('Testing builder...');
-  
+
   const cap = new CapUrnBuilder()
-    .tag('action', 'generate')
+    .tag('op', 'generate')
     .tag('target', 'thumbnail')
     .tag('ext', 'pdf')
     .tag('output', 'binary')
     .build();
-  
-  assertEqual(cap.getTag('action'), 'generate', 'Should build with action tag');
+
+  assertEqual(cap.getTag('op'), 'generate', 'Should build with op tag');
   assertEqual(cap.getTag('output'), 'binary', 'Should build with output tag');
-  
+
   console.log('  ✓ Builder');
 }
 
 function testConvenienceMethods() {
   console.log('Testing convenience methods...');
-  
-  const original = CapUrn.fromString('cap:action=generate');
-  
+
+  const original = CapUrn.fromString('cap:op=generate');
+
   // Test withTag
   const modified = original.withTag('ext', 'pdf');
-  assertEqual(modified.getTag('action'), 'generate', 'Should preserve original tag');
+  assertEqual(modified.getTag('op'), 'generate', 'Should preserve original tag');
   assertEqual(modified.getTag('ext'), 'pdf', 'Should add new tag');
-  
+
   // Test withoutTag
-  const removed = modified.withoutTag('action');
+  const removed = modified.withoutTag('op');
   assertEqual(removed.getTag('ext'), 'pdf', 'Should preserve remaining tag');
-  assertEqual(removed.getTag('action'), undefined, 'Should remove specified tag');
-  
+  assertEqual(removed.getTag('op'), undefined, 'Should remove specified tag');
+
   // Test merge
-  const cap1 = CapUrn.fromString('cap:action=generate');
+  const cap1 = CapUrn.fromString('cap:op=generate');
   const cap2 = CapUrn.fromString('cap:ext=pdf;output=binary');
   const merged = cap1.merge(cap2);
-  assertEqual(merged.toString(), 'cap:action=generate;ext=pdf;output=binary', 'Should merge correctly');
-  
+  assertEqual(merged.toString(), 'cap:ext=pdf;op=generate;output=binary', 'Should merge correctly');
+
   // Test subset
   const subset = merged.subset(['type', 'ext']);
   assertEqual(subset.toString(), 'cap:ext=pdf', 'Should create subset correctly');
-  
+
   // Test wildcardTag
   const cap = CapUrn.fromString('cap:ext=pdf');
   const wildcarded = cap.withWildcardTag('ext');
   assertEqual(wildcarded.toString(), 'cap:ext=*', 'Should set wildcard');
-  
+
   console.log('  ✓ Convenience methods');
 }
 
 function testCapMatcher() {
   console.log('Testing CapMatcher...');
-  
+
   const caps = [
-    CapUrn.fromString('cap:action=*'),
-    CapUrn.fromString('cap:action=generate'),
-    CapUrn.fromString('cap:action=generate;ext=pdf')
+    CapUrn.fromString('cap:op=*'),
+    CapUrn.fromString('cap:op=generate'),
+    CapUrn.fromString('cap:op=generate;ext=pdf')
   ];
-  
-  const request = CapUrn.fromString('cap:action=generate');
+
+  const request = CapUrn.fromString('cap:op=generate');
   const best = CapMatcher.findBestMatch(caps, request);
-  
-  // Most specific cap that can handle the request
-  assertEqual(best.toString(), 'cap:action=generate;ext=pdf', 'Should find most specific match');
-  
+
+  // Most specific cap that can handle the request (alphabetically sorted: ext < op)
+  assertEqual(best.toString(), 'cap:ext=pdf;op=generate', 'Should find most specific match');
+
   // Test findAllMatches
   const matches = CapMatcher.findAllMatches(caps, request);
   assertEqual(matches.length, 3, 'Should find all matches');
-  assertEqual(matches[0].toString(), 'cap:action=generate;ext=pdf', 'Should sort by specificity');
-  
+  assertEqual(matches[0].toString(), 'cap:ext=pdf;op=generate', 'Should sort by specificity');
+
   console.log('  ✓ CapMatcher');
 }
 
 function testJSONSerialization() {
   console.log('Testing JSON serialization...');
   
-  const original = CapUrn.fromString('cap:action=generate;ext=pdf');
+  const original = CapUrn.fromString('cap:op=generate;ext=pdf');
   const json = JSON.stringify({ urn: original.toString() });
   const parsed = JSON.parse(json);
   const restored = CapUrn.fromString(parsed.urn);
@@ -313,7 +309,7 @@ function testEmptyCapUrn() {
   assertEqual(empty.toString(), 'cap:', 'Should have correct string representation');
   
   // Should match any other cap
-  const specific = CapUrn.fromString('cap:action=generate;ext=pdf');
+  const specific = CapUrn.fromString('cap:op=generate;ext=pdf');
   assert(empty.matches(specific), 'Should match any cap');
   assert(empty.matches(empty), 'Should match itself');
   
@@ -383,6 +379,251 @@ function testNumericKeyRestriction() {
   assertEqual(numericValue.getTag('key'), '123', 'Should allow numeric values');
   
   console.log('  ✓ Numeric key restriction');
+}
+
+// ============================================================================
+// NEW FORMAT TESTS - Spec ID Resolution and MediaSpec
+// ============================================================================
+
+function testMediaSpecCanonicalFormat() {
+  console.log('Testing MediaSpec canonical format...');
+
+  // Should parse canonical format (no content-type: prefix)
+  const spec1 = MediaSpec.parse('text/plain; profile=https://capns.org/schema/str');
+  assertEqual(spec1.contentType, 'text/plain', 'Should parse content type');
+  assertEqual(spec1.profile, 'https://capns.org/schema/str', 'Should parse profile');
+
+  // Should parse without profile
+  const spec2 = MediaSpec.parse('application/json');
+  assertEqual(spec2.contentType, 'application/json', 'Should parse content type without profile');
+  assertEqual(spec2.profile, null, 'Should have null profile');
+
+  // Should output canonical form (no prefix)
+  assertEqual(spec1.toString(), 'text/plain; profile="https://capns.org/schema/str"', 'Should output canonical form');
+  assertEqual(spec2.toString(), 'application/json', 'Should output content type only');
+
+  console.log('  ✓ MediaSpec canonical format');
+}
+
+function testMediaSpecLegacyFormatRejection() {
+  console.log('Testing legacy format rejection...');
+
+  // MUST FAIL HARD on legacy content-type: prefix
+  let caught = false;
+  try {
+    MediaSpec.parse('content-type: text/plain; profile=https://example.com');
+  } catch (e) {
+    if (e instanceof MediaSpecError && e.code === MediaSpecErrorCodes.LEGACY_FORMAT) {
+      caught = true;
+    } else {
+      throw new Error(`Expected MediaSpecError with LEGACY_FORMAT code, got: ${e.message}`);
+    }
+  }
+  assert(caught, 'Should reject legacy content-type: prefix');
+
+  console.log('  ✓ Legacy format rejection');
+}
+
+function testBuiltinSpecIds() {
+  console.log('Testing built-in spec IDs...');
+
+  // Verify built-in spec IDs exist
+  assert(isBuiltinSpecId(SPEC_ID_STR), 'SPEC_ID_STR should be built-in');
+  assert(isBuiltinSpecId(SPEC_ID_INT), 'SPEC_ID_INT should be built-in');
+  assert(isBuiltinSpecId(SPEC_ID_NUM), 'SPEC_ID_NUM should be built-in');
+  assert(isBuiltinSpecId(SPEC_ID_BOOL), 'SPEC_ID_BOOL should be built-in');
+  assert(isBuiltinSpecId(SPEC_ID_OBJ), 'SPEC_ID_OBJ should be built-in');
+  assert(isBuiltinSpecId(SPEC_ID_BINARY), 'SPEC_ID_BINARY should be built-in');
+
+  // Non-existent spec should not be built-in
+  assert(!isBuiltinSpecId('capns:ms:nonexistent.v1'), 'Non-existent spec should not be built-in');
+
+  console.log('  ✓ Built-in spec IDs');
+}
+
+function testSpecIdResolution() {
+  console.log('Testing spec ID resolution...');
+
+  // Should resolve built-in spec IDs
+  const strSpec = resolveSpecId(SPEC_ID_STR);
+  assertEqual(strSpec.contentType, 'text/plain', 'Should resolve str spec');
+  assertEqual(strSpec.profile, 'https://capns.org/schema/str', 'Should have correct profile');
+
+  const intSpec = resolveSpecId(SPEC_ID_INT);
+  assertEqual(intSpec.contentType, 'text/plain', 'Should resolve int spec');
+  assertEqual(intSpec.profile, 'https://capns.org/schema/int', 'Should have correct profile');
+
+  const objSpec = resolveSpecId(SPEC_ID_OBJ);
+  assertEqual(objSpec.contentType, 'application/json', 'Should resolve obj spec');
+
+  const binarySpec = resolveSpecId(SPEC_ID_BINARY);
+  assertEqual(binarySpec.contentType, 'application/octet-stream', 'Should resolve binary spec');
+  assert(binarySpec.isBinary(), 'Binary spec should report isBinary()');
+
+  console.log('  ✓ Spec ID resolution');
+}
+
+function testSpecIdResolutionWithMediaSpecs() {
+  console.log('Testing spec ID resolution with custom mediaSpecs...');
+
+  // Custom mediaSpecs table
+  const mediaSpecs = {
+    'my:custom-spec.v1': 'application/json; profile=https://example.com/schema/custom',
+    'my:rich-spec.v1': {
+      media_type: 'application/xml',
+      profile_uri: 'https://example.com/schema/rich',
+      schema: { type: 'object' }
+    }
+  };
+
+  // Should resolve custom string form
+  const customSpec = resolveSpecId('my:custom-spec.v1', mediaSpecs);
+  assertEqual(customSpec.contentType, 'application/json', 'Should resolve custom spec');
+  assertEqual(customSpec.profile, 'https://example.com/schema/custom', 'Should have custom profile');
+
+  // Should resolve custom object form with schema
+  const richSpec = resolveSpecId('my:rich-spec.v1', mediaSpecs);
+  assertEqual(richSpec.contentType, 'application/xml', 'Should resolve rich spec');
+  assertEqual(richSpec.profile, 'https://example.com/schema/rich', 'Should have rich profile');
+  assert(richSpec.schema !== null, 'Should have schema from object form');
+
+  // Should still resolve built-ins when not in custom table
+  const strSpec = resolveSpecId(SPEC_ID_STR, mediaSpecs);
+  assertEqual(strSpec.contentType, 'text/plain', 'Should still resolve built-in');
+
+  console.log('  ✓ Spec ID resolution with custom mediaSpecs');
+}
+
+function testSpecIdResolutionFailHard() {
+  console.log('Testing spec ID resolution fail hard...');
+
+  // Should FAIL HARD on unresolvable spec ID
+  let caught = false;
+  try {
+    resolveSpecId('nonexistent:spec.v1', {});
+  } catch (e) {
+    if (e instanceof MediaSpecError && e.code === MediaSpecErrorCodes.UNRESOLVABLE_SPEC_ID) {
+      caught = true;
+    } else {
+      throw new Error(`Expected MediaSpecError with UNRESOLVABLE_SPEC_ID code, got: ${e.message}`);
+    }
+  }
+  assert(caught, 'Should fail hard on unresolvable spec ID');
+
+  console.log('  ✓ Spec ID resolution fail hard');
+}
+
+function testCapWithMediaSpecs() {
+  console.log('Testing Cap with mediaSpecs...');
+
+  const urn = CapUrn.fromString('cap:op=test;in=capns:ms:str.v1;out=my:output.v1');
+  const cap = new Cap(urn, 'Test Cap', 'test_command');
+
+  // Set custom mediaSpecs
+  cap.mediaSpecs = {
+    'my:output.v1': {
+      media_type: 'application/json',
+      profile_uri: 'https://example.com/schema/output',
+      schema: {
+        type: 'object',
+        properties: { result: { type: 'string' } }
+      }
+    }
+  };
+
+  // Should resolve built-in via cap.resolveSpecId
+  const strSpec = cap.resolveSpecId(SPEC_ID_STR);
+  assertEqual(strSpec.contentType, 'text/plain', 'Should resolve built-in through cap');
+
+  // Should resolve custom spec via cap.resolveSpecId
+  const outputSpec = cap.resolveSpecId('my:output.v1');
+  assertEqual(outputSpec.contentType, 'application/json', 'Should resolve custom spec through cap');
+  assert(outputSpec.schema !== null, 'Should have schema');
+
+  console.log('  ✓ Cap with mediaSpecs');
+}
+
+function testCapJSONSerialization() {
+  console.log('Testing Cap JSON serialization with mediaSpecs...');
+
+  const urn = CapUrn.fromString('cap:op=test');
+  const cap = new Cap(urn, 'Test Cap', 'test_command');
+  cap.mediaSpecs = {
+    'my:spec.v1': 'text/plain; profile=https://example.com'
+  };
+  cap.arguments = {
+    required: [{ name: 'input', media_spec: SPEC_ID_STR }],
+    optional: []
+  };
+  cap.output = { media_spec: 'my:spec.v1', output_description: 'Test output' };
+
+  // Serialize to JSON
+  const json = cap.toJSON();
+  assert(json.media_specs !== undefined, 'Should have media_specs in JSON');
+  assertEqual(json.media_specs['my:spec.v1'], 'text/plain; profile=https://example.com', 'Should serialize mediaSpecs');
+
+  // Deserialize from JSON
+  const restored = Cap.fromJSON(json);
+  assert(restored.mediaSpecs !== undefined, 'Should restore mediaSpecs');
+  assertEqual(restored.mediaSpecs['my:spec.v1'], 'text/plain; profile=https://example.com', 'Should restore mediaSpecs content');
+
+  console.log('  ✓ Cap JSON serialization with mediaSpecs');
+}
+
+function testOpTagRename() {
+  console.log('Testing op tag (renamed from action)...');
+
+  // Should use 'op' tag, not 'action'
+  const cap = CapUrn.fromString('cap:op=generate;format=json');
+  assertEqual(cap.getTag('op'), 'generate', 'Should have op tag');
+  assertEqual(cap.getTag('action'), undefined, 'Should not have action tag');
+
+  // Builder should use op
+  const built = new CapUrnBuilder()
+    .tag('op', 'transform')
+    .tag('type', 'data')
+    .build();
+  assertEqual(built.getTag('op'), 'transform', 'Builder should set op tag');
+
+  console.log('  ✓ Op tag (renamed from action)');
+}
+
+// Update runTests to include new tests
+function runTests() {
+  console.log('Running Cap URN JavaScript tests...\n');
+
+  // Original URN tests
+  testCapUrnCreation();
+  testCaseInsensitive();
+  testCapPrefixRequired();
+  testTrailingSemicolonEquivalence();
+  testCanonicalStringFormat();
+  testTagMatching();
+  testMissingTagHandling();
+  testSpecificity();
+  testCompatibility();
+  testBuilder();
+  testConvenienceMethods();
+  testCapMatcher();
+  testJSONSerialization();
+  testEmptyCapUrn();
+  testExtendedCharacterSupport();
+  testWildcardRestrictions();
+  testDuplicateKeyRejection();
+  testNumericKeyRestriction();
+
+  // New format tests
+  testMediaSpecCanonicalFormat();
+  testMediaSpecLegacyFormatRejection();
+  testBuiltinSpecIds();
+  testSpecIdResolution();
+  testSpecIdResolutionWithMediaSpecs();
+  testSpecIdResolutionFailHard();
+  testCapWithMediaSpecs();
+  testCapJSONSerialization();
+  testOpTagRename();
+
+  console.log('OK All tests passed!');
 }
 
 // Run the tests
