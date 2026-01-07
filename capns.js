@@ -1145,10 +1145,18 @@ class ValidationError extends Error {
       case 'UnknownArgument':
         return `Cap '${capUrn}' does not accept argument '${details.argumentName}' - check capability definition for valid arguments`;
       case 'InvalidArgumentType':
+        if (details.expectedMediaSpec) {
+          const errors = details.schemaErrors ? details.schemaErrors.join(', ') : 'validation failed';
+          return `Cap '${capUrn}' argument '${details.argumentName}' expects media_spec '${details.expectedMediaSpec}' but ${errors} for value: ${JSON.stringify(details.actualValue)}`;
+        }
         return `Cap '${capUrn}' argument '${details.argumentName}' expects type '${details.expectedType}' but received '${details.actualType}' with value: ${JSON.stringify(details.actualValue)}`;
       case 'ArgumentValidationFailed':
         return `Cap '${capUrn}' argument '${details.argumentName}' failed validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
       case 'InvalidOutputType':
+        if (details.expectedMediaSpec) {
+          const errors = details.schemaErrors ? details.schemaErrors.join(', ') : 'validation failed';
+          return `Cap '${capUrn}' output expects media_spec '${details.expectedMediaSpec}' but ${errors} for value: ${JSON.stringify(details.actualValue)}`;
+        }
         return `Cap '${capUrn}' output expects type '${details.expectedType}' but received '${details.actualType}' with value: ${JSON.stringify(details.actualValue)}`;
       case 'OutputValidationFailed':
         return `Cap '${capUrn}' output failed validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
@@ -1270,47 +1278,93 @@ class InputValidator {
   }
 
   /**
-   * Validate argument type
+   * Validate argument type using MediaSpec
    */
   static validateArgumentType(cap, argDef, value) {
     const capUrn = cap.urnString();
-    const actualType = InputValidator.getJsonTypeName(value);
 
-    let typeMatches = false;
-    switch (argDef.argType) {
-      case 'string':
-        typeMatches = typeof value === 'string';
-        break;
-      case 'integer':
-        typeMatches = Number.isInteger(value);
-        break;
-      case 'number':
-        typeMatches = typeof value === 'number' && !isNaN(value);
-        break;
-      case 'boolean':
-        typeMatches = typeof value === 'boolean';
-        break;
-      case 'array':
-        typeMatches = Array.isArray(value);
-        break;
-      case 'object':
-        typeMatches = typeof value === 'object' && value !== null && !Array.isArray(value);
-        break;
-      case 'binary':
-        typeMatches = typeof value === 'string'; // Binary as base64 string
-        break;
-      default:
-        typeMatches = false;
+    // Parse MediaSpec from media_spec field
+    if (!argDef.mediaSpec) {
+      // No media_spec - skip validation
+      return;
     }
 
-    if (!typeMatches) {
-      throw new ValidationError('InvalidArgumentType', capUrn, {
-        argumentName: argDef.name,
-        expectedType: argDef.argType,
-        actualType: actualType,
-        actualValue: value
+    let mediaSpec;
+    try {
+      mediaSpec = MediaSpec.parse(argDef.mediaSpec);
+    } catch (e) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `Invalid media_spec for argument '${argDef.name}': ${e.message}`
       });
     }
+
+    // For binary media types, expect base64-encoded string
+    if (mediaSpec.isBinary()) {
+      if (typeof value !== 'string') {
+        throw new ValidationError('InvalidArgumentType', capUrn, {
+          argumentName: argDef.name,
+          expectedMediaSpec: argDef.mediaSpec,
+          actualValue: value,
+          schemaErrors: ['Expected base64-encoded string for binary type']
+        });
+      }
+      return;
+    }
+
+    // For JSON types with profile, validate against profile
+    // Note: Full profile validation would require downloading JSON schemas
+    // For now, we do basic type checking based on common profile patterns
+    if (mediaSpec.profile) {
+      const valid = InputValidator.validateAgainstProfile(mediaSpec.profile, value);
+      if (!valid) {
+        throw new ValidationError('InvalidArgumentType', capUrn, {
+          argumentName: argDef.name,
+          expectedMediaSpec: argDef.mediaSpec,
+          actualValue: value,
+          schemaErrors: [`Value does not match profile schema`]
+        });
+      }
+    }
+  }
+
+  /**
+   * Basic validation against common profile schemas
+   * @param {string} profile - Profile URL
+   * @param {*} value - Value to validate
+   * @returns {boolean} True if valid
+   */
+  static validateAgainstProfile(profile, value) {
+    // Match against standard capns.org schemas
+    if (profile.includes('/schemas/str')) {
+      return typeof value === 'string';
+    }
+    if (profile.includes('/schemas/int')) {
+      return Number.isInteger(value);
+    }
+    if (profile.includes('/schemas/num')) {
+      return typeof value === 'number' && !isNaN(value);
+    }
+    if (profile.includes('/schemas/bool')) {
+      return typeof value === 'boolean';
+    }
+    if (profile.includes('/schemas/obj')) {
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+    }
+    if (profile.includes('/schemas/str-array')) {
+      return Array.isArray(value) && value.every(v => typeof v === 'string');
+    }
+    if (profile.includes('/schemas/num-array')) {
+      return Array.isArray(value) && value.every(v => typeof v === 'number');
+    }
+    if (profile.includes('/schemas/bool-array')) {
+      return Array.isArray(value) && value.every(v => typeof v === 'boolean');
+    }
+    if (profile.includes('/schemas/obj-array')) {
+      return Array.isArray(value) && value.every(v => typeof v === 'object' && v !== null && !Array.isArray(v));
+    }
+
+    // Unknown profile - allow any JSON value
+    return true;
   }
 
   /**
@@ -1400,7 +1454,7 @@ class InputValidator {
  */
 class OutputValidator {
   /**
-   * Validate output against cap output schema
+   * Validate output against cap output schema using MediaSpec
    */
   static validateOutput(cap, output) {
     const capUrn = cap.urnString();
@@ -1408,42 +1462,43 @@ class OutputValidator {
 
     if (!outputDef) return; // No output definition to validate against
 
-    const actualType = InputValidator.getJsonTypeName(output);
-
-    // Type validation
-    let typeMatches = false;
-    switch (outputDef.outputType) {
-      case 'string':
-        typeMatches = typeof output === 'string';
-        break;
-      case 'integer':
-        typeMatches = Number.isInteger(output);
-        break;
-      case 'number':
-        typeMatches = typeof output === 'number' && !isNaN(output);
-        break;
-      case 'boolean':
-        typeMatches = typeof output === 'boolean';
-        break;
-      case 'array':
-        typeMatches = Array.isArray(output);
-        break;
-      case 'object':
-        typeMatches = typeof output === 'object' && output !== null && !Array.isArray(output);
-        break;
-      case 'binary':
-        typeMatches = typeof output === 'string'; // Binary as base64 string
-        break;
-      default:
-        typeMatches = false;
+    // Parse MediaSpec from media_spec field
+    if (!outputDef.mediaSpec) {
+      // No media_spec - skip validation
+      return;
     }
 
-    if (!typeMatches) {
-      throw new ValidationError('InvalidOutputType', capUrn, {
-        expectedType: outputDef.outputType,
-        actualType: actualType,
-        actualValue: output
+    let mediaSpec;
+    try {
+      mediaSpec = MediaSpec.parse(outputDef.mediaSpec);
+    } catch (e) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `Invalid media_spec for output: ${e.message}`
       });
+    }
+
+    // For binary media types, expect base64-encoded string
+    if (mediaSpec.isBinary()) {
+      if (typeof output !== 'string') {
+        throw new ValidationError('InvalidOutputType', capUrn, {
+          expectedMediaSpec: outputDef.mediaSpec,
+          actualValue: output,
+          schemaErrors: ['Expected base64-encoded string for binary type']
+        });
+      }
+      return;
+    }
+
+    // For JSON types with profile, validate against profile
+    if (mediaSpec.profile) {
+      const valid = InputValidator.validateAgainstProfile(mediaSpec.profile, output);
+      if (!valid) {
+        throw new ValidationError('InvalidOutputType', capUrn, {
+          expectedMediaSpec: outputDef.mediaSpec,
+          actualValue: output,
+          schemaErrors: [`Value does not match profile schema`]
+        });
+      }
     }
   }
 }
