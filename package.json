@@ -14,11 +14,11 @@
     "validation",
     "matching"
   ],
-  "author": "FGRND Team",
+  "author": "FGND Team",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fgrnd/capns.git",
+    "url": "https://github.com/fgnd/capns.git",
     "directory": "capns-js"
   },
   "engines": {
