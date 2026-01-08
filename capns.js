@@ -892,21 +892,21 @@ class MediaSpec {
    * NOTE: The 'out' tag now contains a spec ID, not an embedded media spec
    * @param {CapUrn} capUrn - The cap URN
    * @param {Object} mediaSpecs - Optional mediaSpecs lookup table for resolution
-   * @returns {MediaSpec|null} The parsed MediaSpec or null if not found
+   * @returns {MediaSpec} The resolved MediaSpec
+   * @throws {MediaSpecError} If 'out' tag is missing or spec ID cannot be resolved
    */
   static fromCapUrn(capUrn, mediaSpecs = {}) {
     const specId = capUrn.getTag('out');
 
     if (!specId) {
-      return null;
+      throw new MediaSpecError(
+        MediaSpecErrorCodes.UNRESOLVABLE_SPEC_ID,
+        `Cap URN '${capUrn.toString()}' is missing required 'out' tag - caps must declare their output type`
+      );
     }
 
-    try {
-      // Resolve the spec ID to a MediaSpec
-      return resolveSpecId(specId, mediaSpecs);
-    } catch (e) {
-      return null;
-    }
+    // Resolve the spec ID to a MediaSpec - no fallbacks, fail hard
+    return resolveSpecId(specId, mediaSpecs);
   }
 }
 
@@ -970,26 +970,29 @@ function isBuiltinSpecId(specId) {
 }
 
 /**
- * Check if a CapUrn represents binary output
+ * Check if a CapUrn represents binary output.
+ * Throws error if the output spec cannot be resolved - no fallbacks.
  * @param {CapUrn} capUrn - The cap URN
  * @param {Object} mediaSpecs - Optional mediaSpecs lookup table
  * @returns {boolean} True if binary
+ * @throws {MediaSpecError} If 'out' tag is missing or spec ID cannot be resolved
  */
 function isBinaryCapUrn(capUrn, mediaSpecs = {}) {
   const mediaSpec = MediaSpec.fromCapUrn(capUrn, mediaSpecs);
-  return mediaSpec ? mediaSpec.isBinary() : false;
+  return mediaSpec.isBinary();
 }
 
 /**
- * Check if a CapUrn represents JSON output
+ * Check if a CapUrn represents JSON output.
+ * Throws error if the output spec cannot be resolved - no fallbacks.
  * @param {CapUrn} capUrn - The cap URN
  * @param {Object} mediaSpecs - Optional mediaSpecs lookup table
  * @returns {boolean} True if JSON
+ * @throws {MediaSpecError} If 'out' tag is missing or spec ID cannot be resolved
  */
 function isJSONCapUrn(capUrn, mediaSpecs = {}) {
   const mediaSpec = MediaSpec.fromCapUrn(capUrn, mediaSpecs);
-  // Default to text/plain (not JSON) if no media_spec is specified
-  return mediaSpec ? mediaSpec.isJSON() : false;
+  return mediaSpec.isJSON();
 }
 
 /**
