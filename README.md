@@ -24,8 +24,8 @@ npm install capns
 const { CapUrn, CapUrnBuilder, CapMatcher } = require('capns');
 
 // Create from string
-const cap = CapUrn.fromString('cap:action=generate;ext=pdf');
-console.log(cap.toString()); // "cap:action=generate;ext=pdf"
+const cap = CapUrn.fromString('cap:op=generate;ext=pdf');
+console.log(cap.toString()); // "cap:op=generate;ext=pdf"
 
 // Use builder pattern
 const built = new CapUrnBuilder()
@@ -34,17 +34,17 @@ const built = new CapUrnBuilder()
   .build();
 
 // Matching
-const request = CapUrn.fromString('cap:action=generate');
+const request = CapUrn.fromString('cap:op=generate');
 console.log(cap.matches(request)); // true
 
 // Find best match
 const caps = [
-  CapUrn.fromString('cap:action=*'),
-  CapUrn.fromString('cap:action=generate'),
-  CapUrn.fromString('cap:action=generate;ext=pdf')
+  CapUrn.fromString('cap:op=*'),
+  CapUrn.fromString('cap:op=generate'),
+  CapUrn.fromString('cap:op=generate;ext=pdf')
 ];
 const best = CapMatcher.findBestMatch(caps, request);
-console.log(best.toString()); // "cap:action=generate;ext=pdf" (most specific)
+console.log(best.toString()); // "cap:op=generate;ext=pdf" (most specific)
 ```
 
 ## API Reference
@@ -116,7 +116,7 @@ This implementation strictly follows the 21 Cap URN rules. See `RULES.md` for co
 
 ### Key Rules Summary:
 
-1. **Case Insensitive** - `cap:ACTION=Generate` == `cap:action=generate`
+1. **Case Insensitive** - `cap:OP=Generate` == `cap:op=generate`
 2. **Order Independent** - `cap:a=1;b=2` == `cap:b=2;a=1` 
 3. **Prefix Required** - Must start with `cap:`
 4. **Semicolon Separated** - Tags separated by `;`
@@ -142,7 +142,7 @@ Works in both Node.js and browsers:
 ```html
 <script src="capns.js"></script>
 <script>
-const cap = CapUrn.fromString('cap:action=generate');
+const cap = CapUrn.fromString('cap:op=generate');
 console.log(cap.toString());
 </script>
 ```
