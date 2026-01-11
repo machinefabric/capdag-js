@@ -996,6 +996,47 @@ function isJSONCapUrn(capUrn, mediaSpecs = {}) {
 }
 
 /**
+ * Registration attribution - who registered a capability and when
+ */
+class RegisteredBy {
+  /**
+   * Create a new registration attribution
+   * @param {string} username - Username of the user who registered this capability
+   * @param {string} registeredAt - ISO 8601 timestamp of when the capability was registered
+   */
+  constructor(username, registeredAt) {
+    if (!username || typeof username !== 'string') {
+      throw new Error('Username is required and must be a string');
+    }
+    if (!registeredAt || typeof registeredAt !== 'string') {
+      throw new Error('RegisteredAt is required and must be a string');
+    }
+    this.username = username;
+    this.registered_at = registeredAt;
+  }
+
+  /**
+   * Create from JSON representation
+   * @param {Object} json - The JSON data
+   * @returns {RegisteredBy} The registration attribution instance
+   */
+  static fromJSON(json) {
+    return new RegisteredBy(json.username, json.registered_at);
+  }
+
+  /**
+   * Convert to JSON representation
+   * @returns {Object} The JSON representation
+   */
+  toJSON() {
+    return {
+      username: this.username,
+      registered_at: this.registered_at
+    };
+  }
+}
+
+/**
  * Capability definition class
  */
 class Cap {
@@ -1029,6 +1070,7 @@ class Cap {
     this.output = null;
     this.accepts_stdin = false;
     this.metadata_json = metadataJson;
+    this.registered_by = null;  // Registration attribution
   }
 
   /**
@@ -1169,6 +1211,7 @@ class Cap {
 
   /**
    * Check if this capability equals another
+   * Compares all fields to match Rust reference implementation
    * @param {Cap} other - The other capability
    * @returns {boolean} Whether the capabilities are equal
    */
@@ -1182,7 +1225,12 @@ class Cap {
            this.command === other.command &&
            this.cap_description === other.cap_description &&
            JSON.stringify(this.metadata) === JSON.stringify(other.metadata) &&
-           JSON.stringify(this.metadata_json) === JSON.stringify(other.metadata_json);
+           JSON.stringify(this.mediaSpecs) === JSON.stringify(other.mediaSpecs) &&
+           JSON.stringify(this.arguments) === JSON.stringify(other.arguments) &&
+           JSON.stringify(this.output) === JSON.stringify(other.output) &&
+           this.accepts_stdin === other.accepts_stdin &&
+           JSON.stringify(this.metadata_json) === JSON.stringify(other.metadata_json) &&
+           JSON.stringify(this.registered_by) === JSON.stringify(other.registered_by);
   }
 
   /**
@@ -1232,7 +1280,31 @@ class Cap {
     cap.arguments = json.arguments || { required: [], optional: [] };
     cap.output = json.output;
     cap.accepts_stdin = json.accepts_stdin || false;
+    cap.registered_by = json.registered_by ? RegisteredBy.fromJSON(json.registered_by) : null;
     return cap;
+  }
+
+  /**
+   * Get the registration attribution
+   * @returns {RegisteredBy|null} The registration attribution or null
+   */
+  getRegisteredBy() {
+    return this.registered_by;
+  }
+
+  /**
+   * Set the registration attribution
+   * @param {RegisteredBy} registeredBy - The registration attribution
+   */
+  setRegisteredBy(registeredBy) {
+    this.registered_by = registeredBy;
+  }
+
+  /**
+   * Clear the registration attribution
+   */
+  clearRegisteredBy() {
+    this.registered_by = null;
   }
 }
 
@@ -1716,6 +1788,7 @@ if (typeof module !== 'undefined' && module.exports) {
     CapUrnError,
     ErrorCodes,
     Cap,
+    RegisteredBy,
     createCap,
     createCapWithDescription,
     createCapWithMetadata,
@@ -1755,6 +1828,7 @@ if (typeof window !== 'undefined') {
   window.CapUrnError = CapUrnError;
   window.CapUrnErrorCodes = ErrorCodes;
   window.Cap = Cap;
+  window.RegisteredBy = RegisteredBy;
   window.createCap = createCap;
   window.createCapWithDescription = createCapWithDescription;
   window.createCapWithMetadata = createCapWithMetadata;
