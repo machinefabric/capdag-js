@@ -588,6 +588,120 @@ function testOpTagRename() {
   console.log('  ✓ Op tag (renamed from action)');
 }
 
+// ============================================================================
+// MATCHING SEMANTICS SPECIFICATION TESTS
+// These 9 tests verify the exact matching semantics from RULES.md Sections 12-17
+// All implementations (Rust, Go, JS, ObjC) must pass these identically
+// ============================================================================
+
+function testMatchingSemantics_Test1_ExactMatch() {
+  console.log('Testing Matching Semantics Test 1: Exact match...');
+  // Test 1: Exact match
+  // Cap:     cap:op=generate;ext=pdf
+  // Request: cap:op=generate;ext=pdf
+  // Result:  MATCH
+  const cap = CapUrn.fromString('cap:op=generate;ext=pdf');
+  const request = CapUrn.fromString('cap:op=generate;ext=pdf');
+  assert(cap.matches(request), 'Test 1: Exact match should succeed');
+  console.log('  ✓ Test 1: Exact match');
+}
+
+function testMatchingSemantics_Test2_CapMissingTag() {
+  console.log('Testing Matching Semantics Test 2: Cap missing tag...');
+  // Test 2: Cap missing tag (implicit wildcard)
+  // Cap:     cap:op=generate
+  // Request: cap:op=generate;ext=pdf
+  // Result:  MATCH (cap can handle any ext)
+  const cap = CapUrn.fromString('cap:op=generate');
+  const request = CapUrn.fromString('cap:op=generate;ext=pdf');
+  assert(cap.matches(request), 'Test 2: Cap missing tag should match (implicit wildcard)');
+  console.log('  ✓ Test 2: Cap missing tag');
+}
+
+function testMatchingSemantics_Test3_CapHasExtraTag() {
+  console.log('Testing Matching Semantics Test 3: Cap has extra tag...');
+  // Test 3: Cap has extra tag
+  // Cap:     cap:op=generate;ext=pdf;version=2
+  // Request: cap:op=generate;ext=pdf
+  // Result:  MATCH (request doesn't constrain version)
+  const cap = CapUrn.fromString('cap:op=generate;ext=pdf;version=2');
+  const request = CapUrn.fromString('cap:op=generate;ext=pdf');
+  assert(cap.matches(request), 'Test 3: Cap with extra tag should match');
+  console.log('  ✓ Test 3: Cap has extra tag');
+}
+
+function testMatchingSemantics_Test4_RequestHasWildcard() {
+  console.log('Testing Matching Semantics Test 4: Request has wildcard...');
+  // Test 4: Request has wildcard
+  // Cap:     cap:op=generate;ext=pdf
+  // Request: cap:op=generate;ext=*
+  // Result:  MATCH (request accepts any ext)
+  const cap = CapUrn.fromString('cap:op=generate;ext=pdf');
+  const request = CapUrn.fromString('cap:op=generate;ext=*');
+  assert(cap.matches(request), 'Test 4: Request wildcard should match');
+  console.log('  ✓ Test 4: Request has wildcard');
+}
+
+function testMatchingSemantics_Test5_CapHasWildcard() {
+  console.log('Testing Matching Semantics Test 5: Cap has wildcard...');
+  // Test 5: Cap has wildcard
+  // Cap:     cap:op=generate;ext=*
+  // Request: cap:op=generate;ext=pdf
+  // Result:  MATCH (cap handles any ext)
+  const cap = CapUrn.fromString('cap:op=generate;ext=*');
+  const request = CapUrn.fromString('cap:op=generate;ext=pdf');
+  assert(cap.matches(request), 'Test 5: Cap wildcard should match');
+  console.log('  ✓ Test 5: Cap has wildcard');
+}
+
+function testMatchingSemantics_Test6_ValueMismatch() {
+  console.log('Testing Matching Semantics Test 6: Value mismatch...');
+  // Test 6: Value mismatch
+  // Cap:     cap:op=generate;ext=pdf
+  // Request: cap:op=generate;ext=docx
+  // Result:  NO MATCH
+  const cap = CapUrn.fromString('cap:op=generate;ext=pdf');
+  const request = CapUrn.fromString('cap:op=generate;ext=docx');
+  assert(!cap.matches(request), 'Test 6: Value mismatch should not match');
+  console.log('  ✓ Test 6: Value mismatch');
+}
+
+function testMatchingSemantics_Test7_FallbackPattern() {
+  console.log('Testing Matching Semantics Test 7: Fallback pattern...');
+  // Test 7: Fallback pattern
+  // Cap:     cap:op=generate_thumbnail;out=std:binary.v1
+  // Request: cap:op=generate_thumbnail;out=std:binary.v1;ext=wav
+  // Result:  MATCH (cap has implicit ext=*)
+  const cap = CapUrn.fromString('cap:op=generate_thumbnail;out=std:binary.v1');
+  const request = CapUrn.fromString('cap:op=generate_thumbnail;out=std:binary.v1;ext=wav');
+  assert(cap.matches(request), 'Test 7: Fallback pattern should match (cap missing ext = implicit wildcard)');
+  console.log('  ✓ Test 7: Fallback pattern');
+}
+
+function testMatchingSemantics_Test8_EmptyCapMatchesAnything() {
+  console.log('Testing Matching Semantics Test 8: Empty cap matches anything...');
+  // Test 8: Empty cap matches anything
+  // Cap:     cap:
+  // Request: cap:op=generate;ext=pdf
+  // Result:  MATCH
+  const cap = CapUrn.fromString('cap:');
+  const request = CapUrn.fromString('cap:op=generate;ext=pdf');
+  assert(cap.matches(request), 'Test 8: Empty cap should match anything');
+  console.log('  ✓ Test 8: Empty cap matches anything');
+}
+
+function testMatchingSemantics_Test9_CrossDimensionIndependence() {
+  console.log('Testing Matching Semantics Test 9: Cross-dimension independence...');
+  // Test 9: Cross-dimension independence
+  // Cap:     cap:op=generate
+  // Request: cap:ext=pdf
+  // Result:  MATCH (both have implicit wildcards for missing tags)
+  const cap = CapUrn.fromString('cap:op=generate');
+  const request = CapUrn.fromString('cap:ext=pdf');
+  assert(cap.matches(request), 'Test 9: Cross-dimension independence should match');
+  console.log('  ✓ Test 9: Cross-dimension independence');
+}
+
 // Update runTests to include new tests
 function runTests() {
   console.log('Running Cap URN JavaScript tests...\n');
@@ -622,6 +736,17 @@ function runTests() {
   testCapWithMediaSpecs();
   testCapJSONSerialization();
   testOpTagRename();
+
+  // Matching semantics specification tests (all 9 tests from RULES.md)
+  testMatchingSemantics_Test1_ExactMatch();
+  testMatchingSemantics_Test2_CapMissingTag();
+  testMatchingSemantics_Test3_CapHasExtraTag();
+  testMatchingSemantics_Test4_RequestHasWildcard();
+  testMatchingSemantics_Test5_CapHasWildcard();
+  testMatchingSemantics_Test6_ValueMismatch();
+  testMatchingSemantics_Test7_FallbackPattern();
+  testMatchingSemantics_Test8_EmptyCapMatchesAnything();
+  testMatchingSemantics_Test9_CrossDimensionIndependence();
 
   console.log('OK All tests passed!');
 }
