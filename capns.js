@@ -22,7 +22,9 @@ const ErrorCodes = {
   DUPLICATE_KEY: 6,
   NUMERIC_KEY: 7,
   UNTERMINATED_QUOTE: 8,
-  INVALID_ESCAPE_SEQUENCE: 9
+  INVALID_ESCAPE_SEQUENCE: 9,
+  MISSING_IN_SPEC: 10,
+  MISSING_OUT_SPEC: 11
 };
 
 // Parser states for state machine
@@ -78,29 +80,54 @@ function quoteValue(value) {
 }
 
 /**
- * Cap URN implementation with flat, ordered tags
+ * Cap URN implementation with required direction (in/out) and optional tags
+ *
+ * Direction is now a REQUIRED first-class field:
+ * - inSpec: The input media spec ID (required)
+ * - outSpec: The output media spec ID (required)
+ * - tags: Other optional tags (no longer contains in/out)
  */
 class CapUrn {
   /**
-   * Create a new CapUrn
-   * Keys are normalized to lowercase; values are preserved as-is
-   * @param {Object} tags - Initial tags (will not be re-normalized in constructor)
-   * @param {boolean} skipNormalization - If true, skip key normalization (internal use)
+   * Create a new CapUrn with required direction specs
+   * @param {string} inSpec - Required input spec ID (e.g., "std:void.v1")
+   * @param {string} outSpec - Required output spec ID (e.g., "std:obj.v1")
+   * @param {Object} tags - Other tags (must NOT contain 'in' or 'out')
    */
-  constructor(tags = {}, skipNormalization = false) {
+  constructor(inSpec, outSpec, tags = {}) {
+    this.inSpec = inSpec;
+    this.outSpec = outSpec;
     this.tags = {};
-    if (skipNormalization) {
-      this.tags = { ...tags };
-    } else {
-      for (const [key, value] of Object.entries(tags)) {
-        this.tags[key.toLowerCase()] = value;
+    // Copy tags, filtering out any 'in' or 'out' that might have slipped through
+    for (const [key, value] of Object.entries(tags)) {
+      const keyLower = key.toLowerCase();
+      if (keyLower !== 'in' && keyLower !== 'out') {
+        this.tags[keyLower] = value;
       }
     }
   }
 
   /**
+   * Get the input spec ID
+   * @returns {string} The input spec ID
+   */
+  getInSpec() {
+    return this.inSpec;
+  }
+
+  /**
+   * Get the output spec ID
+   * @returns {string} The output spec ID
+   */
+  getOutSpec() {
+    return this.outSpec;
+  }
+
+  /**
    * Create a Cap URN from string representation
-   * Format: cap:key1=value1;key2=value2;... or cap:key1="value with spaces";key2=simple
+   * Format: cap:in=<spec>;out=<spec>;key1=value1;key2=value2;...
+   *
+   * IMPORTANT: 'in' and 'out' tags are REQUIRED.
    *
    * Case handling:
    * - Keys: Always normalized to lowercase
@@ -109,7 +136,7 @@ class CapUrn {
    *
    * @param {string} s - The Cap URN string
    * @returns {CapUrn} The parsed Cap URN
-   * @throws {CapUrnError} If parsing fails
+   * @throws {CapUrnError} If parsing fails or in/out are missing
    */
   static fromString(s) {
     if (!s || typeof s !== 'string') {
@@ -122,11 +149,11 @@ class CapUrn {
     }
 
     const tagsPart = s.slice(4);
-    const tags = {};
+    const allTags = {};
 
-    // Handle empty cap URN (cap: with no tags or just semicolon)
+    // Handle empty cap URN - this now FAILS because in/out are required
     if (tagsPart === '' || tagsPart === ';') {
-      return new CapUrn(tags, true);
+      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input spec");
     }
 
     let state = ParseState.EXPECTING_KEY;
@@ -144,7 +171,7 @@ class CapUrn {
       }
 
       // Check for duplicate keys
-      if (tags.hasOwnProperty(currentKey)) {
+      if (allTags.hasOwnProperty(currentKey)) {
         throw new CapUrnError(ErrorCodes.DUPLICATE_KEY, `Duplicate tag key: ${currentKey}`);
       }
 
@@ -153,7 +180,7 @@ class CapUrn {
         throw new CapUrnError(ErrorCodes.NUMERIC_KEY, `Tag key cannot be purely numeric: ${currentKey}`);
       }
 
-      tags[currentKey] = currentValue;
+      allTags[currentKey] = currentValue;
       currentKey = '';
       currentValue = '';
     };
@@ -263,29 +290,78 @@ class CapUrn {
         throw new CapUrnError(ErrorCodes.EMPTY_TAG, `empty value for key '${currentKey}'`);
     }
 
-    return new CapUrn(tags, true);
+    // Extract required 'in' and 'out' tags
+    const inSpec = allTags['in'];
+    const outSpec = allTags['out'];
+
+    if (!inSpec) {
+      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input spec");
+    }
+    if (!outSpec) {
+      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag for output spec");
+    }
+
+    // Build remaining tags (excluding in/out)
+    const remainingTags = {};
+    for (const [key, value] of Object.entries(allTags)) {
+      if (key !== 'in' && key !== 'out') {
+        remainingTags[key] = value;
+      }
+    }
+
+    return new CapUrn(inSpec, outSpec, remainingTags);
+  }
+
+  /**
+   * Create a Cap URN from a tags object
+   * Extracts 'in' and 'out' from tags (required), stores rest as regular tags
+   *
+   * @param {Object} tags - Object containing all tags including 'in' and 'out'
+   * @returns {CapUrn} The parsed Cap URN
+   * @throws {CapUrnError} If 'in' or 'out' tags are missing
+   */
+  static fromTags(tags) {
+    const inSpec = tags['in'] || tags['IN'];
+    const outSpec = tags['out'] || tags['OUT'];
+
+    if (!inSpec) {
+      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input spec");
+    }
+    if (!outSpec) {
+      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag for output spec");
+    }
+
+    // Build remaining tags (excluding in/out)
+    const remainingTags = {};
+    for (const [key, value] of Object.entries(tags)) {
+      const keyLower = key.toLowerCase();
+      if (keyLower !== 'in' && keyLower !== 'out') {
+        remainingTags[keyLower] = value;
+      }
+    }
+
+    return new CapUrn(inSpec, outSpec, remainingTags);
   }
 
   /**
    * Get the canonical string representation of this cap URN
    * Always includes "cap:" prefix
-   * Tags are sorted alphabetically for consistent representation
+   * Tags are sorted alphabetically for consistent representation (in/out included)
    * No trailing semicolon in canonical form
    * Values are quoted only when necessary (smart quoting)
    *
    * @returns {string} The canonical string representation
    */
   toString() {
-    if (Object.keys(this.tags).length === 0) {
-      return 'cap:';
-    }
+    // Build complete tags map including in and out
+    const allTags = { ...this.tags, 'in': this.inSpec, 'out': this.outSpec };
 
-    // Sort keys for canonical representation
-    const sortedKeys = Object.keys(this.tags).sort();
+    // Sort keys for canonical representation (alphabetical order)
+    const sortedKeys = Object.keys(allTags).sort();
 
     // Build tag string with smart quoting
     const tagParts = sortedKeys.map(key => {
-      const value = this.tags[key];
+      const value = allTags[key];
       if (needsQuoting(value)) {
         return `${key}=${quoteValue(value)}`;
       } else {
@@ -299,58 +375,110 @@ class CapUrn {
   /**
    * Get the value of a specific tag
    * Key is normalized to lowercase for lookup
+   * Returns inSpec for "in" key, outSpec for "out" key
    *
    * @param {string} key - The tag key
    * @returns {string|undefined} The tag value or undefined if not found
    */
   getTag(key) {
-    return this.tags[key.toLowerCase()];
+    const keyLower = key.toLowerCase();
+    if (keyLower === 'in') {
+      return this.inSpec;
+    }
+    if (keyLower === 'out') {
+      return this.outSpec;
+    }
+    return this.tags[keyLower];
   }
 
   /**
    * Check if this cap has a specific tag with a specific value
    * Key is normalized to lowercase; value comparison is case-sensitive
+   * Checks inSpec for "in" key, outSpec for "out" key
    *
    * @param {string} key - The tag key
    * @param {string} value - The tag value to check
    * @returns {boolean} Whether the tag exists with the specified value
    */
   hasTag(key, value) {
-    const tagValue = this.tags[key.toLowerCase()];
+    const keyLower = key.toLowerCase();
+    if (keyLower === 'in') {
+      return this.inSpec === value;
+    }
+    if (keyLower === 'out') {
+      return this.outSpec === value;
+    }
+    const tagValue = this.tags[keyLower];
     return tagValue !== undefined && tagValue === value;
   }
 
   /**
    * Create a new cap URN with an added or updated tag
    * Key is normalized to lowercase; value is preserved as-is
+   * SILENTLY IGNORES attempts to set "in" or "out" - use withInSpec/withOutSpec instead
    *
    * @param {string} key - The tag key
    * @param {string} value - The tag value
    * @returns {CapUrn} A new CapUrn instance with the tag added/updated
    */
   withTag(key, value) {
+    const keyLower = key.toLowerCase();
+    // Silently ignore attempts to set in/out via withTag
+    if (keyLower === 'in' || keyLower === 'out') {
+      return this;
+    }
     const newTags = { ...this.tags };
-    newTags[key.toLowerCase()] = value;
-    return new CapUrn(newTags, true);
+    newTags[keyLower] = value;
+    return new CapUrn(this.inSpec, this.outSpec, newTags);
+  }
+
+  /**
+   * Create a new cap URN with a different input spec
+   *
+   * @param {string} inSpec - The new input spec ID
+   * @returns {CapUrn} A new CapUrn instance with the updated inSpec
+   */
+  withInSpec(inSpec) {
+    return new CapUrn(inSpec, this.outSpec, this.tags);
+  }
+
+  /**
+   * Create a new cap URN with a different output spec
+   *
+   * @param {string} outSpec - The new output spec ID
+   * @returns {CapUrn} A new CapUrn instance with the updated outSpec
+   */
+  withOutSpec(outSpec) {
+    return new CapUrn(this.inSpec, outSpec, this.tags);
   }
 
   /**
    * Create a new cap URN with a tag removed
    * Key is normalized to lowercase for case-insensitive removal
+   * SILENTLY IGNORES attempts to remove "in" or "out" - they are required
    *
    * @param {string} key - The tag key to remove
    * @returns {CapUrn} A new CapUrn instance with the tag removed
    */
   withoutTag(key) {
+    const keyLower = key.toLowerCase();
+    // Silently ignore attempts to remove in/out - they are required
+    if (keyLower === 'in' || keyLower === 'out') {
+      return this;
+    }
     const newTags = { ...this.tags };
-    delete newTags[key.toLowerCase()];
-    return new CapUrn(newTags, true);
+    delete newTags[keyLower];
+    return new CapUrn(this.inSpec, this.outSpec, newTags);
   }
 
   /**
    * Check if this cap matches another based on tag compatibility
    *
-   * A cap matches a request if:
+   * Direction matching (in/out) is checked FIRST:
+   * - Both in and out must match (with wildcard support)
+   * - Wildcards (*) match any value
+   *
+   * Then for other tags:
    * - For each tag in the request: cap has same value, wildcard (*), or missing tag
    * - For each tag in the cap: if request is missing that tag, that's fine (cap is more specific)
    * Missing tags are treated as wildcards (less specific, can handle any value).
@@ -363,7 +491,18 @@ class CapUrn {
       return true;
     }
 
-    // Check all tags that the request specifies
+    // Check direction compatibility first
+    // inSpec must match (with wildcard support)
+    if (this.inSpec !== '*' && request.inSpec !== '*' && this.inSpec !== request.inSpec) {
+      return false;
+    }
+
+    // outSpec must match (with wildcard support)
+    if (this.outSpec !== '*' && request.outSpec !== '*' && this.outSpec !== request.outSpec) {
+      return false;
+    }
+
+    // Check all other tags that the request specifies
     for (const [requestKey, requestValue] of Object.entries(request.tags)) {
       const capValue = this.tags[requestKey];
 
@@ -406,11 +545,22 @@ class CapUrn {
   /**
    * Calculate specificity score for cap matching
    * More specific caps have higher scores and are preferred
+   * Includes inSpec and outSpec in the count (if not wildcards)
    *
-   * @returns {number} The number of non-wildcard tags
+   * @returns {number} The number of non-wildcard tags plus direction specs
    */
   specificity() {
-    return Object.values(this.tags).filter(value => value !== '*').length;
+    let count = 0;
+    // Count non-wildcard direction specs
+    if (this.inSpec !== '*') {
+      count++;
+    }
+    if (this.outSpec !== '*') {
+      count++;
+    }
+    // Count non-wildcard tags
+    count += Object.values(this.tags).filter(value => value !== '*').length;
+    return count;
   }
 
   /**
@@ -437,6 +587,7 @@ class CapUrn {
    *
    * Two caps are compatible if they can potentially match
    * the same types of requests (considering wildcards and missing tags as wildcards)
+   * Direction specs (in/out) must be compatible.
    *
    * @param {CapUrn} other - The other cap to check compatibility with
    * @returns {boolean} Whether the caps are compatible
@@ -444,6 +595,14 @@ class CapUrn {
   isCompatibleWith(other) {
     if (!other) {
       return true;
+    }
+
+    // Check direction spec compatibility
+    if (this.inSpec !== '*' && other.inSpec !== '*' && this.inSpec !== other.inSpec) {
+      return false;
+    }
+    if (this.outSpec !== '*' && other.outSpec !== '*' && this.outSpec !== other.outSpec) {
+      return false;
     }
 
     // Get all unique tag keys from both caps
@@ -467,12 +626,20 @@ class CapUrn {
 
   /**
    * Create a new cap with a specific tag set to wildcard
+   * Handles "in" and "out" specially
    *
    * @param {string} key - The tag key to set to wildcard
    * @returns {CapUrn} A new CapUrn instance with the tag set to wildcard
    */
   withWildcardTag(key) {
-    if (this.tags.hasOwnProperty(key.toLowerCase())) {
+    const keyLower = key.toLowerCase();
+    if (keyLower === 'in') {
+      return this.withInSpec('*');
+    }
+    if (keyLower === 'out') {
+      return this.withOutSpec('*');
+    }
+    if (this.tags.hasOwnProperty(keyLower)) {
       return this.withTag(key, '*');
     }
     return this;
@@ -480,37 +647,43 @@ class CapUrn {
 
   /**
    * Create a new cap with only specified tags
+   * Always preserves inSpec and outSpec (they are required)
    *
    * @param {string[]} keys - Array of tag keys to include
-   * @returns {CapUrn} A new CapUrn instance with only the specified tags
+   * @returns {CapUrn} A new CapUrn instance with only the specified tags (plus in/out)
    */
   subset(keys) {
     const newTags = {};
     for (const key of keys) {
       const normalizedKey = key.toLowerCase();
-      if (this.tags.hasOwnProperty(normalizedKey)) {
-        newTags[normalizedKey] = this.tags[normalizedKey];
+      // Skip in/out - they are always preserved via constructor
+      if (normalizedKey !== 'in' && normalizedKey !== 'out') {
+        if (this.tags.hasOwnProperty(normalizedKey)) {
+          newTags[normalizedKey] = this.tags[normalizedKey];
+        }
       }
     }
-    return new CapUrn(newTags, true);
+    return new CapUrn(this.inSpec, this.outSpec, newTags);
   }
 
   /**
    * Merge with another cap (other takes precedence for conflicts)
+   * Direction specs (in/out) are taken from other
    *
    * @param {CapUrn} other - The cap to merge with
    * @returns {CapUrn} A new CapUrn instance with merged tags
    */
   merge(other) {
-    const newTags = { ...this.tags };
-    if (other && other.tags) {
-      Object.assign(newTags, other.tags);
+    if (!other) {
+      return new CapUrn(this.inSpec, this.outSpec, this.tags);
     }
-    return new CapUrn(newTags, true);
+    const newTags = { ...this.tags, ...other.tags };
+    return new CapUrn(other.inSpec, other.outSpec, newTags);
   }
 
   /**
    * Check if this cap URN is equal to another
+   * Compares direction specs (in/out) and tags
    *
    * @param {CapUrn} other - The other cap URN to compare with
    * @returns {boolean} Whether the cap URNs are equal
@@ -520,6 +693,12 @@ class CapUrn {
       return false;
     }
 
+    // Compare direction specs
+    if (this.inSpec !== other.inSpec || this.outSpec !== other.outSpec) {
+      return false;
+    }
+
+    // Compare tags
     const thisKeys = Object.keys(this.tags).sort();
     const otherKeys = Object.keys(other.tags).sort();
 
@@ -563,19 +742,48 @@ class CapUrn {
  */
 class CapUrnBuilder {
   constructor() {
-    this.tags = {};
+    this._inSpec = null;
+    this._outSpec = null;
+    this._tags = {};
+  }
+
+  /**
+   * Set the input spec ID
+   *
+   * @param {string} spec - The input spec ID
+   * @returns {CapUrnBuilder} This builder instance for chaining
+   */
+  inSpec(spec) {
+    this._inSpec = spec;
+    return this;
+  }
+
+  /**
+   * Set the output spec ID
+   *
+   * @param {string} spec - The output spec ID
+   * @returns {CapUrnBuilder} This builder instance for chaining
+   */
+  outSpec(spec) {
+    this._outSpec = spec;
+    return this;
   }
 
   /**
    * Add or update a tag
    * Key is normalized to lowercase; value is preserved as-is
+   * SILENTLY IGNORES attempts to set "in" or "out" - use inSpec/outSpec methods
    *
    * @param {string} key - The tag key
    * @param {string} value - The tag value
    * @returns {CapUrnBuilder} This builder instance for chaining
    */
   tag(key, value) {
-    this.tags[key.toLowerCase()] = value;
+    const keyLower = key.toLowerCase();
+    // Silently ignore in/out - use inSpec/outSpec methods
+    if (keyLower !== 'in' && keyLower !== 'out') {
+      this._tags[keyLower] = value;
+    }
     return this;
   }
 
@@ -583,13 +791,16 @@ class CapUrnBuilder {
    * Build the final CapUrn
    *
    * @returns {CapUrn} A new CapUrn instance
-   * @throws {CapUrnError} If no tags have been added
+   * @throws {CapUrnError} If inSpec or outSpec are not set
    */
   build() {
-    if (Object.keys(this.tags).length === 0) {
-      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, 'Cap URN cannot be empty');
+    if (!this._inSpec) {
+      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' spec - call inSpec() before build()");
     }
-    return new CapUrn(this.tags, true);
+    if (!this._outSpec) {
+      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' spec - call outSpec() before build()");
+    }
+    return new CapUrn(this._inSpec, this._outSpec, this._tags);
   }
 }
 
@@ -697,6 +908,7 @@ const SPEC_ID_NUM_ARRAY = 'std:num-array.v1';
 const SPEC_ID_BOOL_ARRAY = 'std:bool-array.v1';
 const SPEC_ID_OBJ_ARRAY = 'std:obj-array.v1';
 const SPEC_ID_BINARY = 'std:binary.v1';
+const SPEC_ID_VOID = 'std:void.v1';
 
 /**
  * Built-in spec ID definitions - canonical media spec strings
@@ -713,7 +925,8 @@ const BUILTIN_SPECS = {
   [SPEC_ID_NUM_ARRAY]: 'application/json; profile=https://capns.org/schema/num-array',
   [SPEC_ID_BOOL_ARRAY]: 'application/json; profile=https://capns.org/schema/bool-array',
   [SPEC_ID_OBJ_ARRAY]: 'application/json; profile=https://capns.org/schema/obj-array',
-  [SPEC_ID_BINARY]: 'application/octet-stream'
+  [SPEC_ID_BINARY]: 'application/octet-stream',
+  [SPEC_ID_VOID]: 'application/x-void; profile=https://capns.org/schema/void'
 };
 
 /**
@@ -888,22 +1101,16 @@ class MediaSpec {
   }
 
   /**
-   * Get MediaSpec from a CapUrn using the 'out' tag
-   * NOTE: The 'out' tag now contains a spec ID, not an embedded media spec
+   * Get MediaSpec from a CapUrn using the output spec
+   * NOTE: outSpec is now a required first-class field on CapUrn
    * @param {CapUrn} capUrn - The cap URN
    * @param {Object} mediaSpecs - Optional mediaSpecs lookup table for resolution
    * @returns {MediaSpec} The resolved MediaSpec
-   * @throws {MediaSpecError} If 'out' tag is missing or spec ID cannot be resolved
+   * @throws {MediaSpecError} If spec ID cannot be resolved
    */
   static fromCapUrn(capUrn, mediaSpecs = {}) {
-    const specId = capUrn.getTag('out');
-
-    if (!specId) {
-      throw new MediaSpecError(
-        MediaSpecErrorCodes.UNRESOLVABLE_SPEC_ID,
-        `Cap URN '${capUrn.toString()}' is missing required 'out' tag - caps must declare their output type`
-      );
-    }
+    // outSpec is now a required field, so it's always present
+    const specId = capUrn.getOutSpec();
 
     // Resolve the spec ID to a MediaSpec - no fallbacks, fail hard
     return resolveSpecId(specId, mediaSpecs);
@@ -1238,9 +1445,16 @@ class Cap {
    * @returns {Object} JSON representation
    */
   toJSON() {
+    // Build complete tags map including in and out
+    const allTags = {
+      ...this.urn.tags,
+      'in': this.urn.inSpec,
+      'out': this.urn.outSpec
+    };
+
     const result = {
       urn: {
-        tags: this.urn.tags
+        tags: allTags
       },
       title: this.title,
       command: this.command,
@@ -1270,7 +1484,8 @@ class Cap {
     if (typeof json.urn === 'string') {
       urn = CapUrn.fromString(json.urn);
     } else if (json.urn && json.urn.tags) {
-      urn = new CapUrn(json.urn.tags, true);
+      // Use fromTags to extract in/out from the tags object
+      urn = CapUrn.fromTags(json.urn.tags);
     } else {
       throw new Error('Invalid URN format in JSON');
     }
@@ -1816,7 +2031,8 @@ if (typeof module !== 'undefined' && module.exports) {
     SPEC_ID_NUM_ARRAY,
     SPEC_ID_BOOL_ARRAY,
     SPEC_ID_OBJ_ARRAY,
-    SPEC_ID_BINARY
+    SPEC_ID_BINARY,
+    SPEC_ID_VOID
   };
 }
 
@@ -1857,4 +2073,5 @@ if (typeof window !== 'undefined') {
   window.SPEC_ID_BOOL_ARRAY = SPEC_ID_BOOL_ARRAY;
   window.SPEC_ID_OBJ_ARRAY = SPEC_ID_OBJ_ARRAY;
   window.SPEC_ID_BINARY = SPEC_ID_BINARY;
+  window.SPEC_ID_VOID = SPEC_ID_VOID;
 }
