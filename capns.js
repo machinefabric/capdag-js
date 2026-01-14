@@ -1993,6 +1993,811 @@ class CapValidator {
   }
 }
 
+// ============================================================================
+// CAP MATRIX - Registry for Capability Hosts
+// ============================================================================
+
+/**
+ * Error types for capability host registry operations
+ */
+class CapMatrixError extends Error {
+  constructor(type, message) {
+    super(message);
+    this.name = 'CapMatrixError';
+    this.type = type;
+  }
+
+  static noSetsFound(capability) {
+    return new CapMatrixError('NoSetsFound', `No cap sets found for capability: ${capability}`);
+  }
+
+  static invalidUrn(urn, reason) {
+    return new CapMatrixError('InvalidUrn', `Invalid capability URN: ${urn}: ${reason}`);
+  }
+
+  static registryError(message) {
+    return new CapMatrixError('RegistryError', message);
+  }
+}
+
+/**
+ * Internal entry for a registered capability host
+ */
+class CapSetEntry {
+  constructor(name, host, capabilities) {
+    this.name = name;
+    this.host = host;          // Object implementing executeCap(capUrn, positionalArgs, namedArgs, stdinData) -> Promise
+    this.capabilities = capabilities;  // Array<Cap>
+  }
+}
+
+/**
+ * Unified registry for cap sets (providers and plugins)
+ * Provides capability host discovery using subset matching.
+ */
+class CapMatrix {
+  constructor() {
+    this.sets = new Map();  // Map<string, CapSetEntry>
+  }
+
+  /**
+   * Register a capability host with its supported capabilities
+   * @param {string} name - Unique name for the capability host
+   * @param {object} host - Object with executeCap method
+   * @param {Cap[]} capabilities - Array of capabilities this host supports
+   */
+  registerCapSet(name, host, capabilities) {
+    const entry = new CapSetEntry(name, host, capabilities);
+    this.sets.set(name, entry);
+  }
+
+  /**
+   * Find cap sets that can handle the requested capability
+   * Uses subset matching: host capabilities must be a subset of or match the request
+   * @param {string} requestUrn - The capability URN to find sets for
+   * @returns {object[]} Array of hosts that can handle the request
+   * @throws {CapMatrixError} If URN is invalid or no sets found
+   */
+  findCapSets(requestUrn) {
+    let request;
+    try {
+      request = CapUrn.fromString(requestUrn);
+    } catch (e) {
+      throw CapMatrixError.invalidUrn(requestUrn, e.message);
+    }
+
+    const matchingHosts = [];
+
+    for (const entry of this.sets.values()) {
+      for (const cap of entry.capabilities) {
+        if (cap.urn.matches(request)) {
+          matchingHosts.push(entry.host);
+          break;  // Found a matching capability for this host
+        }
+      }
+    }
+
+    if (matchingHosts.length === 0) {
+      throw CapMatrixError.noSetsFound(requestUrn);
+    }
+
+    return matchingHosts;
+  }
+
+  /**
+   * Find the best capability host for the request using specificity ranking
+   * @param {string} requestUrn - The capability URN to find the best host for
+   * @returns {{host: object, cap: Cap}} The best host and matching cap definition
+   * @throws {CapMatrixError} If URN is invalid or no sets found
+   */
+  findBestCapSet(requestUrn) {
+    let request;
+    try {
+      request = CapUrn.fromString(requestUrn);
+    } catch (e) {
+      throw CapMatrixError.invalidUrn(requestUrn, e.message);
+    }
+
+    let bestHost = null;
+    let bestCap = null;
+    let bestSpecificity = -1;
+
+    for (const entry of this.sets.values()) {
+      for (const cap of entry.capabilities) {
+        if (cap.urn.matches(request)) {
+          const specificity = cap.urn.specificity();
+          if (bestSpecificity === -1 || specificity > bestSpecificity) {
+            bestHost = entry.host;
+            bestCap = cap;
+            bestSpecificity = specificity;
+          }
+          break;  // Found match for this entry, check next
+        }
+      }
+    }
+
+    if (bestHost === null) {
+      throw CapMatrixError.noSetsFound(requestUrn);
+    }
+
+    return { host: bestHost, cap: bestCap };
+  }
+
+  /**
+   * Get all registered capability host names
+   * @returns {string[]} Array of host names
+   */
+  getHostNames() {
+    return Array.from(this.sets.keys());
+  }
+
+  /**
+   * Get all capabilities from all registered sets
+   * @returns {Cap[]} Array of all capabilities
+   */
+  getAllCapabilities() {
+    const capabilities = [];
+    for (const entry of this.sets.values()) {
+      capabilities.push(...entry.capabilities);
+    }
+    return capabilities;
+  }
+
+  /**
+   * Check if any host can handle the specified capability
+   * @param {string} requestUrn - The capability URN to check
+   * @returns {boolean} Whether the capability can be handled
+   */
+  canHandle(requestUrn) {
+    try {
+      this.findCapSets(requestUrn);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Unregister a capability host
+   * @param {string} name - The name of the host to unregister
+   * @returns {boolean} Whether the host was found and removed
+   */
+  unregisterCapSet(name) {
+    return this.sets.delete(name);
+  }
+
+  /**
+   * Clear all registered sets
+   */
+  clear() {
+    this.sets.clear();
+  }
+}
+
+// ============================================================================
+// CAP CUBE - Composite Registry
+// ============================================================================
+
+/**
+ * Result of finding the best match across registries
+ */
+class BestCapSetMatch {
+  /**
+   * @param {Cap} cap - The Cap definition that matched
+   * @param {number} specificity - The specificity score of the match
+   * @param {string} registryName - The name of the registry that provided this match
+   */
+  constructor(cap, specificity, registryName) {
+    this.cap = cap;
+    this.specificity = specificity;
+    this.registryName = registryName;
+  }
+}
+
+/**
+ * Composite CapSet that wraps multiple registries
+ * and delegates execution to the best matching one.
+ */
+class CompositeCapSet {
+  /**
+   * @param {Array<{name: string, registry: CapMatrix}>} registries
+   */
+  constructor(registries) {
+    this.registries = registries;
+  }
+
+  /**
+   * Execute a capability by finding the best match and delegating
+   * @param {string} capUrn - The capability URN to execute
+   * @param {string[]} positionalArgs - Positional arguments
+   * @param {object} namedArgs - Named arguments as key-value pairs
+   * @param {Uint8Array|null} stdinData - Optional stdin data
+   * @returns {Promise<{binaryOutput: Uint8Array|null, textOutput: string|null}>}
+   */
+  async executeCap(capUrn, positionalArgs, namedArgs, stdinData) {
+    let request;
+    try {
+      request = CapUrn.fromString(capUrn);
+    } catch (e) {
+      throw new Error(`Invalid cap URN '${capUrn}': ${e.message}`);
+    }
+
+    // Find the best matching host across all registries
+    let bestHost = null;
+    let bestSpecificity = -1;
+
+    for (const { registry } of this.registries) {
+      for (const entry of registry.sets.values()) {
+        for (const cap of entry.capabilities) {
+          if (cap.urn.matches(request)) {
+            const specificity = cap.urn.specificity();
+            if (bestSpecificity === -1 || specificity > bestSpecificity) {
+              bestHost = entry.host;
+              bestSpecificity = specificity;
+            }
+            break;  // Found match for this entry
+          }
+        }
+      }
+    }
+
+    if (bestHost === null) {
+      throw new Error(`No capability host found for '${capUrn}'`);
+    }
+
+    // Delegate execution to the best matching host
+    return bestHost.executeCap(capUrn, positionalArgs, namedArgs, stdinData);
+  }
+
+  /**
+   * Build a directed graph from all capabilities in the registries.
+   * @returns {CapGraph}
+   */
+  graph() {
+    return CapGraph.buildFromRegistries(this.registries);
+  }
+}
+
+/**
+ * Composite registry that wraps multiple CapMatrix instances
+ * and finds the best match across all of them by specificity.
+ *
+ * When multiple registries can handle a request, this registry compares
+ * specificity scores and returns the most specific match.
+ * On tie, defaults to the first registry that was added (priority order).
+ */
+class CapCube {
+  constructor() {
+    this.registries = [];  // Array of {name: string, registry: CapMatrix}
+  }
+
+  /**
+   * Add a child registry with a name.
+   * Registries are checked in order of addition for tie-breaking.
+   * @param {string} name - Unique name for this registry
+   * @param {CapMatrix} registry - The CapMatrix to add
+   */
+  addRegistry(name, registry) {
+    this.registries.push({ name, registry });
+  }
+
+  /**
+   * Remove a child registry by name
+   * @param {string} name - The name of the registry to remove
+   * @returns {CapMatrix|null} The removed registry, or null if not found
+   */
+  removeRegistry(name) {
+    const index = this.registries.findIndex(entry => entry.name === name);
+    if (index !== -1) {
+      const removed = this.registries[index].registry;
+      this.registries.splice(index, 1);
+      return removed;
+    }
+    return null;
+  }
+
+  /**
+   * Get a child registry by name
+   * @param {string} name - The name of the registry
+   * @returns {CapMatrix|null} The registry, or null if not found
+   */
+  getRegistry(name) {
+    const entry = this.registries.find(e => e.name === name);
+    return entry ? entry.registry : null;
+  }
+
+  /**
+   * Get names of all child registries
+   * @returns {string[]} Array of registry names in priority order
+   */
+  getRegistryNames() {
+    return this.registries.map(entry => entry.name);
+  }
+
+  /**
+   * Check if a capability is available and return execution info.
+   * This is the main entry point for capability lookup.
+   * @param {string} capUrn - The capability URN to look up
+   * @returns {{cap: Cap, compositeHost: CompositeCapSet}} The cap and composite host for execution
+   * @throws {CapMatrixError} If URN is invalid or no match found
+   */
+  can(capUrn) {
+    // Find the best match to get the cap definition
+    const bestMatch = this.findBestCapSet(capUrn);
+
+    // Create a CompositeCapSet that will delegate execution
+    const compositeHost = new CompositeCapSet([...this.registries]);
+
+    return {
+      cap: bestMatch.cap,
+      compositeHost: compositeHost
+    };
+  }
+
+  /**
+   * Find the best capability host across ALL child registries.
+   * Polls all registries and compares their best matches by specificity.
+   * On specificity tie, returns the match from the first registry.
+   * @param {string} requestUrn - The capability URN to find the best host for
+   * @returns {BestCapSetMatch} The best match
+   * @throws {CapMatrixError} If URN is invalid or no match found
+   */
+  findBestCapSet(requestUrn) {
+    let request;
+    try {
+      request = CapUrn.fromString(requestUrn);
+    } catch (e) {
+      throw CapMatrixError.invalidUrn(requestUrn, e.message);
+    }
+
+    let bestOverall = null;
+
+    for (const { name, registry } of this.registries) {
+      // Find the best match within this registry
+      const result = this._findBestInRegistry(registry, request);
+      if (result) {
+        const { cap, specificity } = result;
+        const candidate = new BestCapSetMatch(cap, specificity, name);
+
+        if (bestOverall === null) {
+          bestOverall = candidate;
+        } else if (specificity > bestOverall.specificity) {
+          // Only replace if strictly more specific
+          // On tie, keep the first one (priority order)
+          bestOverall = candidate;
+        }
+      }
+    }
+
+    if (bestOverall === null) {
+      throw CapMatrixError.noSetsFound(requestUrn);
+    }
+
+    return bestOverall;
+  }
+
+  /**
+   * Check if any registry can handle the specified capability
+   * @param {string} requestUrn - The capability URN to check
+   * @returns {boolean} Whether the capability can be handled
+   */
+  canHandle(requestUrn) {
+    try {
+      this.findBestCapSet(requestUrn);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Find the best match within a single registry
+   * @private
+   * @param {CapMatrix} registry - The registry to search
+   * @param {CapUrn} request - The parsed request URN
+   * @returns {{cap: Cap, specificity: number}|null} The best match or null
+   */
+  _findBestInRegistry(registry, request) {
+    let bestCap = null;
+    let bestSpecificity = -1;
+
+    for (const entry of registry.sets.values()) {
+      for (const cap of entry.capabilities) {
+        if (cap.urn.matches(request)) {
+          const specificity = cap.urn.specificity();
+          if (bestSpecificity === -1 || specificity > bestSpecificity) {
+            bestCap = cap;
+            bestSpecificity = specificity;
+          }
+          break;  // Found match for this entry
+        }
+      }
+    }
+
+    if (bestCap === null) {
+      return null;
+    }
+    return { cap: bestCap, specificity: bestSpecificity };
+  }
+
+  /**
+   * Build a directed graph from all capabilities across all registries.
+   * The graph represents all possible conversions where:
+   * - Nodes are MediaSpec IDs (e.g., "std:str.v1", "std:binary.v1")
+   * - Edges are capabilities that convert from one spec to another
+   * @returns {CapGraph} The capability graph
+   */
+  graph() {
+    return CapGraph.buildFromRegistries(this.registries);
+  }
+}
+
+// ============================================================================
+// CAP GRAPH - Directed graph of capability conversions
+// ============================================================================
+
+/**
+ * An edge in the capability graph representing a conversion from one MediaSpec to another.
+ */
+class CapGraphEdge {
+  /**
+   * @param {string} fromSpec - The input MediaSpec ID
+   * @param {string} toSpec - The output MediaSpec ID
+   * @param {Cap} cap - The capability that performs this conversion
+   * @param {string} registryName - The registry that provided this capability
+   * @param {number} specificity - Specificity score for ranking
+   */
+  constructor(fromSpec, toSpec, cap, registryName, specificity) {
+    this.fromSpec = fromSpec;
+    this.toSpec = toSpec;
+    this.cap = cap;
+    this.registryName = registryName;
+    this.specificity = specificity;
+  }
+}
+
+/**
+ * Statistics about a capability graph.
+ */
+class CapGraphStats {
+  /**
+   * @param {number} nodeCount - Number of unique MediaSpec nodes
+   * @param {number} edgeCount - Number of edges (capabilities)
+   * @param {number} inputSpecCount - Number of specs that serve as inputs
+   * @param {number} outputSpecCount - Number of specs that serve as outputs
+   */
+  constructor(nodeCount, edgeCount, inputSpecCount, outputSpecCount) {
+    this.nodeCount = nodeCount;
+    this.edgeCount = edgeCount;
+    this.inputSpecCount = inputSpecCount;
+    this.outputSpecCount = outputSpecCount;
+  }
+}
+
+/**
+ * A directed graph where nodes are MediaSpec IDs and edges are capabilities.
+ * This graph enables discovering conversion paths between different media formats.
+ */
+class CapGraph {
+  constructor() {
+    this.edges = [];
+    this.outgoing = new Map();  // fromSpec -> edge indices
+    this.incoming = new Map();  // toSpec -> edge indices
+    this.nodes = new Set();
+  }
+
+  /**
+   * Add a capability as an edge in the graph.
+   * @param {Cap} cap - The capability to add
+   * @param {string} registryName - The registry that provided this capability
+   */
+  addCap(cap, registryName) {
+    const fromSpec = cap.urn.getInSpec();
+    const toSpec = cap.urn.getOutSpec();
+    const specificity = cap.urn.specificity();
+
+    // Add nodes
+    this.nodes.add(fromSpec);
+    this.nodes.add(toSpec);
+
+    // Create edge
+    const edgeIndex = this.edges.length;
+    const edge = new CapGraphEdge(fromSpec, toSpec, cap, registryName, specificity);
+    this.edges.push(edge);
+
+    // Update outgoing index
+    if (!this.outgoing.has(fromSpec)) {
+      this.outgoing.set(fromSpec, []);
+    }
+    this.outgoing.get(fromSpec).push(edgeIndex);
+
+    // Update incoming index
+    if (!this.incoming.has(toSpec)) {
+      this.incoming.set(toSpec, []);
+    }
+    this.incoming.get(toSpec).push(edgeIndex);
+  }
+
+  /**
+   * Build a graph from multiple registries.
+   * @param {Array<{name: string, registry: CapMatrix}>} registries
+   * @returns {CapGraph}
+   */
+  static buildFromRegistries(registries) {
+    const graph = new CapGraph();
+
+    for (const { name, registry } of registries) {
+      for (const entry of registry.sets.values()) {
+        for (const cap of entry.capabilities) {
+          graph.addCap(cap, name);
+        }
+      }
+    }
+
+    return graph;
+  }
+
+  /**
+   * Get all nodes (MediaSpec IDs) in the graph.
+   * @returns {Set<string>}
+   */
+  getNodes() {
+    return new Set(this.nodes);
+  }
+
+  /**
+   * Get all edges in the graph.
+   * @returns {CapGraphEdge[]}
+   */
+  getEdges() {
+    return [...this.edges];
+  }
+
+  /**
+   * Get all edges originating from a spec.
+   * @param {string} spec - The MediaSpec ID
+   * @returns {CapGraphEdge[]}
+   */
+  getOutgoing(spec) {
+    const indices = this.outgoing.get(spec) || [];
+    return indices.map(i => this.edges[i]);
+  }
+
+  /**
+   * Get all edges targeting a spec.
+   * @param {string} spec - The MediaSpec ID
+   * @returns {CapGraphEdge[]}
+   */
+  getIncoming(spec) {
+    const indices = this.incoming.get(spec) || [];
+    return indices.map(i => this.edges[i]);
+  }
+
+  /**
+   * Check if there's any direct edge from one spec to another.
+   * @param {string} fromSpec - The source MediaSpec ID
+   * @param {string} toSpec - The target MediaSpec ID
+   * @returns {boolean}
+   */
+  hasDirectEdge(fromSpec, toSpec) {
+    return this.getOutgoing(fromSpec).some(edge => edge.toSpec === toSpec);
+  }
+
+  /**
+   * Get all direct edges from one spec to another, sorted by specificity (highest first).
+   * @param {string} fromSpec - The source MediaSpec ID
+   * @param {string} toSpec - The target MediaSpec ID
+   * @returns {CapGraphEdge[]}
+   */
+  getDirectEdges(fromSpec, toSpec) {
+    const edges = this.getOutgoing(fromSpec).filter(edge => edge.toSpec === toSpec);
+    edges.sort((a, b) => b.specificity - a.specificity);
+    return edges;
+  }
+
+  /**
+   * Check if a conversion path exists from one spec to another.
+   * Uses BFS to find if there's any path (direct or through intermediates).
+   * @param {string} fromSpec - The source MediaSpec ID
+   * @param {string} toSpec - The target MediaSpec ID
+   * @returns {boolean}
+   */
+  canConvert(fromSpec, toSpec) {
+    if (fromSpec === toSpec) {
+      return true;
+    }
+
+    if (!this.nodes.has(fromSpec) || !this.nodes.has(toSpec)) {
+      return false;
+    }
+
+    const visited = new Set();
+    const queue = [fromSpec];
+    visited.add(fromSpec);
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+
+      for (const edge of this.getOutgoing(current)) {
+        if (edge.toSpec === toSpec) {
+          return true;
+        }
+        if (!visited.has(edge.toSpec)) {
+          visited.add(edge.toSpec);
+          queue.push(edge.toSpec);
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Find the shortest conversion path from one spec to another.
+   * @param {string} fromSpec - The source MediaSpec ID
+   * @param {string} toSpec - The target MediaSpec ID
+   * @returns {CapGraphEdge[]|null} Array of edges representing the path, or null if no path exists
+   */
+  findPath(fromSpec, toSpec) {
+    if (fromSpec === toSpec) {
+      return [];
+    }
+
+    if (!this.nodes.has(fromSpec) || !this.nodes.has(toSpec)) {
+      return null;
+    }
+
+    // BFS to find shortest path
+    // visited maps spec -> {prevSpec, edgeIdx} or null for start node
+    const visited = new Map();
+    const queue = [fromSpec];
+    visited.set(fromSpec, null);
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+
+      const indices = this.outgoing.get(current) || [];
+      for (const edgeIdx of indices) {
+        const edge = this.edges[edgeIdx];
+
+        if (edge.toSpec === toSpec) {
+          // Found the target - reconstruct path
+          const path = [this.edges[edgeIdx]];
+
+          let backtrack = current;
+          let backtrackInfo = visited.get(backtrack);
+          while (backtrackInfo !== null && backtrackInfo !== undefined) {
+            path.push(this.edges[backtrackInfo.edgeIdx]);
+            backtrack = backtrackInfo.prevSpec;
+            backtrackInfo = visited.get(backtrack);
+          }
+
+          path.reverse();
+          return path;
+        }
+
+        if (!visited.has(edge.toSpec)) {
+          visited.set(edge.toSpec, { prevSpec: current, edgeIdx });
+          queue.push(edge.toSpec);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find all conversion paths from one spec to another (up to a maximum depth).
+   * @param {string} fromSpec - The source MediaSpec ID
+   * @param {string} toSpec - The target MediaSpec ID
+   * @param {number} maxDepth - Maximum path length to search
+   * @returns {CapGraphEdge[][]} Array of paths (each path is an array of edges)
+   */
+  findAllPaths(fromSpec, toSpec, maxDepth) {
+    if (!this.nodes.has(fromSpec) || !this.nodes.has(toSpec)) {
+      return [];
+    }
+
+    const allPaths = [];
+    const currentPath = [];
+    const visited = new Set();
+
+    this._dfsFindPaths(fromSpec, toSpec, maxDepth, currentPath, visited, allPaths);
+
+    // Sort by path length (shortest first)
+    allPaths.sort((a, b) => a.length - b.length);
+
+    // Convert indices to edge references
+    return allPaths.map(indices => indices.map(i => this.edges[i]));
+  }
+
+  /**
+   * DFS helper for finding all paths
+   * @private
+   */
+  _dfsFindPaths(current, target, remainingDepth, currentPath, visited, allPaths) {
+    if (remainingDepth === 0) {
+      return;
+    }
+
+    const indices = this.outgoing.get(current) || [];
+    for (const edgeIdx of indices) {
+      const edge = this.edges[edgeIdx];
+
+      if (edge.toSpec === target) {
+        // Found a path
+        allPaths.push([...currentPath, edgeIdx]);
+      } else if (!visited.has(edge.toSpec)) {
+        // Continue searching
+        visited.add(edge.toSpec);
+        currentPath.push(edgeIdx);
+
+        this._dfsFindPaths(edge.toSpec, target, remainingDepth - 1, currentPath, visited, allPaths);
+
+        currentPath.pop();
+        visited.delete(edge.toSpec);
+      }
+    }
+  }
+
+  /**
+   * Find the best (highest specificity) conversion path from one spec to another.
+   * @param {string} fromSpec - The source MediaSpec ID
+   * @param {string} toSpec - The target MediaSpec ID
+   * @param {number} maxDepth - Maximum path length to search
+   * @returns {CapGraphEdge[]|null} Array of edges representing the best path, or null if no path exists
+   */
+  findBestPath(fromSpec, toSpec, maxDepth) {
+    const allPaths = this.findAllPaths(fromSpec, toSpec, maxDepth);
+
+    if (allPaths.length === 0) {
+      return null;
+    }
+
+    let bestPath = null;
+    let bestScore = -1;
+
+    for (const path of allPaths) {
+      const score = path.reduce((sum, edge) => sum + edge.specificity, 0);
+      if (score > bestScore) {
+        bestScore = score;
+        bestPath = path;
+      }
+    }
+
+    return bestPath;
+  }
+
+  /**
+   * Get all specs that have at least one outgoing edge.
+   * @returns {string[]}
+   */
+  getInputSpecs() {
+    return Array.from(this.outgoing.keys());
+  }
+
+  /**
+   * Get all specs that have at least one incoming edge.
+   * @returns {string[]}
+   */
+  getOutputSpecs() {
+    return Array.from(this.incoming.keys());
+  }
+
+  /**
+   * Get statistics about the graph.
+   * @returns {CapGraphStats}
+   */
+  stats() {
+    return new CapGraphStats(
+      this.nodes.size,
+      this.edges.length,
+      this.outgoing.size,
+      this.incoming.size
+    );
+  }
+}
+
 // Export for both CommonJS and ES modules
 if (typeof module !== 'undefined' && module.exports) {
   // CommonJS
@@ -2032,7 +2837,17 @@ if (typeof module !== 'undefined' && module.exports) {
     SPEC_ID_BOOL_ARRAY,
     SPEC_ID_OBJ_ARRAY,
     SPEC_ID_BINARY,
-    SPEC_ID_VOID
+    SPEC_ID_VOID,
+    // CapMatrix and CapCube
+    CapMatrixError,
+    CapMatrix,
+    BestCapSetMatch,
+    CompositeCapSet,
+    CapCube,
+    // CapGraph
+    CapGraphEdge,
+    CapGraphStats,
+    CapGraph
   };
 }
 
@@ -2074,4 +2889,14 @@ if (typeof window !== 'undefined') {
   window.SPEC_ID_OBJ_ARRAY = SPEC_ID_OBJ_ARRAY;
   window.SPEC_ID_BINARY = SPEC_ID_BINARY;
   window.SPEC_ID_VOID = SPEC_ID_VOID;
+  // CapMatrix and CapCube
+  window.CapMatrixError = CapMatrixError;
+  window.CapMatrix = CapMatrix;
+  window.BestCapSetMatch = BestCapSetMatch;
+  window.CompositeCapSet = CompositeCapSet;
+  window.CapCube = CapCube;
+  // CapGraph
+  window.CapGraphEdge = CapGraphEdge;
+  window.CapGraphStats = CapGraphStats;
+  window.CapGraph = CapGraph;
 }

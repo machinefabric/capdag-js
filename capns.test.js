@@ -20,7 +20,17 @@ const {
   SPEC_ID_BOOL,
   SPEC_ID_OBJ,
   SPEC_ID_BINARY,
-  SPEC_ID_VOID
+  SPEC_ID_VOID,
+  // CapMatrix and CapCube
+  CapMatrixError,
+  CapMatrix,
+  BestCapSetMatch,
+  CompositeCapSet,
+  CapCube,
+  // CapGraph
+  CapGraphEdge,
+  CapGraphStats,
+  CapGraph
 } = require('./capns.js');
 
 // Test assertion utility
@@ -829,6 +839,543 @@ function testMatchingSemantics_Test10_DirectionMismatch() {
   console.log('  ✓ Test 10: Direction mismatch');
 }
 
+// ============================================================================
+// CapMatrix and CapCube Tests
+// ============================================================================
+
+// Helper to create a test URN
+function matrixTestUrn(tags) {
+  if (!tags) {
+    return 'cap:in=std:void.v1;out=std:obj.v1';
+  }
+  return `cap:in=std:void.v1;out=std:obj.v1;${tags}`;
+}
+
+// Mock CapSet for testing
+class MockCapSet {
+  constructor(name) {
+    this.name = name;
+  }
+
+  async executeCap(capUrn, positionalArgs, namedArgs, stdinData) {
+    return {
+      binaryOutput: null,
+      textOutput: `Mock response from ${this.name}`
+    };
+  }
+}
+
+// Helper to create a Cap for testing
+function makeCap(urnString, title) {
+  const capUrn = CapUrn.fromString(urnString);
+  return new Cap(capUrn, title, 'test', title);
+}
+
+function testCapCubeMoreSpecificWins() {
+  console.log('Testing CapCube: More specific wins...');
+
+  const providerRegistry = new CapMatrix();
+  const pluginRegistry = new CapMatrix();
+
+  // Provider: less specific cap (no ext tag)
+  const providerHost = new MockCapSet('provider');
+  const providerCap = makeCap(
+    'cap:in=std:binary.v1;op=generate_thumbnail;out=std:binary.v1',
+    'Provider Thumbnail Generator (generic)'
+  );
+  providerRegistry.registerCapSet('provider', providerHost, [providerCap]);
+
+  // Plugin: more specific cap (has ext=pdf)
+  const pluginHost = new MockCapSet('plugin');
+  const pluginCap = makeCap(
+    'cap:ext=pdf;in=std:binary.v1;op=generate_thumbnail;out=std:binary.v1',
+    'Plugin PDF Thumbnail Generator (specific)'
+  );
+  pluginRegistry.registerCapSet('plugin', pluginHost, [pluginCap]);
+
+  // Create composite with provider first
+  const composite = new CapCube();
+  composite.addRegistry('providers', providerRegistry);
+  composite.addRegistry('plugins', pluginRegistry);
+
+  // Request for PDF thumbnails - plugin's more specific cap should win
+  const request = 'cap:ext=pdf;in=std:binary.v1;op=generate_thumbnail;out=std:binary.v1';
+  const best = composite.findBestCapSet(request);
+
+  assertEqual(best.registryName, 'plugins', 'More specific plugin should win');
+  assertEqual(best.specificity, 4, 'Plugin cap has 4 specific tags');
+  assertEqual(best.cap.title, 'Plugin PDF Thumbnail Generator (specific)', 'Should get plugin cap');
+
+  console.log('  ✓ More specific wins');
+}
+
+function testCapCubeTieGoesToFirst() {
+  console.log('Testing CapCube: Tie goes to first...');
+
+  const registry1 = new CapMatrix();
+  const registry2 = new CapMatrix();
+
+  // Both have same specificity
+  const host1 = new MockCapSet('host1');
+  const cap1 = makeCap(matrixTestUrn('ext=pdf;op=generate'), 'Registry 1 Cap');
+  registry1.registerCapSet('host1', host1, [cap1]);
+
+  const host2 = new MockCapSet('host2');
+  const cap2 = makeCap(matrixTestUrn('ext=pdf;op=generate'), 'Registry 2 Cap');
+  registry2.registerCapSet('host2', host2, [cap2]);
+
+  const composite = new CapCube();
+  composite.addRegistry('first', registry1);
+  composite.addRegistry('second', registry2);
+
+  const best = composite.findBestCapSet(matrixTestUrn('ext=pdf;op=generate'));
+
+  assertEqual(best.registryName, 'first', 'On tie, first registry should win');
+  assertEqual(best.cap.title, 'Registry 1 Cap', 'Should get first registry cap');
+
+  console.log('  ✓ Tie goes to first');
+}
+
+function testCapCubePollsAll() {
+  console.log('Testing CapCube: Polls all registries...');
+
+  const registry1 = new CapMatrix();
+  const registry2 = new CapMatrix();
+  const registry3 = new CapMatrix();
+
+  // Registry 1: doesn't match
+  const host1 = new MockCapSet('host1');
+  const cap1 = makeCap(matrixTestUrn('op=different'), 'Registry 1');
+  registry1.registerCapSet('host1', host1, [cap1]);
+
+  // Registry 2: matches but less specific
+  const host2 = new MockCapSet('host2');
+  const cap2 = makeCap(matrixTestUrn('op=generate'), 'Registry 2');
+  registry2.registerCapSet('host2', host2, [cap2]);
+
+  // Registry 3: matches and most specific
+  const host3 = new MockCapSet('host3');
+  const cap3 = makeCap(matrixTestUrn('ext=pdf;format=thumbnail;op=generate'), 'Registry 3');
+  registry3.registerCapSet('host3', host3, [cap3]);
+
+  const composite = new CapCube();
+  composite.addRegistry('r1', registry1);
+  composite.addRegistry('r2', registry2);
+  composite.addRegistry('r3', registry3);
+
+  const best = composite.findBestCapSet(matrixTestUrn('ext=pdf;format=thumbnail;op=generate'));
+
+  assertEqual(best.registryName, 'r3', 'Most specific registry should win');
+
+  console.log('  ✓ Polls all registries');
+}
+
+function testCapCubeNoMatch() {
+  console.log('Testing CapCube: No match error...');
+
+  const registry = new CapMatrix();
+  const composite = new CapCube();
+  composite.addRegistry('empty', registry);
+
+  try {
+    composite.findBestCapSet(matrixTestUrn('op=nonexistent'));
+    throw new Error('Expected error for non-matching capability');
+  } catch (e) {
+    assert(e instanceof CapMatrixError, 'Should be CapMatrixError');
+    assertEqual(e.type, 'NoSetsFound', 'Should be NoSetsFound error');
+  }
+
+  console.log('  ✓ No match error');
+}
+
+function testCapCubeFallbackScenario() {
+  console.log('Testing CapCube: Fallback scenario...');
+
+  const providerRegistry = new CapMatrix();
+  const pluginRegistry = new CapMatrix();
+
+  // Provider with generic fallback
+  const providerHost = new MockCapSet('provider_fallback');
+  const providerCap = makeCap(
+    'cap:in=std:binary.v1;op=generate_thumbnail;out=std:binary.v1',
+    'Generic Thumbnail Provider'
+  );
+  providerRegistry.registerCapSet('provider_fallback', providerHost, [providerCap]);
+
+  // Plugin with PDF-specific handler
+  const pluginHost = new MockCapSet('pdf_plugin');
+  const pluginCap = makeCap(
+    'cap:ext=pdf;in=std:binary.v1;op=generate_thumbnail;out=std:binary.v1',
+    'PDF Thumbnail Plugin'
+  );
+  pluginRegistry.registerCapSet('pdf_plugin', pluginHost, [pluginCap]);
+
+  const composite = new CapCube();
+  composite.addRegistry('providers', providerRegistry);
+  composite.addRegistry('plugins', pluginRegistry);
+
+  // Request for PDF thumbnail
+  const request = 'cap:ext=pdf;in=std:binary.v1;op=generate_thumbnail;out=std:binary.v1';
+  const best = composite.findBestCapSet(request);
+
+  assertEqual(best.registryName, 'plugins', 'Plugin should win for PDF');
+  assertEqual(best.cap.title, 'PDF Thumbnail Plugin', 'Should get plugin cap');
+  assertEqual(best.specificity, 4, 'Plugin has specificity 4');
+
+  // Test that for a different file type, provider wins
+  const requestWav = 'cap:ext=wav;in=std:binary.v1;op=generate_thumbnail;out=std:binary.v1';
+  const bestWav = composite.findBestCapSet(requestWav);
+
+  assertEqual(bestWav.registryName, 'providers', 'Provider should win for wav');
+  assertEqual(bestWav.cap.title, 'Generic Thumbnail Provider', 'Should get provider cap');
+
+  console.log('  ✓ Fallback scenario');
+}
+
+function testCapCubeCanMethod() {
+  console.log('Testing CapCube: can() method...');
+
+  const providerRegistry = new CapMatrix();
+
+  const providerHost = new MockCapSet('test_provider');
+  const providerCap = makeCap(matrixTestUrn('ext=pdf;op=generate'), 'Test Provider');
+  providerRegistry.registerCapSet('test_provider', providerHost, [providerCap]);
+
+  const composite = new CapCube();
+  composite.addRegistry('providers', providerRegistry);
+
+  // Test can() returns execution info
+  const result = composite.can(matrixTestUrn('ext=pdf;op=generate'));
+  assert(result.cap !== null, 'Should return cap');
+  assert(result.compositeHost instanceof CompositeCapSet, 'Should return CompositeCapSet');
+
+  // Verify canHandle works
+  assert(composite.canHandle(matrixTestUrn('ext=pdf;op=generate')), 'Should handle matching cap');
+  assert(!composite.canHandle(matrixTestUrn('op=nonexistent')), 'Should not handle non-matching cap');
+
+  console.log('  ✓ can() method');
+}
+
+function testCapCubeRegistryManagement() {
+  console.log('Testing CapCube: Registry management...');
+
+  const composite = new CapCube();
+  const registry1 = new CapMatrix();
+  const registry2 = new CapMatrix();
+
+  // Test AddRegistry
+  composite.addRegistry('r1', registry1);
+  composite.addRegistry('r2', registry2);
+
+  let names = composite.getRegistryNames();
+  assertEqual(names.length, 2, 'Should have 2 registries');
+
+  // Test GetRegistry
+  assertEqual(composite.getRegistry('r1'), registry1, 'Should get correct registry');
+
+  // Test RemoveRegistry
+  const removed = composite.removeRegistry('r1');
+  assertEqual(removed, registry1, 'Should return removed registry');
+
+  names = composite.getRegistryNames();
+  assertEqual(names.length, 1, 'Should have 1 registry after removal');
+
+  // Test GetRegistry for non-existent
+  assertEqual(composite.getRegistry('nonexistent'), null, 'Should return null for non-existent');
+
+  console.log('  ✓ Registry management');
+}
+
+// ============================================================================
+// CapGraph Tests
+// ============================================================================
+
+// Helper to create caps with specific in/out specs for graph testing
+function makeGraphCap(inSpec, outSpec, title) {
+  const urnString = `cap:in=${inSpec};op=convert;out=${outSpec}`;
+  const capUrn = CapUrn.fromString(urnString);
+  return new Cap(capUrn, title, 'convert', title);
+}
+
+function testCapGraphBasicConstruction() {
+  console.log('Testing CapGraph: Basic construction...');
+
+  const registry = new CapMatrix();
+  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
+
+  // binary -> str -> obj
+  const cap1 = makeGraphCap('std:binary.v1', 'std:str.v1', 'Binary to String');
+  const cap2 = makeGraphCap('std:str.v1', 'std:obj.v1', 'String to Object');
+
+  registry.registerCapSet('converter', mockHost, [cap1, cap2]);
+
+  const cube = new CapCube();
+  cube.addRegistry('converters', registry);
+
+  const graph = cube.graph();
+
+  // Check nodes
+  const nodes = graph.getNodes();
+  assertEqual(nodes.size, 3, 'Expected 3 nodes');
+
+  // Check edges
+  const edges = graph.getEdges();
+  assertEqual(edges.length, 2, 'Expected 2 edges');
+
+  // Check stats
+  const stats = graph.stats();
+  assertEqual(stats.nodeCount, 3, 'Expected 3 nodes in stats');
+  assertEqual(stats.edgeCount, 2, 'Expected 2 edges in stats');
+
+  console.log('  ✓ Basic construction');
+}
+
+function testCapGraphOutgoingIncoming() {
+  console.log('Testing CapGraph: Outgoing and incoming edges...');
+
+  const registry = new CapMatrix();
+  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
+
+  // binary -> str, binary -> obj
+  const cap1 = makeGraphCap('std:binary.v1', 'std:str.v1', 'Binary to String');
+  const cap2 = makeGraphCap('std:binary.v1', 'std:obj.v1', 'Binary to Object');
+
+  registry.registerCapSet('converter', mockHost, [cap1, cap2]);
+
+  const cube = new CapCube();
+  cube.addRegistry('converters', registry);
+
+  const graph = cube.graph();
+
+  // binary has 2 outgoing edges
+  const outgoing = graph.getOutgoing('std:binary.v1');
+  assertEqual(outgoing.length, 2, 'Expected 2 outgoing edges from binary');
+
+  // str has 1 incoming edge
+  const incomingStr = graph.getIncoming('std:str.v1');
+  assertEqual(incomingStr.length, 1, 'Expected 1 incoming edge to str');
+
+  // obj has 1 incoming edge
+  const incomingObj = graph.getIncoming('std:obj.v1');
+  assertEqual(incomingObj.length, 1, 'Expected 1 incoming edge to obj');
+
+  console.log('  ✓ Outgoing and incoming edges');
+}
+
+function testCapGraphCanConvert() {
+  console.log('Testing CapGraph: Can convert...');
+
+  const registry = new CapMatrix();
+  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
+
+  // binary -> str -> obj
+  const cap1 = makeGraphCap('std:binary.v1', 'std:str.v1', 'Binary to String');
+  const cap2 = makeGraphCap('std:str.v1', 'std:obj.v1', 'String to Object');
+
+  registry.registerCapSet('converter', mockHost, [cap1, cap2]);
+
+  const cube = new CapCube();
+  cube.addRegistry('converters', registry);
+
+  const graph = cube.graph();
+
+  // Direct conversions
+  assert(graph.canConvert('std:binary.v1', 'std:str.v1'), 'Should convert binary to str');
+  assert(graph.canConvert('std:str.v1', 'std:obj.v1'), 'Should convert str to obj');
+
+  // Transitive conversion
+  assert(graph.canConvert('std:binary.v1', 'std:obj.v1'), 'Should convert binary to obj transitively');
+
+  // Same spec
+  assert(graph.canConvert('std:binary.v1', 'std:binary.v1'), 'Should convert same spec');
+
+  // Impossible conversions
+  assert(!graph.canConvert('std:obj.v1', 'std:binary.v1'), 'Should not convert obj to binary');
+  assert(!graph.canConvert('std:nonexistent.v1', 'std:str.v1'), 'Should not convert nonexistent');
+
+  console.log('  ✓ Can convert');
+}
+
+function testCapGraphFindPath() {
+  console.log('Testing CapGraph: Find path...');
+
+  const registry = new CapMatrix();
+  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
+
+  // binary -> str -> obj
+  const cap1 = makeGraphCap('std:binary.v1', 'std:str.v1', 'Binary to String');
+  const cap2 = makeGraphCap('std:str.v1', 'std:obj.v1', 'String to Object');
+
+  registry.registerCapSet('converter', mockHost, [cap1, cap2]);
+
+  const cube = new CapCube();
+  cube.addRegistry('converters', registry);
+
+  const graph = cube.graph();
+
+  // Direct path
+  let path = graph.findPath('std:binary.v1', 'std:str.v1');
+  assert(path !== null, 'Should find path from binary to str');
+  assertEqual(path.length, 1, 'Expected path length 1');
+
+  // Transitive path
+  path = graph.findPath('std:binary.v1', 'std:obj.v1');
+  assert(path !== null, 'Should find path from binary to obj');
+  assertEqual(path.length, 2, 'Expected path length 2');
+  assertEqual(path[0].cap.title, 'Binary to String', 'First edge');
+  assertEqual(path[1].cap.title, 'String to Object', 'Second edge');
+
+  // No path
+  path = graph.findPath('std:obj.v1', 'std:binary.v1');
+  assertEqual(path, null, 'Should not find impossible path');
+
+  // Same spec
+  path = graph.findPath('std:binary.v1', 'std:binary.v1');
+  assert(path !== null, 'Should return empty path for same spec');
+  assertEqual(path.length, 0, 'Expected empty path for same spec');
+
+  console.log('  ✓ Find path');
+}
+
+function testCapGraphFindAllPaths() {
+  console.log('Testing CapGraph: Find all paths...');
+
+  const registry = new CapMatrix();
+  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
+
+  // binary -> str -> obj
+  // binary -> obj (direct)
+  const cap1 = makeGraphCap('std:binary.v1', 'std:str.v1', 'Binary to String');
+  const cap2 = makeGraphCap('std:str.v1', 'std:obj.v1', 'String to Object');
+  const cap3 = makeGraphCap('std:binary.v1', 'std:obj.v1', 'Binary to Object (direct)');
+
+  registry.registerCapSet('converter', mockHost, [cap1, cap2, cap3]);
+
+  const cube = new CapCube();
+  cube.addRegistry('converters', registry);
+
+  const graph = cube.graph();
+
+  // Find all paths from binary to obj
+  const paths = graph.findAllPaths('std:binary.v1', 'std:obj.v1', 3);
+
+  assertEqual(paths.length, 2, 'Expected 2 paths');
+
+  // Paths should be sorted by length (shortest first)
+  assertEqual(paths[0].length, 1, 'First path should have length 1 (direct)');
+  assertEqual(paths[1].length, 2, 'Second path should have length 2 (via str)');
+
+  console.log('  ✓ Find all paths');
+}
+
+function testCapGraphGetDirectEdges() {
+  console.log('Testing CapGraph: Get direct edges...');
+
+  const registry1 = new CapMatrix();
+  const registry2 = new CapMatrix();
+  const mockHost1 = { executeCap: async () => ({ textOutput: 'mock1' }) };
+  const mockHost2 = { executeCap: async () => ({ textOutput: 'mock2' }) };
+
+  // Two converters: binary -> str with different specificities
+  const cap1 = makeGraphCap('std:binary.v1', 'std:str.v1', 'Generic Binary to String');
+
+  // More specific converter (with extra tag for higher specificity)
+  const capUrn2 = CapUrn.fromString('cap:ext=pdf;in=std:binary.v1;op=convert;out=std:str.v1');
+  const cap2 = new Cap(capUrn2, 'PDF Binary to String', 'convert', 'PDF Binary to String');
+
+  registry1.registerCapSet('converter1', mockHost1, [cap1]);
+  registry2.registerCapSet('converter2', mockHost2, [cap2]);
+
+  const cube = new CapCube();
+  cube.addRegistry('reg1', registry1);
+  cube.addRegistry('reg2', registry2);
+
+  const graph = cube.graph();
+
+  // Get direct edges (should be sorted by specificity)
+  const edges = graph.getDirectEdges('std:binary.v1', 'std:str.v1');
+
+  assertEqual(edges.length, 2, 'Expected 2 direct edges');
+
+  // First should be more specific (PDF converter)
+  assertEqual(edges[0].cap.title, 'PDF Binary to String', 'First edge should be more specific');
+  assert(edges[0].specificity > edges[1].specificity, 'First edge should have higher specificity');
+
+  console.log('  ✓ Get direct edges');
+}
+
+function testCapGraphStats() {
+  console.log('Testing CapGraph: Stats...');
+
+  const registry = new CapMatrix();
+  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
+
+  // binary -> str -> obj
+  //         \-> json
+  const cap1 = makeGraphCap('std:binary.v1', 'std:str.v1', 'Binary to String');
+  const cap2 = makeGraphCap('std:str.v1', 'std:obj.v1', 'String to Object');
+  const cap3 = makeGraphCap('std:binary.v1', 'std:json.v1', 'Binary to JSON');
+
+  registry.registerCapSet('converter', mockHost, [cap1, cap2, cap3]);
+
+  const cube = new CapCube();
+  cube.addRegistry('converters', registry);
+
+  const graph = cube.graph();
+  const stats = graph.stats();
+
+  // 4 unique nodes: binary, str, obj, json
+  assertEqual(stats.nodeCount, 4, 'Expected 4 nodes');
+
+  // 3 edges
+  assertEqual(stats.edgeCount, 3, 'Expected 3 edges');
+
+  // 2 input specs (binary, str)
+  assertEqual(stats.inputSpecCount, 2, 'Expected 2 input specs');
+
+  // 3 output specs (str, obj, json)
+  assertEqual(stats.outputSpecCount, 3, 'Expected 3 output specs');
+
+  console.log('  ✓ Stats');
+}
+
+function testCapGraphWithCapCube() {
+  console.log('Testing CapGraph: With CapCube...');
+
+  // Integration test: build graph from CapCube
+  const providerRegistry = new CapMatrix();
+  const pluginRegistry = new CapMatrix();
+  const providerHost = { executeCap: async () => ({ textOutput: 'provider' }) };
+  const pluginHost = { executeCap: async () => ({ textOutput: 'plugin' }) };
+
+  // Provider: binary -> str
+  const providerCap = makeGraphCap('std:binary.v1', 'std:str.v1', 'Provider Binary to String');
+  providerRegistry.registerCapSet('provider', providerHost, [providerCap]);
+
+  // Plugin: str -> obj
+  const pluginCap = makeGraphCap('std:str.v1', 'std:obj.v1', 'Plugin String to Object');
+  pluginRegistry.registerCapSet('plugin', pluginHost, [pluginCap]);
+
+  const cube = new CapCube();
+  cube.addRegistry('providers', providerRegistry);
+  cube.addRegistry('plugins', pluginRegistry);
+
+  const graph = cube.graph();
+
+  // Should be able to convert binary -> obj through both registries
+  assert(graph.canConvert('std:binary.v1', 'std:obj.v1'), 'Should convert across registries');
+
+  const path = graph.findPath('std:binary.v1', 'std:obj.v1');
+  assert(path !== null, 'Should find path');
+  assertEqual(path.length, 2, 'Expected path length 2');
+
+  // Verify edges come from different registries
+  assertEqual(path[0].registryName, 'providers', 'First edge from providers');
+  assertEqual(path[1].registryName, 'plugins', 'Second edge from plugins');
+
+  console.log('  ✓ With CapCube');
+}
+
 // Update runTests to include new tests
 function runTests() {
   console.log('Running Cap URN JavaScript tests...\n');
@@ -875,6 +1422,25 @@ function runTests() {
   testMatchingSemantics_Test8_WildcardCapMatchesAnything();
   testMatchingSemantics_Test9_CrossDimensionIndependence();
   testMatchingSemantics_Test10_DirectionMismatch();
+
+  // CapMatrix and CapCube tests
+  testCapCubeMoreSpecificWins();
+  testCapCubeTieGoesToFirst();
+  testCapCubePollsAll();
+  testCapCubeNoMatch();
+  testCapCubeFallbackScenario();
+  testCapCubeCanMethod();
+  testCapCubeRegistryManagement();
+
+  // CapGraph tests
+  testCapGraphBasicConstruction();
+  testCapGraphOutgoingIncoming();
+  testCapGraphCanConvert();
+  testCapGraphFindPath();
+  testCapGraphFindAllPaths();
+  testCapGraphGetDirectEdges();
+  testCapGraphStats();
+  testCapGraphWithCapCube();
 
   console.log('OK All tests passed!');
 }
