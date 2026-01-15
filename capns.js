@@ -29,57 +29,8 @@ const ErrorCodes = {
   MISSING_OUT_SPEC: 11
 };
 
-// Parser states for state machine
-const ParseState = {
-  EXPECTING_KEY: 0,
-  IN_KEY: 1,
-  EXPECTING_VALUE: 2,
-  IN_UNQUOTED_VALUE: 3,
-  IN_QUOTED_VALUE: 4,
-  IN_QUOTED_VALUE_ESCAPE: 5,
-  EXPECTING_SEMI_OR_END: 6
-};
-
-/**
- * Check if a character is valid for a key
- */
-function isValidKeyChar(c) {
-  return /[a-zA-Z0-9_\-\/:\.]/.test(c);
-}
-
-/**
- * Check if a character is valid for an unquoted value
- */
-function isValidUnquotedValueChar(c) {
-  return /[a-zA-Z0-9_\-\/:\.\*]/.test(c);
-}
-
-/**
- * Check if a value needs quoting for serialization
- */
-function needsQuoting(value) {
-  for (const c of value) {
-    if (c === ';' || c === '=' || c === '"' || c === '\\' || c === ' ' || c.toUpperCase() !== c.toLowerCase() && c === c.toUpperCase()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Quote a value for serialization
- */
-function quoteValue(value) {
-  let result = '"';
-  for (const c of value) {
-    if (c === '"' || c === '\\') {
-      result += '\\';
-    }
-    result += c;
-  }
-  result += '"';
-  return result;
-}
+// Note: All parsing is delegated to TaggedUrn from tagged-urn-js
+// No duplicate state machine or parsing helpers needed here
 
 /**
  * Cap URN implementation with required direction (in/out) and optional tags
