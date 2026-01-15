@@ -1,6 +1,8 @@
 // Cap URN JavaScript Implementation
 // Follows the exact same rules as Rust, Go, and Objective-C implementations
 
+const { TaggedUrn } = require('tagged-urn');
+
 /**
  * Error types for Cap URN operations
  */
@@ -83,18 +85,35 @@ function quoteValue(value) {
  * Cap URN implementation with required direction (in/out) and optional tags
  *
  * Direction is now a REQUIRED first-class field:
- * - inSpec: The input media spec ID (required)
- * - outSpec: The output media spec ID (required)
+ * - inSpec: The input media URN (required, must start with "media:")
+ * - outSpec: The output media URN (required, must start with "media:")
  * - tags: Other optional tags (no longer contains in/out)
  */
+/**
+ * Check if a value is a valid media URN or wildcard
+ * @param {string} value - The value to check
+ * @returns {boolean} True if valid media URN or wildcard
+ */
+function isValidMediaUrnOrWildcard(value) {
+  return value === '*' || (value && value.startsWith('media:'));
+}
+
 class CapUrn {
   /**
    * Create a new CapUrn with required direction specs
-   * @param {string} inSpec - Required input spec ID (e.g., "std:void.v1")
-   * @param {string} outSpec - Required output spec ID (e.g., "std:obj.v1")
+   * @param {string} inSpec - Required input media URN (e.g., "media:type=void;v=1") or wildcard "*"
+   * @param {string} outSpec - Required output media URN (e.g., "media:type=object;v=1") or wildcard "*"
    * @param {Object} tags - Other tags (must NOT contain 'in' or 'out')
    */
   constructor(inSpec, outSpec, tags = {}) {
+    // Validate in/out are media URNs or wildcards
+    if (!isValidMediaUrnOrWildcard(inSpec)) {
+      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'in' media URN: ${inSpec}. Must start with 'media:' or be '*'`);
+    }
+    if (!isValidMediaUrnOrWildcard(outSpec)) {
+      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'out' media URN: ${outSpec}. Must start with 'media:' or be '*'`);
+    }
+
     this.inSpec = inSpec;
     this.outSpec = outSpec;
     this.tags = {};
@@ -108,16 +127,16 @@ class CapUrn {
   }
 
   /**
-   * Get the input spec ID
-   * @returns {string} The input spec ID
+   * Get the input media URN
+   * @returns {string} The input media URN
    */
   getInSpec() {
     return this.inSpec;
   }
 
   /**
-   * Get the output spec ID
-   * @returns {string} The output spec ID
+   * Get the output media URN
+   * @returns {string} The output media URN
    */
   getOutSpec() {
     return this.outSpec;
@@ -125,185 +144,76 @@ class CapUrn {
 
   /**
    * Create a Cap URN from string representation
-   * Format: cap:in=<spec>;out=<spec>;key1=value1;key2=value2;...
+   * Format: cap:in="<media-urn>";out="<media-urn>";key1=value1;key2=value2;...
    *
-   * IMPORTANT: 'in' and 'out' tags are REQUIRED.
+   * IMPORTANT: 'in' and 'out' tags are REQUIRED and must be valid media URNs.
    *
-   * Case handling:
-   * - Keys: Always normalized to lowercase
-   * - Unquoted values: Normalized to lowercase
-   * - Quoted values: Case preserved exactly as specified
+   * Uses TaggedUrn for parsing to ensure consistent behavior across implementations.
    *
    * @param {string} s - The Cap URN string
    * @returns {CapUrn} The parsed Cap URN
-   * @throws {CapUrnError} If parsing fails or in/out are missing
+   * @throws {CapUrnError} If parsing fails or in/out are missing/invalid
    */
   static fromString(s) {
     if (!s || typeof s !== 'string') {
       throw new CapUrnError(ErrorCodes.INVALID_FORMAT, 'Cap URN cannot be empty');
     }
 
-    // Check for "cap:" prefix (case-insensitive)
-    if (s.length < 4 || s.slice(0, 4).toLowerCase() !== 'cap:') {
-      throw new CapUrnError(ErrorCodes.MISSING_CAP_PREFIX, "Cap URN must start with 'cap:'");
+    // Check for 'cap:' prefix early to give better error messages
+    if (!s.startsWith('cap:')) {
+      throw new CapUrnError(ErrorCodes.MISSING_CAP_PREFIX, "Cap URN must start with 'cap:' prefix");
     }
 
-    const tagsPart = s.slice(4);
-    const allTags = {};
-
-    // Handle empty cap URN - this now FAILS because in/out are required
-    if (tagsPart === '' || tagsPart === ';') {
-      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input spec");
+    // Use TaggedUrn for parsing
+    let taggedUrn;
+    try {
+      taggedUrn = TaggedUrn.fromString(s);
+    } catch (e) {
+      // Convert TaggedUrnError to CapUrnError with appropriate error code
+      const msg = e.message || '';
+      const msgLower = msg.toLowerCase();
+      if (msgLower.includes('invalid character')) {
+        throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, msg);
+      }
+      if (msgLower.includes('duplicate')) {
+        throw new CapUrnError(ErrorCodes.DUPLICATE_KEY, msg);
+      }
+      if (msgLower.includes('unterminated') || msgLower.includes('unclosed')) {
+        throw new CapUrnError(ErrorCodes.UNTERMINATED_QUOTE, msg);
+      }
+      if (msgLower.includes('numeric') || msgLower.includes('purely numeric')) {
+        throw new CapUrnError(ErrorCodes.NUMERIC_KEY, msg);
+      }
+      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, msg);
     }
 
-    let state = ParseState.EXPECTING_KEY;
-    let currentKey = '';
-    let currentValue = '';
-    const chars = [...tagsPart];
-    let pos = 0;
-
-    const finishTag = () => {
-      if (currentKey === '') {
-        throw new CapUrnError(ErrorCodes.EMPTY_TAG, 'empty key');
-      }
-      if (currentValue === '') {
-        throw new CapUrnError(ErrorCodes.EMPTY_TAG, `empty value for key '${currentKey}'`);
-      }
-
-      // Check for duplicate keys
-      if (allTags.hasOwnProperty(currentKey)) {
-        throw new CapUrnError(ErrorCodes.DUPLICATE_KEY, `Duplicate tag key: ${currentKey}`);
-      }
-
-      // Validate key cannot be purely numeric
-      if (/^\d+$/.test(currentKey)) {
-        throw new CapUrnError(ErrorCodes.NUMERIC_KEY, `Tag key cannot be purely numeric: ${currentKey}`);
-      }
-
-      allTags[currentKey] = currentValue;
-      currentKey = '';
-      currentValue = '';
-    };
-
-    while (pos < chars.length) {
-      const c = chars[pos];
-
-      switch (state) {
-        case ParseState.EXPECTING_KEY:
-          if (c === ';') {
-            // Empty segment, skip
-            pos++;
-            continue;
-          } else if (isValidKeyChar(c)) {
-            currentKey += c.toLowerCase();
-            state = ParseState.IN_KEY;
-          } else {
-            throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, `invalid character '${c}' at position ${pos}`);
-          }
-          break;
-
-        case ParseState.IN_KEY:
-          if (c === '=') {
-            if (currentKey === '') {
-              throw new CapUrnError(ErrorCodes.EMPTY_TAG, 'empty key');
-            }
-            state = ParseState.EXPECTING_VALUE;
-          } else if (isValidKeyChar(c)) {
-            currentKey += c.toLowerCase();
-          } else {
-            throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, `invalid character '${c}' in key at position ${pos}`);
-          }
-          break;
-
-        case ParseState.EXPECTING_VALUE:
-          if (c === '"') {
-            state = ParseState.IN_QUOTED_VALUE;
-          } else if (c === ';') {
-            throw new CapUrnError(ErrorCodes.EMPTY_TAG, `empty value for key '${currentKey}'`);
-          } else if (isValidUnquotedValueChar(c)) {
-            currentValue += c.toLowerCase();
-            state = ParseState.IN_UNQUOTED_VALUE;
-          } else {
-            throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, `invalid character '${c}' in value at position ${pos}`);
-          }
-          break;
-
-        case ParseState.IN_UNQUOTED_VALUE:
-          if (c === ';') {
-            finishTag();
-            state = ParseState.EXPECTING_KEY;
-          } else if (isValidUnquotedValueChar(c)) {
-            currentValue += c.toLowerCase();
-          } else {
-            throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, `invalid character '${c}' in unquoted value at position ${pos}`);
-          }
-          break;
-
-        case ParseState.IN_QUOTED_VALUE:
-          if (c === '"') {
-            state = ParseState.EXPECTING_SEMI_OR_END;
-          } else if (c === '\\') {
-            state = ParseState.IN_QUOTED_VALUE_ESCAPE;
-          } else {
-            // Any character allowed in quoted value, preserve case
-            currentValue += c;
-          }
-          break;
-
-        case ParseState.IN_QUOTED_VALUE_ESCAPE:
-          if (c === '"' || c === '\\') {
-            currentValue += c;
-            state = ParseState.IN_QUOTED_VALUE;
-          } else {
-            throw new CapUrnError(ErrorCodes.INVALID_ESCAPE_SEQUENCE, `invalid escape sequence at position ${pos} (only \\" and \\\\ allowed)`);
-          }
-          break;
-
-        case ParseState.EXPECTING_SEMI_OR_END:
-          if (c === ';') {
-            finishTag();
-            state = ParseState.EXPECTING_KEY;
-          } else {
-            throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, `expected ';' or end after quoted value, got '${c}' at position ${pos}`);
-          }
-          break;
-      }
-
-      pos++;
-    }
-
-    // Handle end of input
-    switch (state) {
-      case ParseState.IN_UNQUOTED_VALUE:
-      case ParseState.EXPECTING_SEMI_OR_END:
-        finishTag();
-        break;
-      case ParseState.EXPECTING_KEY:
-        // Valid - trailing semicolon or empty input after prefix
-        break;
-      case ParseState.IN_QUOTED_VALUE:
-      case ParseState.IN_QUOTED_VALUE_ESCAPE:
-        throw new CapUrnError(ErrorCodes.UNTERMINATED_QUOTE, `unterminated quote at position ${pos}`);
-      case ParseState.IN_KEY:
-        throw new CapUrnError(ErrorCodes.INVALID_TAG_FORMAT, `incomplete tag '${currentKey}'`);
-      case ParseState.EXPECTING_VALUE:
-        throw new CapUrnError(ErrorCodes.EMPTY_TAG, `empty value for key '${currentKey}'`);
+    // Double-check prefix (should always be 'cap' after the early check above)
+    if (taggedUrn.getPrefix() !== 'cap') {
+      throw new CapUrnError(ErrorCodes.MISSING_CAP_PREFIX, `Expected 'cap:' prefix, got '${taggedUrn.getPrefix()}:'`);
     }
 
     // Extract required 'in' and 'out' tags
-    const inSpec = allTags['in'];
-    const outSpec = allTags['out'];
+    const inSpec = taggedUrn.getTag('in');
+    const outSpec = taggedUrn.getTag('out');
 
     if (!inSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input spec");
+      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input media URN");
     }
     if (!outSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag for output spec");
+      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag for output media URN");
+    }
+
+    // Validate in/out are media URNs or wildcards
+    if (!isValidMediaUrnOrWildcard(inSpec)) {
+      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'in' media URN: ${inSpec}. Must start with 'media:' or be '*'`);
+    }
+    if (!isValidMediaUrnOrWildcard(outSpec)) {
+      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'out' media URN: ${outSpec}. Must start with 'media:' or be '*'`);
     }
 
     // Build remaining tags (excluding in/out)
     const remainingTags = {};
-    for (const [key, value] of Object.entries(allTags)) {
+    for (const [key, value] of Object.entries(taggedUrn.tags)) {
       if (key !== 'in' && key !== 'out') {
         remainingTags[key] = value;
       }
@@ -318,17 +228,25 @@ class CapUrn {
    *
    * @param {Object} tags - Object containing all tags including 'in' and 'out'
    * @returns {CapUrn} The parsed Cap URN
-   * @throws {CapUrnError} If 'in' or 'out' tags are missing
+   * @throws {CapUrnError} If 'in' or 'out' tags are missing or invalid
    */
   static fromTags(tags) {
     const inSpec = tags['in'] || tags['IN'];
     const outSpec = tags['out'] || tags['OUT'];
 
     if (!inSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input spec");
+      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input media URN");
     }
     if (!outSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag for output spec");
+      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag for output media URN");
+    }
+
+    // Validate in/out are media URNs or wildcards
+    if (!isValidMediaUrnOrWildcard(inSpec)) {
+      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'in' media URN: ${inSpec}. Must start with 'media:' or be '*'`);
+    }
+    if (!isValidMediaUrnOrWildcard(outSpec)) {
+      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'out' media URN: ${outSpec}. Must start with 'media:' or be '*'`);
     }
 
     // Build remaining tags (excluding in/out)
@@ -347,8 +265,7 @@ class CapUrn {
    * Get the canonical string representation of this cap URN
    * Always includes "cap:" prefix
    * Tags are sorted alphabetically for consistent representation (in/out included)
-   * No trailing semicolon in canonical form
-   * Values are quoted only when necessary (smart quoting)
+   * Uses TaggedUrn for serialization to ensure consistent quoting
    *
    * @returns {string} The canonical string representation
    */
@@ -356,20 +273,9 @@ class CapUrn {
     // Build complete tags map including in and out
     const allTags = { ...this.tags, 'in': this.inSpec, 'out': this.outSpec };
 
-    // Sort keys for canonical representation (alphabetical order)
-    const sortedKeys = Object.keys(allTags).sort();
-
-    // Build tag string with smart quoting
-    const tagParts = sortedKeys.map(key => {
-      const value = allTags[key];
-      if (needsQuoting(value)) {
-        return `${key}=${quoteValue(value)}`;
-      } else {
-        return `${key}=${value}`;
-      }
-    });
-
-    return `cap:${tagParts.join(';')}`;
+    // Use TaggedUrn for canonical serialization
+    const taggedUrn = new TaggedUrn('cap', allTags, true);
+    return taggedUrn.toString();
   }
 
   /**
@@ -886,7 +792,7 @@ const MediaSpecErrorCodes = {
   EMPTY_CONTENT_TYPE: 1,
   UNTERMINATED_QUOTE: 2,
   LEGACY_FORMAT: 3,
-  UNRESOLVABLE_SPEC_ID: 4
+  UNRESOLVABLE_MEDIA_URN: 4
 };
 
 // ============================================================================
@@ -894,39 +800,39 @@ const MediaSpecErrorCodes = {
 // ============================================================================
 
 /**
- * Well-known built-in spec ID constants
- * These spec IDs are implicitly available and do not need to be declared in mediaSpecs
+ * Well-known built-in media URN constants
+ * These media URNs are implicitly available and do not need to be declared in mediaSpecs
  */
-const SPEC_ID_STR = 'std:str.v1';
-const SPEC_ID_INT = 'std:int.v1';
-const SPEC_ID_NUM = 'std:num.v1';
-const SPEC_ID_BOOL = 'std:bool.v1';
-const SPEC_ID_OBJ = 'std:obj.v1';
-const SPEC_ID_STR_ARRAY = 'std:str-array.v1';
-const SPEC_ID_INT_ARRAY = 'std:int-array.v1';
-const SPEC_ID_NUM_ARRAY = 'std:num-array.v1';
-const SPEC_ID_BOOL_ARRAY = 'std:bool-array.v1';
-const SPEC_ID_OBJ_ARRAY = 'std:obj-array.v1';
-const SPEC_ID_BINARY = 'std:binary.v1';
-const SPEC_ID_VOID = 'std:void.v1';
+const MEDIA_STRING = 'media:type=string;v=1';
+const MEDIA_INTEGER = 'media:type=integer;v=1';
+const MEDIA_NUMBER = 'media:type=number;v=1';
+const MEDIA_BOOLEAN = 'media:type=boolean;v=1';
+const MEDIA_OBJECT = 'media:type=object;v=1';
+const MEDIA_STRING_ARRAY = 'media:type=string-array;v=1';
+const MEDIA_INTEGER_ARRAY = 'media:type=integer-array;v=1';
+const MEDIA_NUMBER_ARRAY = 'media:type=number-array;v=1';
+const MEDIA_BOOLEAN_ARRAY = 'media:type=boolean-array;v=1';
+const MEDIA_OBJECT_ARRAY = 'media:type=object-array;v=1';
+const MEDIA_BINARY = 'media:type=binary;v=1';
+const MEDIA_VOID = 'media:type=void;v=1';
 
 /**
- * Built-in spec ID definitions - canonical media spec strings
- * Maps spec ID to canonical format: <media-type>; profile=<url>
+ * Built-in media URN definitions - canonical media spec strings
+ * Maps media URN to canonical format: <media-type>; profile=<url>
  */
 const BUILTIN_SPECS = {
-  [SPEC_ID_STR]: 'text/plain; profile=https://capns.org/schema/str',
-  [SPEC_ID_INT]: 'text/plain; profile=https://capns.org/schema/int',
-  [SPEC_ID_NUM]: 'text/plain; profile=https://capns.org/schema/num',
-  [SPEC_ID_BOOL]: 'text/plain; profile=https://capns.org/schema/bool',
-  [SPEC_ID_OBJ]: 'application/json; profile=https://capns.org/schema/obj',
-  [SPEC_ID_STR_ARRAY]: 'application/json; profile=https://capns.org/schema/str-array',
-  [SPEC_ID_INT_ARRAY]: 'application/json; profile=https://capns.org/schema/int-array',
-  [SPEC_ID_NUM_ARRAY]: 'application/json; profile=https://capns.org/schema/num-array',
-  [SPEC_ID_BOOL_ARRAY]: 'application/json; profile=https://capns.org/schema/bool-array',
-  [SPEC_ID_OBJ_ARRAY]: 'application/json; profile=https://capns.org/schema/obj-array',
-  [SPEC_ID_BINARY]: 'application/octet-stream',
-  [SPEC_ID_VOID]: 'application/x-void; profile=https://capns.org/schema/void'
+  [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str',
+  [MEDIA_INTEGER]: 'text/plain; profile=https://capns.org/schema/int',
+  [MEDIA_NUMBER]: 'text/plain; profile=https://capns.org/schema/num',
+  [MEDIA_BOOLEAN]: 'text/plain; profile=https://capns.org/schema/bool',
+  [MEDIA_OBJECT]: 'application/json; profile=https://capns.org/schema/obj',
+  [MEDIA_STRING_ARRAY]: 'application/json; profile=https://capns.org/schema/str-array',
+  [MEDIA_INTEGER_ARRAY]: 'application/json; profile=https://capns.org/schema/int-array',
+  [MEDIA_NUMBER_ARRAY]: 'application/json; profile=https://capns.org/schema/num-array',
+  [MEDIA_BOOLEAN_ARRAY]: 'application/json; profile=https://capns.org/schema/bool-array',
+  [MEDIA_OBJECT_ARRAY]: 'application/json; profile=https://capns.org/schema/obj-array',
+  [MEDIA_BINARY]: 'application/octet-stream',
+  [MEDIA_VOID]: 'application/x-void; profile=https://capns.org/schema/void'
 };
 
 /**
@@ -1101,39 +1007,39 @@ class MediaSpec {
   }
 
   /**
-   * Get MediaSpec from a CapUrn using the output spec
+   * Get MediaSpec from a CapUrn using the output media URN
    * NOTE: outSpec is now a required first-class field on CapUrn
    * @param {CapUrn} capUrn - The cap URN
    * @param {Object} mediaSpecs - Optional mediaSpecs lookup table for resolution
    * @returns {MediaSpec} The resolved MediaSpec
-   * @throws {MediaSpecError} If spec ID cannot be resolved
+   * @throws {MediaSpecError} If media URN cannot be resolved
    */
   static fromCapUrn(capUrn, mediaSpecs = {}) {
     // outSpec is now a required field, so it's always present
-    const specId = capUrn.getOutSpec();
+    const mediaUrn = capUrn.getOutSpec();
 
-    // Resolve the spec ID to a MediaSpec - no fallbacks, fail hard
-    return resolveSpecId(specId, mediaSpecs);
+    // Resolve the media URN to a MediaSpec - no fallbacks, fail hard
+    return resolveMediaUrn(mediaUrn, mediaSpecs);
   }
 }
 
 /**
- * Resolve a spec ID to a MediaSpec
+ * Resolve a media URN to a MediaSpec
  *
  * Resolution algorithm:
- * 1. Look up spec_id in mediaSpecs table
- * 2. If not found AND spec_id is a known built-in (std:*): use built-in definition
+ * 1. Look up mediaUrn in mediaSpecs table
+ * 2. If not found AND mediaUrn is a known built-in: use built-in definition
  * 3. If not found and not a built-in: FAIL HARD
  *
- * @param {string} specId - The spec ID (e.g., "std:str.v1")
+ * @param {string} mediaUrn - The media URN (e.g., "media:type=string;v=1")
  * @param {Object} mediaSpecs - The mediaSpecs lookup table
  * @returns {MediaSpec} The resolved MediaSpec
- * @throws {MediaSpecError} If spec ID cannot be resolved
+ * @throws {MediaSpecError} If media URN cannot be resolved
  */
-function resolveSpecId(specId, mediaSpecs = {}) {
+function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
   // First check local mediaSpecs table
-  if (mediaSpecs && mediaSpecs[specId]) {
-    const def = mediaSpecs[specId];
+  if (mediaSpecs && mediaSpecs[mediaUrn]) {
+    const def = mediaSpecs[mediaUrn];
 
     if (typeof def === 'string') {
       // String form: canonical media spec string
@@ -1146,8 +1052,8 @@ function resolveSpecId(specId, mediaSpecs = {}) {
 
       if (!mediaType) {
         throw new MediaSpecError(
-          MediaSpecErrorCodes.UNRESOLVABLE_SPEC_ID,
-          `Spec ID '${specId}' has invalid object definition: missing media_type`
+          MediaSpecErrorCodes.UNRESOLVABLE_MEDIA_URN,
+          `Media URN '${mediaUrn}' has invalid object definition: missing media_type`
         );
       }
 
@@ -1156,24 +1062,24 @@ function resolveSpecId(specId, mediaSpecs = {}) {
   }
 
   // Check built-in specs
-  if (BUILTIN_SPECS[specId]) {
-    return MediaSpec.parse(BUILTIN_SPECS[specId]);
+  if (BUILTIN_SPECS[mediaUrn]) {
+    return MediaSpec.parse(BUILTIN_SPECS[mediaUrn]);
   }
 
   // FAIL HARD - no fallbacks, no guessing
   throw new MediaSpecError(
-    MediaSpecErrorCodes.UNRESOLVABLE_SPEC_ID,
-    `Cannot resolve spec ID: '${specId}'. Not found in mediaSpecs table and not a known built-in.`
+    MediaSpecErrorCodes.UNRESOLVABLE_MEDIA_URN,
+    `Cannot resolve media URN: '${mediaUrn}'. Not found in mediaSpecs table and not a known built-in.`
   );
 }
 
 /**
- * Check if a spec ID is a known built-in
- * @param {string} specId - The spec ID to check
+ * Check if a media URN is a known built-in
+ * @param {string} mediaUrn - The media URN to check
  * @returns {boolean} True if built-in
  */
-function isBuiltinSpecId(specId) {
-  return BUILTIN_SPECS.hasOwnProperty(specId);
+function isBuiltinMediaUrn(mediaUrn) {
+  return BUILTIN_SPECS.hasOwnProperty(mediaUrn);
 }
 
 /**
@@ -1281,13 +1187,13 @@ class Cap {
   }
 
   /**
-   * Resolve a spec ID to a MediaSpec using this cap's mediaSpecs table
-   * @param {string} specId - The spec ID (e.g., "std:str.v1")
+   * Resolve a media URN to a MediaSpec using this cap's mediaSpecs table
+   * @param {string} mediaUrn - The media URN (e.g., "media:type=string;v=1")
    * @returns {MediaSpec} The resolved MediaSpec
-   * @throws {MediaSpecError} If spec ID cannot be resolved
+   * @throws {MediaSpecError} If media URN cannot be resolved
    */
-  resolveSpecId(specId) {
-    return resolveSpecId(specId, this.mediaSpecs);
+  resolveMediaUrn(mediaUrn) {
+    return resolveMediaUrn(mediaUrn, this.mediaSpecs);
   }
 
   /**
@@ -1707,20 +1613,20 @@ class InputValidator {
   static validateArgumentType(cap, argDef, value) {
     const capUrn = cap.urnString();
 
-    // Get media_spec field (now contains a spec ID)
-    const specId = argDef.mediaSpec || argDef.media_spec;
-    if (!specId) {
-      // No media_spec - skip validation
+    // Get mediaUrn field (now contains a media URN)
+    const mediaUrn = argDef.mediaUrn || argDef.media_urn;
+    if (!mediaUrn) {
+      // No media_urn - skip validation
       return;
     }
 
-    // Resolve spec ID to MediaSpec - FAIL HARD if unresolvable
+    // Resolve media URN to MediaSpec - FAIL HARD if unresolvable
     let mediaSpec;
     try {
-      mediaSpec = cap.resolveSpecId(specId);
+      mediaSpec = cap.resolveMediaUrn(mediaUrn);
     } catch (e) {
       throw new ValidationError('InvalidCapSchema', capUrn, {
-        issue: `Cannot resolve spec ID '${specId}' for argument '${argDef.name}': ${e.message}`
+        issue: `Cannot resolve media URN '${mediaUrn}' for argument '${argDef.name}': ${e.message}`
       });
     }
 
@@ -1729,7 +1635,7 @@ class InputValidator {
       if (typeof value !== 'string') {
         throw new ValidationError('InvalidArgumentType', capUrn, {
           argumentName: argDef.name,
-          expectedMediaSpec: specId,
+          expectedMediaSpec: mediaUrn,
           actualValue: value,
           schemaErrors: ['Expected base64-encoded string for binary type']
         });
@@ -1749,7 +1655,7 @@ class InputValidator {
       if (!valid) {
         throw new ValidationError('InvalidArgumentType', capUrn, {
           argumentName: argDef.name,
-          expectedMediaSpec: specId,
+          expectedMediaSpec: mediaUrn,
           actualValue: value,
           schemaErrors: [`Value does not match profile schema`]
         });
@@ -1897,20 +1803,20 @@ class OutputValidator {
 
     if (!outputDef) return; // No output definition to validate against
 
-    // Get media_spec field (now contains a spec ID)
-    const specId = outputDef.mediaSpec || outputDef.media_spec;
-    if (!specId) {
-      // No media_spec - skip validation
+    // Get mediaUrn field (now contains a media URN)
+    const mediaUrn = outputDef.mediaUrn || outputDef.media_urn;
+    if (!mediaUrn) {
+      // No media_urn - skip validation
       return;
     }
 
-    // Resolve spec ID to MediaSpec - FAIL HARD if unresolvable
+    // Resolve media URN to MediaSpec - FAIL HARD if unresolvable
     let mediaSpec;
     try {
-      mediaSpec = cap.resolveSpecId(specId);
+      mediaSpec = cap.resolveMediaUrn(mediaUrn);
     } catch (e) {
       throw new ValidationError('InvalidCapSchema', capUrn, {
-        issue: `Cannot resolve spec ID '${specId}' for output: ${e.message}`
+        issue: `Cannot resolve media URN '${mediaUrn}' for output: ${e.message}`
       });
     }
 
@@ -1918,7 +1824,7 @@ class OutputValidator {
     if (mediaSpec.isBinary()) {
       if (typeof output !== 'string') {
         throw new ValidationError('InvalidOutputType', capUrn, {
-          expectedMediaSpec: specId,
+          expectedMediaSpec: mediaUrn,
           actualValue: output,
           schemaErrors: ['Expected base64-encoded string for binary type']
         });
@@ -1937,7 +1843,7 @@ class OutputValidator {
       const valid = InputValidator.validateAgainstProfile(mediaSpec.profile, output);
       if (!valid) {
         throw new ValidationError('InvalidOutputType', capUrn, {
-          expectedMediaSpec: specId,
+          expectedMediaSpec: mediaUrn,
           actualValue: output,
           schemaErrors: [`Value does not match profile schema`]
         });
@@ -2423,8 +2329,8 @@ class CapCube {
   /**
    * Build a directed graph from all capabilities across all registries.
    * The graph represents all possible conversions where:
-   * - Nodes are MediaSpec IDs (e.g., "std:str.v1", "std:binary.v1")
-   * - Edges are capabilities that convert from one spec to another
+   * - Nodes are media URNs (e.g., "media:type=string;v=1", "media:type=binary;v=1")
+   * - Edges are capabilities that convert from one media URN to another
    * @returns {CapGraph} The capability graph
    */
   graph() {
@@ -2437,19 +2343,19 @@ class CapCube {
 // ============================================================================
 
 /**
- * An edge in the capability graph representing a conversion from one MediaSpec to another.
+ * An edge in the capability graph representing a conversion from one media URN to another.
  */
 class CapGraphEdge {
   /**
-   * @param {string} fromSpec - The input MediaSpec ID
-   * @param {string} toSpec - The output MediaSpec ID
+   * @param {string} fromUrn - The input media URN
+   * @param {string} toUrn - The output media URN
    * @param {Cap} cap - The capability that performs this conversion
    * @param {string} registryName - The registry that provided this capability
    * @param {number} specificity - Specificity score for ranking
    */
-  constructor(fromSpec, toSpec, cap, registryName, specificity) {
-    this.fromSpec = fromSpec;
-    this.toSpec = toSpec;
+  constructor(fromUrn, toUrn, cap, registryName, specificity) {
+    this.fromUrn = fromUrn;
+    this.toUrn = toUrn;
     this.cap = cap;
     this.registryName = registryName;
     this.specificity = specificity;
@@ -2461,28 +2367,28 @@ class CapGraphEdge {
  */
 class CapGraphStats {
   /**
-   * @param {number} nodeCount - Number of unique MediaSpec nodes
+   * @param {number} nodeCount - Number of unique media URN nodes
    * @param {number} edgeCount - Number of edges (capabilities)
-   * @param {number} inputSpecCount - Number of specs that serve as inputs
-   * @param {number} outputSpecCount - Number of specs that serve as outputs
+   * @param {number} inputUrnCount - Number of URNs that serve as inputs
+   * @param {number} outputUrnCount - Number of URNs that serve as outputs
    */
-  constructor(nodeCount, edgeCount, inputSpecCount, outputSpecCount) {
+  constructor(nodeCount, edgeCount, inputUrnCount, outputUrnCount) {
     this.nodeCount = nodeCount;
     this.edgeCount = edgeCount;
-    this.inputSpecCount = inputSpecCount;
-    this.outputSpecCount = outputSpecCount;
+    this.inputUrnCount = inputUrnCount;
+    this.outputUrnCount = outputUrnCount;
   }
 }
 
 /**
- * A directed graph where nodes are MediaSpec IDs and edges are capabilities.
+ * A directed graph where nodes are media URNs and edges are capabilities.
  * This graph enables discovering conversion paths between different media formats.
  */
 class CapGraph {
   constructor() {
     this.edges = [];
-    this.outgoing = new Map();  // fromSpec -> edge indices
-    this.incoming = new Map();  // toSpec -> edge indices
+    this.outgoing = new Map();  // fromUrn -> edge indices
+    this.incoming = new Map();  // toUrn -> edge indices
     this.nodes = new Set();
   }
 
@@ -2492,30 +2398,30 @@ class CapGraph {
    * @param {string} registryName - The registry that provided this capability
    */
   addCap(cap, registryName) {
-    const fromSpec = cap.urn.getInSpec();
-    const toSpec = cap.urn.getOutSpec();
+    const fromUrn = cap.urn.getInSpec();
+    const toUrn = cap.urn.getOutSpec();
     const specificity = cap.urn.specificity();
 
     // Add nodes
-    this.nodes.add(fromSpec);
-    this.nodes.add(toSpec);
+    this.nodes.add(fromUrn);
+    this.nodes.add(toUrn);
 
     // Create edge
     const edgeIndex = this.edges.length;
-    const edge = new CapGraphEdge(fromSpec, toSpec, cap, registryName, specificity);
+    const edge = new CapGraphEdge(fromUrn, toUrn, cap, registryName, specificity);
     this.edges.push(edge);
 
     // Update outgoing index
-    if (!this.outgoing.has(fromSpec)) {
-      this.outgoing.set(fromSpec, []);
+    if (!this.outgoing.has(fromUrn)) {
+      this.outgoing.set(fromUrn, []);
     }
-    this.outgoing.get(fromSpec).push(edgeIndex);
+    this.outgoing.get(fromUrn).push(edgeIndex);
 
     // Update incoming index
-    if (!this.incoming.has(toSpec)) {
-      this.incoming.set(toSpec, []);
+    if (!this.incoming.has(toUrn)) {
+      this.incoming.set(toUrn, []);
     }
-    this.incoming.get(toSpec).push(edgeIndex);
+    this.incoming.get(toUrn).push(edgeIndex);
   }
 
   /**
@@ -2538,7 +2444,7 @@ class CapGraph {
   }
 
   /**
-   * Get all nodes (MediaSpec IDs) in the graph.
+   * Get all nodes (media URNs) in the graph.
    * @returns {Set<string>}
    */
   getNodes() {
@@ -2554,77 +2460,77 @@ class CapGraph {
   }
 
   /**
-   * Get all edges originating from a spec.
-   * @param {string} spec - The MediaSpec ID
+   * Get all edges originating from a media URN.
+   * @param {string} urn - The media URN
    * @returns {CapGraphEdge[]}
    */
-  getOutgoing(spec) {
-    const indices = this.outgoing.get(spec) || [];
+  getOutgoing(urn) {
+    const indices = this.outgoing.get(urn) || [];
     return indices.map(i => this.edges[i]);
   }
 
   /**
-   * Get all edges targeting a spec.
-   * @param {string} spec - The MediaSpec ID
+   * Get all edges targeting a media URN.
+   * @param {string} urn - The media URN
    * @returns {CapGraphEdge[]}
    */
-  getIncoming(spec) {
-    const indices = this.incoming.get(spec) || [];
+  getIncoming(urn) {
+    const indices = this.incoming.get(urn) || [];
     return indices.map(i => this.edges[i]);
   }
 
   /**
-   * Check if there's any direct edge from one spec to another.
-   * @param {string} fromSpec - The source MediaSpec ID
-   * @param {string} toSpec - The target MediaSpec ID
+   * Check if there's any direct edge from one URN to another.
+   * @param {string} fromUrn - The source media URN
+   * @param {string} toUrn - The target media URN
    * @returns {boolean}
    */
-  hasDirectEdge(fromSpec, toSpec) {
-    return this.getOutgoing(fromSpec).some(edge => edge.toSpec === toSpec);
+  hasDirectEdge(fromUrn, toUrn) {
+    return this.getOutgoing(fromUrn).some(edge => edge.toUrn === toUrn);
   }
 
   /**
-   * Get all direct edges from one spec to another, sorted by specificity (highest first).
-   * @param {string} fromSpec - The source MediaSpec ID
-   * @param {string} toSpec - The target MediaSpec ID
+   * Get all direct edges from one URN to another, sorted by specificity (highest first).
+   * @param {string} fromUrn - The source media URN
+   * @param {string} toUrn - The target media URN
    * @returns {CapGraphEdge[]}
    */
-  getDirectEdges(fromSpec, toSpec) {
-    const edges = this.getOutgoing(fromSpec).filter(edge => edge.toSpec === toSpec);
+  getDirectEdges(fromUrn, toUrn) {
+    const edges = this.getOutgoing(fromUrn).filter(edge => edge.toUrn === toUrn);
     edges.sort((a, b) => b.specificity - a.specificity);
     return edges;
   }
 
   /**
-   * Check if a conversion path exists from one spec to another.
+   * Check if a conversion path exists from one URN to another.
    * Uses BFS to find if there's any path (direct or through intermediates).
-   * @param {string} fromSpec - The source MediaSpec ID
-   * @param {string} toSpec - The target MediaSpec ID
+   * @param {string} fromUrn - The source media URN
+   * @param {string} toUrn - The target media URN
    * @returns {boolean}
    */
-  canConvert(fromSpec, toSpec) {
-    if (fromSpec === toSpec) {
+  canConvert(fromUrn, toUrn) {
+    if (fromUrn === toUrn) {
       return true;
     }
 
-    if (!this.nodes.has(fromSpec) || !this.nodes.has(toSpec)) {
+    if (!this.nodes.has(fromUrn) || !this.nodes.has(toUrn)) {
       return false;
     }
 
     const visited = new Set();
-    const queue = [fromSpec];
-    visited.add(fromSpec);
+    const queue = [fromUrn];
+    visited.add(fromUrn);
 
     while (queue.length > 0) {
       const current = queue.shift();
 
       for (const edge of this.getOutgoing(current)) {
-        if (edge.toSpec === toSpec) {
+        if (edge.toUrn === toUrn) {
           return true;
         }
-        if (!visited.has(edge.toSpec)) {
-          visited.add(edge.toSpec);
-          queue.push(edge.toSpec);
+        if (!visited.has(edge.toUrn)) {
+          visited.add(edge.toUrn);
+          queue.push(edge.toUrn);
         }
       }
     }
@@ -2633,25 +2539,25 @@ class CapGraph {
   }
 
   /**
-   * Find the shortest conversion path from one spec to another.
-   * @param {string} fromSpec - The source MediaSpec ID
-   * @param {string} toSpec - The target MediaSpec ID
+   * Find the shortest conversion path from one URN to another.
+   * @param {string} fromUrn - The source media URN
+   * @param {string} toUrn - The target media URN
    * @returns {CapGraphEdge[]|null} Array of edges representing the path, or null if no path exists
    */
-  findPath(fromSpec, toSpec) {
-    if (fromSpec === toSpec) {
+  findPath(fromUrn, toUrn) {
+    if (fromUrn === toUrn) {
       return [];
     }
 
-    if (!this.nodes.has(fromSpec) || !this.nodes.has(toSpec)) {
+    if (!this.nodes.has(fromUrn) || !this.nodes.has(toUrn)) {
       return null;
     }
 
     // BFS to find shortest path
-    // visited maps spec -> {prevSpec, edgeIdx} or null for start node
+    // visited maps urn -> {prevUrn, edgeIdx} or null for start node
     const visited = new Map();
-    const queue = [fromSpec];
-    visited.set(fromSpec, null);
+    const queue = [fromUrn];
+    visited.set(fromUrn, null);
 
     while (queue.length > 0) {
       const current = queue.shift();
@@ -2660,7 +2566,7 @@ class CapGraph {
       for (const edgeIdx of indices) {
         const edge = this.edges[edgeIdx];
 
-        if (edge.toSpec === toSpec) {
+        if (edge.toUrn === toUrn) {
           // Found the target - reconstruct path
           const path = [this.edges[edgeIdx]];
 
@@ -2668,7 +2574,7 @@ class CapGraph {
           let backtrackInfo = visited.get(backtrack);
           while (backtrackInfo !== null && backtrackInfo !== undefined) {
             path.push(this.edges[backtrackInfo.edgeIdx]);
-            backtrack = backtrackInfo.prevSpec;
+            backtrack = backtrackInfo.prevUrn;
             backtrackInfo = visited.get(backtrack);
           }
 
@@ -2676,9 +2582,9 @@ class CapGraph {
           return path;
         }
 
-        if (!visited.has(edge.toSpec)) {
-          visited.set(edge.toSpec, { prevSpec: current, edgeIdx });
-          queue.push(edge.toSpec);
+        if (!visited.has(edge.toUrn)) {
+          visited.set(edge.toUrn, { prevUrn: current, edgeIdx });
+          queue.push(edge.toUrn);
         }
       }
     }
@@ -2687,14 +2593,14 @@ class CapGraph {
   }
 
   /**
-   * Find all conversion paths from one spec to another (up to a maximum depth).
-   * @param {string} fromSpec - The source MediaSpec ID
-   * @param {string} toSpec - The target MediaSpec ID
+   * Find all conversion paths from one URN to another (up to a maximum depth).
+   * @param {string} fromUrn - The source media URN
+   * @param {string} toUrn - The target media URN
    * @param {number} maxDepth - Maximum path length to search
    * @returns {CapGraphEdge[][]} Array of paths (each path is an array of edges)
    */
-  findAllPaths(fromSpec, toSpec, maxDepth) {
-    if (!this.nodes.has(fromSpec) || !this.nodes.has(toSpec)) {
+  findAllPaths(fromUrn, toUrn, maxDepth) {
+    if (!this.nodes.has(fromUrn) || !this.nodes.has(toUrn)) {
       return [];
     }
 
@@ -2702,7 +2608,7 @@ class CapGraph {
     const currentPath = [];
     const visited = new Set();
 
-    this._dfsFindPaths(fromSpec, toSpec, maxDepth, currentPath, visited, allPaths);
+    this._dfsFindPaths(fromUrn, toUrn, maxDepth, currentPath, visited, allPaths);
 
     // Sort by path length (shortest first)
     allPaths.sort((a, b) => a.length - b.length);
@@ -2724,31 +2630,31 @@ class CapGraph {
     for (const edgeIdx of indices) {
       const edge = this.edges[edgeIdx];
 
-      if (edge.toSpec === target) {
+      if (edge.toUrn === target) {
         // Found a path
         allPaths.push([...currentPath, edgeIdx]);
-      } else if (!visited.has(edge.toSpec)) {
+      } else if (!visited.has(edge.toUrn)) {
         // Continue searching
-        visited.add(edge.toSpec);
+        visited.add(edge.toUrn);
         currentPath.push(edgeIdx);
 
-        this._dfsFindPaths(edge.toSpec, target, remainingDepth - 1, currentPath, visited, allPaths);
+        this._dfsFindPaths(edge.toUrn, target, remainingDepth - 1, currentPath, visited, allPaths);
 
         currentPath.pop();
-        visited.delete(edge.toSpec);
+        visited.delete(edge.toUrn);
       }
     }
   }
 
   /**
-   * Find the best (highest specificity) conversion path from one spec to another.
-   * @param {string} fromSpec - The source MediaSpec ID
-   * @param {string} toSpec - The target MediaSpec ID
+   * Find the best (highest specificity) conversion path from one URN to another.
+   * @param {string} fromUrn - The source media URN
+   * @param {string} toUrn - The target media URN
    * @param {number} maxDepth - Maximum path length to search
    * @returns {CapGraphEdge[]|null} Array of edges representing the best path, or null if no path exists
    */
-  findBestPath(fromSpec, toSpec, maxDepth) {
-    const allPaths = this.findAllPaths(fromSpec, toSpec, maxDepth);
+  findBestPath(fromUrn, toUrn, maxDepth) {
+    const allPaths = this.findAllPaths(fromUrn, toUrn, maxDepth);
 
     if (allPaths.length === 0) {
       return null;
@@ -2769,18 +2675,18 @@ class CapGraph {
   }
 
   /**
-   * Get all specs that have at least one outgoing edge.
+   * Get all URNs that have at least one outgoing edge.
    * @returns {string[]}
    */
-  getInputSpecs() {
+  getInputUrns() {
     return Array.from(this.outgoing.keys());
   }
 
   /**
-   * Get all specs that have at least one incoming edge.
+   * Get all URNs that have at least one incoming edge.
    * @returns {string[]}
    */
-  getOutputSpecs() {
+  getOutputUrns() {
     return Array.from(this.incoming.keys());
   }
 
@@ -2822,22 +2728,22 @@ if (typeof module !== 'undefined' && module.exports) {
     MediaSpecErrorCodes,
     isBinaryCapUrn,
     isJSONCapUrn,
-    // New spec ID exports
-    resolveSpecId,
-    isBuiltinSpecId,
+    // Media URN exports
+    resolveMediaUrn,
+    isBuiltinMediaUrn,
     BUILTIN_SPECS,
-    SPEC_ID_STR,
-    SPEC_ID_INT,
-    SPEC_ID_NUM,
-    SPEC_ID_BOOL,
-    SPEC_ID_OBJ,
-    SPEC_ID_STR_ARRAY,
-    SPEC_ID_INT_ARRAY,
-    SPEC_ID_NUM_ARRAY,
-    SPEC_ID_BOOL_ARRAY,
-    SPEC_ID_OBJ_ARRAY,
-    SPEC_ID_BINARY,
-    SPEC_ID_VOID,
+    MEDIA_STRING,
+    MEDIA_INTEGER,
+    MEDIA_NUMBER,
+    MEDIA_BOOLEAN,
+    MEDIA_OBJECT,
+    MEDIA_STRING_ARRAY,
+    MEDIA_INTEGER_ARRAY,
+    MEDIA_NUMBER_ARRAY,
+    MEDIA_BOOLEAN_ARRAY,
+    MEDIA_OBJECT_ARRAY,
+    MEDIA_BINARY,
+    MEDIA_VOID,
     // CapMatrix and CapCube
     CapMatrixError,
     CapMatrix,
@@ -2873,22 +2779,22 @@ if (typeof window !== 'undefined') {
   window.MediaSpecErrorCodes = MediaSpecErrorCodes;
   window.isBinaryCapUrn = isBinaryCapUrn;
   window.isJSONCapUrn = isJSONCapUrn;
-  // New spec ID exports
-  window.resolveSpecId = resolveSpecId;
-  window.isBuiltinSpecId = isBuiltinSpecId;
+  // Media URN exports
+  window.resolveMediaUrn = resolveMediaUrn;
+  window.isBuiltinMediaUrn = isBuiltinMediaUrn;
   window.BUILTIN_SPECS = BUILTIN_SPECS;
-  window.SPEC_ID_STR = SPEC_ID_STR;
-  window.SPEC_ID_INT = SPEC_ID_INT;
-  window.SPEC_ID_NUM = SPEC_ID_NUM;
-  window.SPEC_ID_BOOL = SPEC_ID_BOOL;
-  window.SPEC_ID_OBJ = SPEC_ID_OBJ;
-  window.SPEC_ID_STR_ARRAY = SPEC_ID_STR_ARRAY;
-  window.SPEC_ID_INT_ARRAY = SPEC_ID_INT_ARRAY;
-  window.SPEC_ID_NUM_ARRAY = SPEC_ID_NUM_ARRAY;
-  window.SPEC_ID_BOOL_ARRAY = SPEC_ID_BOOL_ARRAY;
-  window.SPEC_ID_OBJ_ARRAY = SPEC_ID_OBJ_ARRAY;
-  window.SPEC_ID_BINARY = SPEC_ID_BINARY;
-  window.SPEC_ID_VOID = SPEC_ID_VOID;
+  window.MEDIA_STRING = MEDIA_STRING;
+  window.MEDIA_INTEGER = MEDIA_INTEGER;
+  window.MEDIA_NUMBER = MEDIA_NUMBER;
+  window.MEDIA_BOOLEAN = MEDIA_BOOLEAN;
+  window.MEDIA_OBJECT = MEDIA_OBJECT;
+  window.MEDIA_STRING_ARRAY = MEDIA_STRING_ARRAY;
+  window.MEDIA_INTEGER_ARRAY = MEDIA_INTEGER_ARRAY;
+  window.MEDIA_NUMBER_ARRAY = MEDIA_NUMBER_ARRAY;
+  window.MEDIA_BOOLEAN_ARRAY = MEDIA_BOOLEAN_ARRAY;
+  window.MEDIA_OBJECT_ARRAY = MEDIA_OBJECT_ARRAY;
+  window.MEDIA_BINARY = MEDIA_BINARY;
+  window.MEDIA_VOID = MEDIA_VOID;
   // CapMatrix and CapCube
   window.CapMatrixError = CapMatrixError;
   window.CapMatrix = CapMatrix;

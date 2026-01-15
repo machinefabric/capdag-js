@@ -6,6 +6,9 @@
   "scripts": {
     "test": "node capns.test.js"
   },
+  "dependencies": {
+    "tagged-urn": "file:../tagged-urn-js"
+  },
   "keywords": [
     "cap",
     "urn", 
