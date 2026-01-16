@@ -1,84 +1,55 @@
-# Cap URN Rules
+# Cap URN Rules (JavaScript)
 
-## Definitive specification for Cap URN format and behavior
+## Overview
 
-### 1. Case Insensitivity
-Cap URNs are case insensitive. All input is normalized to lowercase for storage and comparison.
+Cap URNs extend Tagged URNs with capability-specific requirements. For base Tagged URN format rules (case handling, tag ordering, wildcards, quoting, value-less tags, etc.), see [Tagged URN RULES.md](../tagged-urn-js/RULES.md).
 
-### 2. Tag Order Independence  
-The order of tags in the URN string does not matter. Tags are always sorted alphabetically by key in canonical form.
+This document covers only cap-specific rules.
 
-### 3. Mandatory Prefix
-Cap URNs must always be preceded by `cap:` which is the signifier of a cap URN.
+## Cap-Specific Rules
 
-### 4. Tag Separator
-Tags are separated by semicolons (`;`).
+### 1. Required Direction Specifiers
 
-### 5. Trailing Semicolon Optional
-Presence or absence of the final trailing semicolon does not matter. Both `cap:key=value` and `cap:key=value;` are equivalent.
+Cap URNs **must** include `in` and `out` tags that specify input/output media types:
 
-### 6. Character Restrictions
-- No spaces in cap URNs
-- Allowed characters in tag keys and values: alphanumeric, dashes (`-`), underscores (`_`), slashes (`/`), colons (`:`), dots (`.`), and asterisk (`*` in values only)
-- Quote marks (`"`, `'`), hash (`#`), and other special characters are not accepted
+```javascript
+// Valid cap URN with direction specifiers
+const cap = CapUrn.fromString('cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"');
 
-### 7. Tag Structure
-- Tag separator within a tag: `=` separates tag key from tag value
-- Tag separator between tags: `;` separates key-value pairs
-- After the initial `cap:` prefix, colons (`:`) are treated as normal characters, not separators
+// Invalid - missing direction specifiers
+CapUrn.fromString('cap:op=extract'); // throws ErrorCodes.MISSING_IN_SPEC
+```
 
-### 8. No Special Tags
-No reserved tag names - anything goes for tag keys.
+### 2. No Value-less Tags
 
-### 9. Canonical Form
-The canonical form of caps is all lowercase, with tags sorted by keys alphabetically, and no final trailing semicolon.
+Unlike base Tagged URNs which allow value-less tags, Cap URNs require explicit `key=value` format for all tags.
 
-### 10. Wildcard Support
-- Wildcard `*` is accepted only as tag value, not as tag key
-- When used as a tag value, `*` matches any value for that tag key
+### 3. Media URN Validation
 
-### 11. No Empty Components
-Tags with no values are not accepted. Both key and value must be non-empty after trimming whitespace.
+Direction specifier values must be valid Media URNs or wildcard `*`:
 
-### 12. Matching Specificity
-As more tags are specified, URNs become more specific:
-- `cap:` matches any URN
-- `cap:prop=*` matches any URN that has a `prop` tag with any value
-- `cap:prop=1` matches only URNs that have `prop=1`, regardless of other tags
+```javascript
+// Valid: Media URN value
+'cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"'
 
-### 13. Exact Tag Matching
-`cap:prop=1` matches only URNs that have `prop=1` irrespective of other tags present.
+// Valid: Wildcard
+'cap:in=*;op=extract;out=*'
 
-### 14. Subset Matching
-Only the tags specified in the criteria affect matching. URNs with extra tags not mentioned in the criteria still match if they satisfy all specified criteria.
+// Invalid: Not a Media URN
+'cap:in=binary;op=extract;out=object' // throws ErrorCodes.INVALID_MEDIA_URN
+```
 
-### 15. Duplicate Keys
-Duplicate keys in the same URN result in an error - last occurrence does not win.
+## Cap-Specific Error Codes
 
-### 16. UTF-8 Support
-Full UTF-8 character support within the allowed character set restrictions.
+| Code | Name | Description |
+|------|------|-------------|
+| 10 | MISSING_IN_SPEC | Cap URN missing required `in` tag |
+| 11 | MISSING_OUT_SPEC | Cap URN missing required `out` tag |
+| 12 | INVALID_MEDIA_URN | Direction spec value is not a valid Media URN |
 
-### 17. Numeric Values
-- Tag keys cannot be pure numeric
-- Tag values can be pure numeric
+## Cross-Language Compatibility
 
-### 18. Empty Cap URN
-`cap:` with no tags is valid and means "matches all URNs" (universal matcher).
-
-### 19. Length Restrictions
-The only length restriction is that the URL `https://capns.org/{cap_urn}` must be a valid URL. This imposes practical limits based on URL length constraints (typically ~2000 characters).
-
-### 20. Wildcard Restrictions
-Asterisk (`*`) in tag keys is not valid. Asterisk is only valid in tag values to signify wildcard matching.
-
-### 21. Colon Treatment
-Forward slashes (`/`) and colons (`:`) are valid anywhere in tag components and treated as normal characters, except for the mandatory `cap:` prefix which is not part of the tag structure.
-
-## Implementation Notes
-
-- All implementations must normalize input to lowercase
-- All implementations must sort tags alphabetically in canonical output
-- All implementations must handle trailing semicolons consistently
-- All implementations must validate character restrictions identically
-- All implementations must implement matching logic identically
-- All implementations must reject duplicate keys with appropriate error messages
+This JavaScript implementation follows the same rules as:
+- [Rust reference implementation](../capns/)
+- [Go implementation](../capns-go/)
+- [Objective-C implementation](../capns-objc/)

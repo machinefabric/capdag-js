@@ -1,16 +1,13 @@
 # Cap URN - JavaScript Implementation
 
-Production-ready JavaScript implementation of Cap URN (Capability Uniform Resource Names) with strict validation and matching rules.
+JavaScript implementation of Cap URN (Capability Uniform Resource Names), built on [Tagged URN](../tagged-urn-js/).
 
 ## Features
 
-- OK **Strict Rule Enforcement** - Follows exact same rules as Rust, Go, and Objective-C implementations
-- OK **Case Insensitive** - All input normalized to lowercase
-- OK **Tag Order Independent** - Canonical alphabetical sorting 
-- OK **Wildcard Support** - `*` matching in values only
-- OK **Extended Characters** - Support for `/` and `:` in tag components
-- OK **Production Ready** - No fallbacks, fails hard on invalid input
-- OK **Comprehensive Tests** - Full test suite verifying all 21 rules
+- **Required Direction Specifiers** - `in`/`out` tags for input/output media types
+- **Media URN Validation** - Validates direction spec values are valid Media URNs
+- **Cross-Language Compatible** - Identical behavior to Rust, Go, and Objective-C implementations
+- **Production Ready** - No fallbacks, fails hard on invalid input
 
 ## Installation
 
@@ -23,28 +20,30 @@ npm install capns
 ```javascript
 const { CapUrn, CapUrnBuilder, CapMatcher } = require('capns');
 
-// Create from string
-const cap = CapUrn.fromString('cap:op=generate;ext=pdf');
-console.log(cap.toString()); // "cap:op=generate;ext=pdf"
+// Create from string (with required direction specifiers)
+const cap = CapUrn.fromString('cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"');
+console.log(cap.toString());
 
 // Use builder pattern
 const built = new CapUrnBuilder()
-  .tag('action', 'extract')
-  .tag('target', 'metadata')
+  .inSpec('media:type=void;v=1')
+  .outSpec('media:type=object;v=1')
+  .tag('op', 'generate')
+  .tag('target', 'thumbnail')
   .build();
 
 // Matching
-const request = CapUrn.fromString('cap:op=generate');
+const request = CapUrn.fromString('cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"');
 console.log(cap.matches(request)); // true
 
-// Find best match
+// Find best match by specificity
 const caps = [
-  CapUrn.fromString('cap:op=*'),
-  CapUrn.fromString('cap:op=generate'),
-  CapUrn.fromString('cap:op=generate;ext=pdf')
+  CapUrn.fromString('cap:in=*;op=extract;out=*'),
+  CapUrn.fromString('cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"'),
+  CapUrn.fromString('cap:ext=pdf;in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"')
 ];
 const best = CapMatcher.findBestMatch(caps, request);
-console.log(best.toString()); // "cap:op=generate;ext=pdf" (most specific)
+console.log(best.toString()); // Most specific match
 ```
 
 ## API Reference
@@ -53,11 +52,13 @@ console.log(best.toString()); // "cap:op=generate;ext=pdf" (most specific)
 
 #### Static Methods
 - `CapUrn.fromString(s)` - Parse Cap URN from string
-  - Throws `CapUrnError` on invalid format
+  - Throws `CapUrnError` on invalid format or missing direction specifiers
 
 #### Instance Methods
 - `toString()` - Get canonical string representation
 - `getTag(key)` - Get tag value (case-insensitive)
+- `getInSpec()` - Get input media type
+- `getOutSpec()` - Get output media type
 - `hasTag(key, value)` - Check if tag exists with value
 - `withTag(key, value)` - Add/update tag (returns new instance)
 - `withoutTag(key)` - Remove tag (returns new instance)
@@ -65,7 +66,6 @@ console.log(best.toString()); // "cap:op=generate;ext=pdf" (most specific)
 - `canHandle(request)` - Check if this cap can handle a request
 - `specificity()` - Get specificity score for matching
 - `isMoreSpecificThan(other)` - Compare specificity
-- `isCompatibleWith(other)` - Check compatibility
 - `equals(other)` - Check equality
 
 ### CapUrnBuilder Class
@@ -74,8 +74,10 @@ Fluent builder for constructing Cap URNs:
 
 ```javascript
 const cap = new CapUrnBuilder()
-  .tag('action', 'generate')
-  .tag('format', 'json')
+  .inSpec('media:type=binary;v=1')
+  .outSpec('media:type=object;v=1')
+  .tag('op', 'extract')
+  .tag('target', 'metadata')
   .build();
 ```
 
@@ -85,7 +87,6 @@ Utility for matching sets of caps:
 
 - `CapMatcher.findBestMatch(caps, request)` - Find most specific match
 - `CapMatcher.findAllMatches(caps, request)` - Find all matches (sorted by specificity)
-- `CapMatcher.areCompatible(caps1, caps2)` - Check if cap sets are compatible
 
 ### Error Handling
 
@@ -93,39 +94,25 @@ Utility for matching sets of caps:
 const { CapUrnError, ErrorCodes } = require('capns');
 
 try {
-  const cap = CapUrn.fromString('invalid:format');
+  const cap = CapUrn.fromString('cap:op=extract'); // Missing in/out
 } catch (error) {
   if (error instanceof CapUrnError) {
-    console.log(`Error code: ${error.code}`);
-    console.log(`Message: ${error.message}`);
+    console.log(`Error code: ${error.code}`); // MISSING_IN_SPEC
   }
 }
 ```
 
-Error codes:
-- `ErrorCodes.INVALID_FORMAT` - General format error
-- `ErrorCodes.MISSING_CAP_PREFIX` - Missing "cap:" prefix
-- `ErrorCodes.INVALID_CHARACTER` - Invalid characters in tags
-- `ErrorCodes.DUPLICATE_KEY` - Duplicate tag keys
-- `ErrorCodes.NUMERIC_KEY` - Pure numeric tag keys
-- `ErrorCodes.EMPTY_TAG` - Empty tag components
+Cap-specific error codes:
+- `ErrorCodes.MISSING_IN_SPEC` - Missing required `in` tag
+- `ErrorCodes.MISSING_OUT_SPEC` - Missing required `out` tag
+- `ErrorCodes.INVALID_MEDIA_URN` - Invalid Media URN in direction spec
 
-## Rules
+For base Tagged URN error codes, see [Tagged URN documentation](../tagged-urn-js/).
 
-This implementation strictly follows the 21 Cap URN rules. See `RULES.md` for complete specification.
+## Documentation
 
-### Key Rules Summary:
-
-1. **Case Insensitive** - `cap:OP=Generate` == `cap:op=generate`
-2. **Order Independent** - `cap:a=1;b=2` == `cap:b=2;a=1` 
-3. **Prefix Required** - Must start with `cap:`
-4. **Semicolon Separated** - Tags separated by `;`
-5. **Optional Trailing `;`** - `cap:a=1;` == `cap:a=1`
-6. **Canonical Form** - Lowercase, alphabetically sorted, no trailing `;`
-7. **Wildcard Values** - `*` allowed in values only, not keys
-8. **Extended Characters** - `/` and `:` allowed in tag components
-9. **No Duplicate Keys** - Fails hard on duplicates
-10. **No Numeric Keys** - Pure numeric keys forbidden
+- [RULES.md](./RULES.md) - Cap-specific rules
+- [Tagged URN RULES.md](../tagged-urn-js/RULES.md) - Base format rules (case, quoting, wildcards, etc.)
 
 ## Testing
 
@@ -133,25 +120,11 @@ This implementation strictly follows the 21 Cap URN rules. See `RULES.md` for co
 npm test
 ```
 
-Runs comprehensive test suite covering all rules and edge cases.
-
-## Browser Support
-
-Works in both Node.js and browsers:
-
-```html
-<script src="capns.js"></script>
-<script>
-const cap = CapUrn.fromString('cap:op=generate');
-console.log(cap.toString());
-</script>
-```
-
 ## Cross-Language Compatibility
 
 This JavaScript implementation produces identical results to:
-- [Rust implementation](../capns/)
-- [Go implementation](../capns-go/)  
+- [Rust reference implementation](../capns/)
+- [Go implementation](../capns-go/)
 - [Objective-C implementation](../capns-objc/)
 
 All implementations pass the same test cases and follow identical rules.
