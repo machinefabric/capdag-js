@@ -7,7 +7,7 @@
     "test": "node capns.test.js"
   },
   "dependencies": {
-    "tagged-urn": "file:../tagged-urn-js"
+    "tagged-urn": "^1.0.0"
   },
   "keywords": [
     "cap",
@@ -17,11 +17,11 @@
     "validation",
     "matching"
   ],
-  "author": "FGND Team",
+  "author": "Bahram Joharshamshiri",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fgnd/capns.git",
+    "url": "https://github.com/jowharshamshiri/capns-j.git",
     "directory": "capns-js"
   },
   "engines": {

@@ -1,10 +1,8 @@
 // Cap URN JavaScript Implementation
 // Follows the exact same rules as Rust, Go, and Objective-C implementations
 
-// Import TaggedUrn - works in browser (via script tag) and Node.js (via relative require)
-const { TaggedUrn } = (typeof window !== 'undefined' && window.TaggedUrn)
-  ? { TaggedUrn: window.TaggedUrn }
-  : require('./tagged-urn.js');
+// Import TaggedUrn from the tagged-urn package
+const { TaggedUrn } = require('tagged-urn');
 
 /**
  * Error types for Cap URN operations
@@ -2658,105 +2656,49 @@ class CapGraph {
   }
 }
 
-// Export for both CommonJS and ES modules
-if (typeof module !== 'undefined' && module.exports) {
-  // CommonJS
-  module.exports = {
-    CapUrn,
-    CapUrnBuilder,
-    CapMatcher,
-    CapUrnError,
-    ErrorCodes,
-    Cap,
-    RegisteredBy,
-    createCap,
-    createCapWithDescription,
-    createCapWithMetadata,
-    createCapWithDescriptionAndMetadata,
-    ValidationError,
-    InputValidator,
-    OutputValidator,
-    CapValidator,
-    MediaSpec,
-    MediaSpecError,
-    MediaSpecErrorCodes,
-    isBinaryCapUrn,
-    isJSONCapUrn,
-    // Media URN exports
-    resolveMediaUrn,
-    isBuiltinMediaUrn,
-    BUILTIN_SPECS,
-    MEDIA_STRING,
-    MEDIA_INTEGER,
-    MEDIA_NUMBER,
-    MEDIA_BOOLEAN,
-    MEDIA_OBJECT,
-    MEDIA_STRING_ARRAY,
-    MEDIA_INTEGER_ARRAY,
-    MEDIA_NUMBER_ARRAY,
-    MEDIA_BOOLEAN_ARRAY,
-    MEDIA_OBJECT_ARRAY,
-    MEDIA_BINARY,
-    MEDIA_VOID,
-    // CapMatrix and CapCube
-    CapMatrixError,
-    CapMatrix,
-    BestCapSetMatch,
-    CompositeCapSet,
-    CapCube,
-    // CapGraph
-    CapGraphEdge,
-    CapGraphStats,
-    CapGraph
-  };
-}
-
-if (typeof window !== 'undefined') {
-  // Browser globals
-  window.CapUrn = CapUrn;
-  window.CapUrnBuilder = CapUrnBuilder;
-  window.CapMatcher = CapMatcher;
-  window.CapUrnError = CapUrnError;
-  window.CapUrnErrorCodes = ErrorCodes;
-  window.Cap = Cap;
-  window.RegisteredBy = RegisteredBy;
-  window.createCap = createCap;
-  window.createCapWithDescription = createCapWithDescription;
-  window.createCapWithMetadata = createCapWithMetadata;
-  window.createCapWithDescriptionAndMetadata = createCapWithDescriptionAndMetadata;
-  window.ValidationError = ValidationError;
-  window.InputValidator = InputValidator;
-  window.OutputValidator = OutputValidator;
-  window.CapValidator = CapValidator;
-  window.MediaSpec = MediaSpec;
-  window.MediaSpecError = MediaSpecError;
-  window.MediaSpecErrorCodes = MediaSpecErrorCodes;
-  window.isBinaryCapUrn = isBinaryCapUrn;
-  window.isJSONCapUrn = isJSONCapUrn;
-  // Media URN exports
-  window.resolveMediaUrn = resolveMediaUrn;
-  window.isBuiltinMediaUrn = isBuiltinMediaUrn;
-  window.BUILTIN_SPECS = BUILTIN_SPECS;
-  window.MEDIA_STRING = MEDIA_STRING;
-  window.MEDIA_INTEGER = MEDIA_INTEGER;
-  window.MEDIA_NUMBER = MEDIA_NUMBER;
-  window.MEDIA_BOOLEAN = MEDIA_BOOLEAN;
-  window.MEDIA_OBJECT = MEDIA_OBJECT;
-  window.MEDIA_STRING_ARRAY = MEDIA_STRING_ARRAY;
-  window.MEDIA_INTEGER_ARRAY = MEDIA_INTEGER_ARRAY;
-  window.MEDIA_NUMBER_ARRAY = MEDIA_NUMBER_ARRAY;
-  window.MEDIA_BOOLEAN_ARRAY = MEDIA_BOOLEAN_ARRAY;
-  window.MEDIA_OBJECT_ARRAY = MEDIA_OBJECT_ARRAY;
-  window.MEDIA_BINARY = MEDIA_BINARY;
-  window.MEDIA_VOID = MEDIA_VOID;
-  // CapMatrix and CapCube
-  window.CapMatrixError = CapMatrixError;
-  window.CapMatrix = CapMatrix;
-  window.BestCapSetMatch = BestCapSetMatch;
-  window.CompositeCapSet = CompositeCapSet;
-  window.CapCube = CapCube;
-  // CapGraph
-  window.CapGraphEdge = CapGraphEdge;
-  window.CapGraphStats = CapGraphStats;
-  window.CapGraph = CapGraph;
-}
+// Export for CommonJS
+module.exports = {
+  CapUrn,
+  CapUrnBuilder,
+  CapMatcher,
+  CapUrnError,
+  ErrorCodes,
+  Cap,
+  RegisteredBy,
+  createCap,
+  createCapWithDescription,
+  createCapWithMetadata,
+  createCapWithDescriptionAndMetadata,
+  ValidationError,
+  InputValidator,
+  OutputValidator,
+  CapValidator,
+  MediaSpec,
+  MediaSpecError,
+  MediaSpecErrorCodes,
+  isBinaryCapUrn,
+  isJSONCapUrn,
+  resolveMediaUrn,
+  isBuiltinMediaUrn,
+  BUILTIN_SPECS,
+  MEDIA_STRING,
+  MEDIA_INTEGER,
+  MEDIA_NUMBER,
+  MEDIA_BOOLEAN,
+  MEDIA_OBJECT,
+  MEDIA_STRING_ARRAY,
+  MEDIA_INTEGER_ARRAY,
+  MEDIA_NUMBER_ARRAY,
+  MEDIA_BOOLEAN_ARRAY,
+  MEDIA_OBJECT_ARRAY,
+  MEDIA_BINARY,
+  MEDIA_VOID,
+  CapMatrixError,
+  CapMatrix,
+  BestCapSetMatch,
+  CompositeCapSet,
+  CapCube,
+  CapGraphEdge,
+  CapGraphStats,
+  CapGraph
+};
