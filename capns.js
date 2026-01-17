@@ -1,7 +1,10 @@
 // Cap URN JavaScript Implementation
 // Follows the exact same rules as Rust, Go, and Objective-C implementations
 
-const { TaggedUrn } = require('tagged-urn');
+// Import TaggedUrn - works in browser (via script tag) and Node.js (via relative require)
+const { TaggedUrn } = (typeof window !== 'undefined' && window.TaggedUrn)
+  ? { TaggedUrn: window.TaggedUrn }
+  : require('./tagged-urn.js');
 
 /**
  * Error types for Cap URN operations
@@ -754,17 +757,17 @@ const MediaSpecErrorCodes = {
  * Well-known built-in media URN constants
  * These media URNs are implicitly available and do not need to be declared in mediaSpecs
  */
-const MEDIA_STRING = 'media:type=string;v=1';
-const MEDIA_INTEGER = 'media:type=integer;v=1';
-const MEDIA_NUMBER = 'media:type=number;v=1';
-const MEDIA_BOOLEAN = 'media:type=boolean;v=1';
-const MEDIA_OBJECT = 'media:type=object;v=1';
-const MEDIA_STRING_ARRAY = 'media:type=string-array;v=1';
-const MEDIA_INTEGER_ARRAY = 'media:type=integer-array;v=1';
-const MEDIA_NUMBER_ARRAY = 'media:type=number-array;v=1';
-const MEDIA_BOOLEAN_ARRAY = 'media:type=boolean-array;v=1';
-const MEDIA_OBJECT_ARRAY = 'media:type=object-array;v=1';
-const MEDIA_BINARY = 'media:type=binary;v=1';
+const MEDIA_STRING = 'media:type=string;v=1;textable;scalar';
+const MEDIA_INTEGER = 'media:type=integer;v=1;textable;numeric;scalar';
+const MEDIA_NUMBER = 'media:type=number;v=1;textable;numeric;scalar';
+const MEDIA_BOOLEAN = 'media:type=boolean;v=1;textable;scalar';
+const MEDIA_OBJECT = 'media:type=object;v=1;textable;keyed';
+const MEDIA_STRING_ARRAY = 'media:type=string-array;v=1;textable;sequence';
+const MEDIA_INTEGER_ARRAY = 'media:type=integer-array;v=1;textable;numeric;sequence';
+const MEDIA_NUMBER_ARRAY = 'media:type=number-array;v=1;textable;numeric;sequence';
+const MEDIA_BOOLEAN_ARRAY = 'media:type=boolean-array;v=1;textable;sequence';
+const MEDIA_OBJECT_ARRAY = 'media:type=object-array;v=1;textable;keyed;sequence';
+const MEDIA_BINARY = 'media:type=binary;v=1;binary';
 const MEDIA_VOID = 'media:type=void;v=1';
 
 /**
