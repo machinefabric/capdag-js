@@ -770,15 +770,20 @@ const MEDIA_VOID = 'media:type=void;v=1';
 // Semantic content types
 const MEDIA_IMAGE = 'media:type=image;v=1;binary';
 const MEDIA_AUDIO = 'media:type=audio;v=1;binary';
-// Extension-based binary media URNs for documents
-const MEDIA_BINARY_PDF = 'media:type=binary;ext=pdf;v=1;binary';
-const MEDIA_BINARY_EPUB = 'media:type=binary;ext=epub;v=1;binary';
-// Extension-based text media URNs
-const MEDIA_TEXT_MD = 'media:type=text;ext=md;v=1;textable';
-const MEDIA_TEXT_TXT = 'media:type=text;ext=txt;v=1;textable';
-const MEDIA_TEXT_RST = 'media:type=text;ext=rst;v=1;textable';
-const MEDIA_TEXT_LOG = 'media:type=text;ext=log;v=1;textable';
+const MEDIA_VIDEO = 'media:type=video;v=1;binary';
 const MEDIA_TEXT = 'media:type=text;v=1;textable';
+// Document types (PRIMARY naming - type IS the format)
+const MEDIA_PDF = 'media:type=pdf;v=1;binary';
+const MEDIA_EPUB = 'media:type=epub;v=1;binary';
+// Text format types (PRIMARY naming - type IS the format)
+const MEDIA_MD = 'media:type=md;v=1;textable';
+const MEDIA_TXT = 'media:type=txt;v=1;textable';
+const MEDIA_RST = 'media:type=rst;v=1;textable';
+const MEDIA_LOG = 'media:type=log;v=1;textable';
+const MEDIA_HTML = 'media:type=html;v=1;textable';
+const MEDIA_XML = 'media:type=xml;v=1;textable';
+const MEDIA_JSON = 'media:type=json;v=1;textable;keyed';
+const MEDIA_YAML = 'media:type=yaml;v=1;textable;keyed';
 
 /**
  * Built-in media URN definitions - canonical media spec strings
@@ -799,7 +804,21 @@ const BUILTIN_SPECS = {
   [MEDIA_VOID]: 'application/x-void; profile=https://capns.org/schema/void',
   // Semantic content types
   [MEDIA_IMAGE]: 'image/png; profile=https://capns.org/schema/image',
-  [MEDIA_AUDIO]: 'audio/wav; profile=https://capns.org/schema/audio'
+  [MEDIA_AUDIO]: 'audio/wav; profile=https://capns.org/schema/audio',
+  [MEDIA_VIDEO]: 'video/mp4; profile=https://capns.org/schema/video',
+  [MEDIA_TEXT]: 'text/plain; profile=https://capns.org/schema/text',
+  // Document types (PRIMARY naming)
+  [MEDIA_PDF]: 'application/pdf',
+  [MEDIA_EPUB]: 'application/epub+zip',
+  // Text format types (PRIMARY naming)
+  [MEDIA_MD]: 'text/markdown',
+  [MEDIA_TXT]: 'text/plain',
+  [MEDIA_RST]: 'text/x-rst',
+  [MEDIA_LOG]: 'text/plain',
+  [MEDIA_HTML]: 'text/html',
+  [MEDIA_XML]: 'application/xml',
+  [MEDIA_JSON]: 'application/json',
+  [MEDIA_YAML]: 'application/x-yaml'
 };
 
 /**
@@ -887,11 +906,15 @@ class MediaSpec {
    * @param {string} contentType - The MIME content type
    * @param {string|null} profile - Optional profile URL
    * @param {Object|null} schema - Optional JSON Schema for local validation
+   * @param {string|null} title - Optional display-friendly title
+   * @param {string|null} description - Optional description
    */
-  constructor(contentType, profile = null, schema = null) {
+  constructor(contentType, profile = null, schema = null, title = null, description = null) {
     this.contentType = contentType;
     this.profile = profile;
     this.schema = schema;
+    this.title = title;
+    this.description = description;
   }
 
   /**
@@ -1078,10 +1101,12 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
       // String form: canonical media spec string
       return MediaSpec.parse(def);
     } else if (typeof def === 'object') {
-      // Object form: { media_type, profile_uri, schema? }
+      // Object form: { media_type, profile_uri, schema?, title?, description? }
       const mediaType = def.media_type || def.mediaType;
       const profileUri = def.profile_uri || def.profileUri;
       const schema = def.schema || null;
+      const title = def.title || null;
+      const description = def.description || null;
 
       if (!mediaType) {
         throw new MediaSpecError(
@@ -1090,7 +1115,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
         );
       }
 
-      return new MediaSpec(mediaType, profileUri, schema);
+      return new MediaSpec(mediaType, profileUri, schema, title, description);
     }
   }
 
@@ -2783,13 +2808,20 @@ module.exports = {
   MEDIA_VOID,
   MEDIA_IMAGE,
   MEDIA_AUDIO,
-  MEDIA_BINARY_PDF,
-  MEDIA_BINARY_EPUB,
-  MEDIA_TEXT_MD,
-  MEDIA_TEXT_TXT,
-  MEDIA_TEXT_RST,
-  MEDIA_TEXT_LOG,
+  MEDIA_VIDEO,
   MEDIA_TEXT,
+  // Document types (PRIMARY naming)
+  MEDIA_PDF,
+  MEDIA_EPUB,
+  // Text format types (PRIMARY naming)
+  MEDIA_MD,
+  MEDIA_TXT,
+  MEDIA_RST,
+  MEDIA_LOG,
+  MEDIA_HTML,
+  MEDIA_XML,
+  MEDIA_JSON,
+  MEDIA_YAML,
   mediaUrnSatisfies,
   CapMatrixError,
   CapMatrix,
