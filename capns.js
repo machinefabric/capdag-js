@@ -765,11 +765,11 @@ const MEDIA_INTEGER_ARRAY = 'media:type=integer-array;v=1;textable;numeric;seque
 const MEDIA_NUMBER_ARRAY = 'media:type=number-array;v=1;textable;numeric;sequence';
 const MEDIA_BOOLEAN_ARRAY = 'media:type=boolean-array;v=1;textable;sequence';
 const MEDIA_OBJECT_ARRAY = 'media:type=object-array;v=1;textable;keyed;sequence';
-const MEDIA_BINARY = 'media:type=binary;v=1;binary';
+const MEDIA_BINARY = 'media:type=raw;v=1;binary';
 const MEDIA_VOID = 'media:type=void;v=1';
 // Semantic content types
-const MEDIA_IMAGE = 'media:type=image;v=1;binary';
-const MEDIA_AUDIO = 'media:type=audio;v=1;binary';
+const MEDIA_IMAGE = 'media:type=png;v=1;binary';
+const MEDIA_AUDIO = 'media:type=wav;audio;binary;v=1;';
 const MEDIA_VIDEO = 'media:type=video;v=1;binary';
 const MEDIA_TEXT = 'media:type=text;v=1;textable';
 // Document types (PRIMARY naming - type IS the format)
