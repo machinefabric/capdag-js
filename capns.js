@@ -768,7 +768,7 @@ const MEDIA_OBJECT_ARRAY = 'media:type=object-array;v=1;textable;keyed;sequence'
 const MEDIA_BINARY = 'media:type=raw;v=1;binary';
 const MEDIA_VOID = 'media:type=void;v=1';
 // Semantic content types
-const MEDIA_IMAGE = 'media:type=png;v=1;binary';
+const MEDIA_PNG = 'media:type=png;v=1;binary';
 const MEDIA_AUDIO = 'media:type=wav;audio;binary;v=1;';
 const MEDIA_VIDEO = 'media:type=video;v=1;binary';
 const MEDIA_TEXT = 'media:type=text;v=1;textable';
@@ -803,7 +803,7 @@ const BUILTIN_SPECS = {
   [MEDIA_BINARY]: 'application/octet-stream',
   [MEDIA_VOID]: 'application/x-void; profile=https://capns.org/schema/void',
   // Semantic content types
-  [MEDIA_IMAGE]: 'image/png; profile=https://capns.org/schema/image',
+  [MEDIA_PNG]: 'image/png; profile=https://capns.org/schema/image',
   [MEDIA_AUDIO]: 'audio/wav; profile=https://capns.org/schema/audio',
   [MEDIA_VIDEO]: 'video/mp4; profile=https://capns.org/schema/video',
   [MEDIA_TEXT]: 'text/plain; profile=https://capns.org/schema/text',
@@ -2806,7 +2806,7 @@ module.exports = {
   MEDIA_OBJECT_ARRAY,
   MEDIA_BINARY,
   MEDIA_VOID,
-  MEDIA_IMAGE,
+  MEDIA_PNG,
   MEDIA_AUDIO,
   MEDIA_VIDEO,
   MEDIA_TEXT,
