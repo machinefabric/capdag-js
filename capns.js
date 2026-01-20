@@ -1258,14 +1258,6 @@ class Cap {
   }
 
   /**
-   * Check if cap accepts stdin
-   * @returns {boolean} Whether this capability accepts stdin
-   */
-  acceptsStdin() {
-    return this.stdin !== null && this.stdin !== undefined;
-  }
-
-  /**
    * Get the media type expected for stdin
    * @returns {string|null} The media URN for stdin, or null if cap doesn't accept stdin
    */
