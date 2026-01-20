@@ -1,29 +1,9 @@
 {
-  "name": "capns",
-  "version": "1.0.0",
-  "description": "JavaScript implementation of Cap URN (Capability Uniform Resource Names) with strict validation and matching",
-  "main": "capns.js",
-  "scripts": {
-    "test": "node capns.test.js"
-  },
-  "dependencies": {
-    "tagged-urn": "^1.0.0"
-  },
-  "keywords": [
-    "cap",
-    "urn", 
-    "capability",
-    "namespace",
-    "validation",
-    "matching"
-  ],
   "author": "Bahram Joharshamshiri",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/jowharshamshiri/capns-j.git",
-    "directory": "capns-js"
+  "dependencies": {
+    "tagged-urn": "^0.7.2179"
   },
+  "description": "JavaScript implementation of Cap URN (Capability Uniform Resource Names) with strict validation and matching",
   "engines": {
     "node": ">=14.0.0"
   },
@@ -32,5 +12,25 @@
     "capns.test.js",
     "RULES.md",
     "README.md"
-  ]
+  ],
+  "keywords": [
+    "cap",
+    "urn",
+    "capability",
+    "namespace",
+    "validation",
+    "matching"
+  ],
+  "license": "MIT",
+  "main": "capns.js",
+  "name": "capns",
+  "repository": {
+    "directory": "capns-js",
+    "type": "git",
+    "url": "https://github.com/jowharshamshiri/capns-j.git"
+  },
+  "scripts": {
+    "test": "node capns.test.js"
+  },
+  "version": "0.32.9247"
 }
