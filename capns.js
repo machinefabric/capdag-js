@@ -840,6 +840,19 @@ function extractMediaUrnTag(mediaUrn, tagName) {
 }
 
 /**
+ * Check if a media URN has a marker tag (e.g., binary, keyed, textable).
+ * Uses TaggedUrn parsing for proper tag detection.
+ * @param {string} mediaUrn - The media URN
+ * @param {string} tagName - The marker tag name to check
+ * @returns {boolean} True if the marker tag is present
+ */
+function hasMediaUrnTag(mediaUrn, tagName) {
+  if (!mediaUrn) return false;
+  const parsed = TaggedUrn.fromString(mediaUrn);
+  return parsed.getTag(tagName) !== undefined;
+}
+
+/**
  * Check if a provided media URN satisfies another media URN's requirements.
  * Used for cap matching - checks if a provided media type can satisfy a cap's input requirement.
  *
@@ -908,13 +921,15 @@ class MediaSpec {
    * @param {Object|null} schema - Optional JSON Schema for local validation
    * @param {string|null} title - Optional display-friendly title
    * @param {string|null} description - Optional description
+   * @param {string|null} mediaUrn - Source media URN for tag-based checks
    */
-  constructor(contentType, profile = null, schema = null, title = null, description = null) {
+  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null) {
     this.contentType = contentType;
     this.profile = profile;
     this.schema = schema;
     this.title = title;
     this.description = description;
+    this.mediaUrn = mediaUrn;
   }
 
   /**
@@ -998,39 +1013,33 @@ class MediaSpec {
   }
 
   /**
-   * Check if this media spec represents binary output
+   * Check if this media spec represents binary output.
+   * Returns true if the "binary" marker tag is present in the source media URN.
    * @returns {boolean} True if binary
    */
   isBinary() {
-    const ct = this.contentType.toLowerCase();
-
-    // Binary content types
-    return ct.startsWith('image/') ||
-           ct.startsWith('audio/') ||
-           ct.startsWith('video/') ||
-           ct === 'application/octet-stream' ||
-           ct === 'application/pdf' ||
-           ct.startsWith('application/x-') ||
-           ct.includes('+zip') ||
-           ct.includes('+gzip');
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTag(this.mediaUrn, 'binary');
   }
 
   /**
-   * Check if this media spec represents JSON output
-   * @returns {boolean} True if JSON
+   * Check if this media spec represents JSON/keyed output.
+   * Returns true if the "keyed" marker tag is present in the source media URN.
+   * @returns {boolean} True if JSON/keyed
    */
   isJSON() {
-    const ct = this.contentType.toLowerCase();
-    return ct === 'application/json' || ct.endsWith('+json');
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTag(this.mediaUrn, 'keyed');
   }
 
   /**
-   * Check if this media spec represents text output
+   * Check if this media spec represents text output.
+   * Returns true if the "textable" marker tag is present in the source media URN.
    * @returns {boolean} True if text
    */
   isText() {
-    const ct = this.contentType.toLowerCase();
-    return ct.startsWith('text/') || (!this.isBinary() && !this.isJSON());
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTag(this.mediaUrn, 'textable');
   }
 
   /**
@@ -1099,7 +1108,9 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
 
     if (typeof def === 'string') {
       // String form: canonical media spec string
-      return MediaSpec.parse(def);
+      const spec = MediaSpec.parse(def);
+      spec.mediaUrn = mediaUrn; // Attach source URN for tag-based checks
+      return spec;
     } else if (typeof def === 'object') {
       // Object form: { media_type, profile_uri, schema?, title?, description? }
       const mediaType = def.media_type || def.mediaType;
@@ -1115,13 +1126,15 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
         );
       }
 
-      return new MediaSpec(mediaType, profileUri, schema, title, description);
+      return new MediaSpec(mediaType, profileUri, schema, title, description, mediaUrn);
     }
   }
 
   // Check built-in specs
   if (BUILTIN_SPECS[mediaUrn]) {
-    return MediaSpec.parse(BUILTIN_SPECS[mediaUrn]);
+    const spec = MediaSpec.parse(BUILTIN_SPECS[mediaUrn]);
+    spec.mediaUrn = mediaUrn; // Attach source URN for tag-based checks
+    return spec;
   }
 
   // FAIL HARD - no fallbacks, no guessing
