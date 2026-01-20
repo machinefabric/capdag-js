@@ -1239,9 +1239,25 @@ class Cap {
     this.mediaSpecs = {};  // Spec ID resolution table
     this.arguments = { required: [], optional: [] };
     this.output = null;
-    this.accepts_stdin = false;
+    this.stdin = null;  // If present, media URN that stdin expects. Null means no stdin.
     this.metadata_json = metadataJson;
     this.registered_by = null;  // Registration attribution
+  }
+
+  /**
+   * Check if cap accepts stdin
+   * @returns {boolean} Whether this capability accepts stdin
+   */
+  acceptsStdin() {
+    return this.stdin !== null && this.stdin !== undefined;
+  }
+
+  /**
+   * Get the media type expected for stdin
+   * @returns {string|null} The media URN for stdin, or null if cap doesn't accept stdin
+   */
+  stdinMediaType() {
+    return this.stdin;
   }
 
   /**
@@ -1399,7 +1415,7 @@ class Cap {
            JSON.stringify(this.mediaSpecs) === JSON.stringify(other.mediaSpecs) &&
            JSON.stringify(this.arguments) === JSON.stringify(other.arguments) &&
            JSON.stringify(this.output) === JSON.stringify(other.output) &&
-           this.accepts_stdin === other.accepts_stdin &&
+           this.stdin === other.stdin &&
            JSON.stringify(this.metadata_json) === JSON.stringify(other.metadata_json) &&
            JSON.stringify(this.registered_by) === JSON.stringify(other.registered_by);
   }
@@ -1426,9 +1442,13 @@ class Cap {
       metadata: this.metadata,
       media_specs: this.mediaSpecs,
       arguments: this.arguments,
-      output: this.output,
-      accepts_stdin: this.accepts_stdin
+      output: this.output
     };
+
+    // Only include stdin if present (absence means no stdin)
+    if (this.stdin !== null && this.stdin !== undefined) {
+      result.stdin = this.stdin;
+    }
 
     if (this.metadata_json !== null && this.metadata_json !== undefined) {
       result.metadata_json = this.metadata_json;
@@ -1458,7 +1478,7 @@ class Cap {
     cap.mediaSpecs = json.media_specs || json.mediaSpecs || {};
     cap.arguments = json.arguments || { required: [], optional: [] };
     cap.output = json.output;
-    cap.accepts_stdin = json.accepts_stdin || false;
+    cap.stdin = json.stdin || null;  // Absence or null means no stdin
     cap.registered_by = json.registered_by ? RegisteredBy.fromJSON(json.registered_by) : null;
     return cap;
   }
