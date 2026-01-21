@@ -2015,7 +2015,7 @@ class CapMatrixError extends Error {
 class CapSetEntry {
   constructor(name, host, capabilities) {
     this.name = name;
-    this.host = host;          // Object implementing executeCap(capUrn, positionalArgs, namedArgs, stdinData) -> Promise
+    this.host = host;          // Object implementing executeCap(capUrn, positionalArgs, namedArgs, stdinSource) -> Promise
     this.capabilities = capabilities;  // Array<Cap>
   }
 }
@@ -2200,10 +2200,10 @@ class CompositeCapSet {
    * @param {string} capUrn - The capability URN to execute
    * @param {string[]} positionalArgs - Positional arguments
    * @param {object} namedArgs - Named arguments as key-value pairs
-   * @param {Uint8Array|null} stdinData - Optional stdin data
+   * @param {StdinSource|null} stdinSource - Optional stdin source (data or file reference)
    * @returns {Promise<{binaryOutput: Uint8Array|null, textOutput: string|null}>}
    */
-  async executeCap(capUrn, positionalArgs, namedArgs, stdinData) {
+  async executeCap(capUrn, positionalArgs, namedArgs, stdinSource) {
     let request;
     try {
       request = CapUrn.fromString(capUrn);
@@ -2235,7 +2235,7 @@ class CompositeCapSet {
     }
 
     // Delegate execution to the best matching host
-    return bestHost.executeCap(capUrn, positionalArgs, namedArgs, stdinData);
+    return bestHost.executeCap(capUrn, positionalArgs, namedArgs, stdinSource);
   }
 
   /**
@@ -2794,6 +2794,87 @@ class CapGraph {
   }
 }
 
+// ============================================================================
+// StdinSource - Represents stdin input source (data or file reference)
+// ============================================================================
+
+/**
+ * Stdin source kinds
+ */
+const StdinSourceKind = {
+  DATA: 'data',
+  FILE_REFERENCE: 'file_reference'
+};
+
+/**
+ * Represents the source for stdin data.
+ * For plugins (via gRPC/XPC), using FileReference avoids size limits
+ * by letting the receiving side read the file locally.
+ */
+class StdinSource {
+  /**
+   * Create a StdinSource (use static factory methods instead)
+   * @param {string} kind - StdinSourceKind.DATA or StdinSourceKind.FILE_REFERENCE
+   * @param {Object} options - Options for the source
+   * @private
+   */
+  constructor(kind, options = {}) {
+    this.kind = kind;
+
+    if (kind === StdinSourceKind.DATA) {
+      this.data = options.data || null;
+    } else if (kind === StdinSourceKind.FILE_REFERENCE) {
+      this.trackedFileId = options.trackedFileId || '';
+      this.originalPath = options.originalPath || '';
+      this.securityBookmark = options.securityBookmark || null;
+      this.mediaUrn = options.mediaUrn || '';
+    }
+  }
+
+  /**
+   * Create a StdinSource from raw data bytes
+   * @param {Uint8Array|Buffer|null} data - The raw bytes for stdin
+   * @returns {StdinSource}
+   */
+  static fromData(data) {
+    return new StdinSource(StdinSourceKind.DATA, { data });
+  }
+
+  /**
+   * Create a StdinSource from a file reference
+   * Used for plugins to read files locally instead of sending bytes over the wire.
+   * @param {string} trackedFileId - ID for lifecycle management
+   * @param {string} originalPath - Original file path (for logging/debugging)
+   * @param {Uint8Array|Buffer|null} securityBookmark - Security bookmark data
+   * @param {string} mediaUrn - Media URN so receiver knows expected type
+   * @returns {StdinSource}
+   */
+  static fromFileReference(trackedFileId, originalPath, securityBookmark, mediaUrn) {
+    return new StdinSource(StdinSourceKind.FILE_REFERENCE, {
+      trackedFileId,
+      originalPath,
+      securityBookmark,
+      mediaUrn
+    });
+  }
+
+  /**
+   * Check if this is a data source
+   * @returns {boolean}
+   */
+  isData() {
+    return this.kind === StdinSourceKind.DATA;
+  }
+
+  /**
+   * Check if this is a file reference source
+   * @returns {boolean}
+   */
+  isFileReference() {
+    return this.kind === StdinSourceKind.FILE_REFERENCE;
+  }
+}
+
 // Export for CommonJS
 module.exports = {
   CapUrn,
@@ -2855,5 +2936,7 @@ module.exports = {
   CapCube,
   CapGraphEdge,
   CapGraphStats,
-  CapGraph
+  CapGraph,
+  StdinSource,
+  StdinSourceKind
 };

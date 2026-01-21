@@ -30,7 +30,10 @@ const {
   // CapGraph
   CapGraphEdge,
   CapGraphStats,
-  CapGraph
+  CapGraph,
+  // StdinSource
+  StdinSource,
+  StdinSourceKind
 } = require('./capns.js');
 
 // Test assertion utility
@@ -1376,8 +1379,196 @@ function testCapGraphWithCapCube() {
   console.log('  ✓ With CapCube');
 }
 
+// ============================================================================
+// StdinSource Tests
+// ============================================================================
+
+function testStdinSourceFromData() {
+  console.log('Testing StdinSource: From data...');
+
+  const testData = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]); // "Hello"
+  const source = StdinSource.fromData(testData);
+
+  assert(source !== null, 'Should create source');
+  assertEqual(source.kind, StdinSourceKind.DATA, 'Should be DATA kind');
+  assert(source.isData(), 'isData() should return true');
+  assert(!source.isFileReference(), 'isFileReference() should return false');
+  assertEqual(source.data, testData, 'Should store data');
+
+  console.log('  ✓ From data');
+}
+
+function testStdinSourceFromFileReference() {
+  console.log('Testing StdinSource: From file reference...');
+
+  const trackedFileId = 'tracked-file-123';
+  const originalPath = '/path/to/original.pdf';
+  const securityBookmark = new Uint8Array([0x62, 0x6f, 0x6f, 0x6b]); // "book"
+  const mediaUrn = 'media:type=pdf;v=1;binary';
+
+  const source = StdinSource.fromFileReference(trackedFileId, originalPath, securityBookmark, mediaUrn);
+
+  assert(source !== null, 'Should create source');
+  assertEqual(source.kind, StdinSourceKind.FILE_REFERENCE, 'Should be FILE_REFERENCE kind');
+  assert(!source.isData(), 'isData() should return false');
+  assert(source.isFileReference(), 'isFileReference() should return true');
+  assertEqual(source.trackedFileId, trackedFileId, 'Should store trackedFileId');
+  assertEqual(source.originalPath, originalPath, 'Should store originalPath');
+  assertEqual(source.securityBookmark, securityBookmark, 'Should store securityBookmark');
+  assertEqual(source.mediaUrn, mediaUrn, 'Should store mediaUrn');
+
+  console.log('  ✓ From file reference');
+}
+
+function testStdinSourceWithEmptyData() {
+  console.log('Testing StdinSource: With empty data...');
+
+  const emptyData = new Uint8Array(0);
+  const source = StdinSource.fromData(emptyData);
+
+  assert(source !== null, 'Should create source');
+  assert(source.isData(), 'Should be data source');
+  assertEqual(source.data.length, 0, 'Data length should be 0');
+
+  console.log('  ✓ With empty data');
+}
+
+function testStdinSourceWithNullData() {
+  console.log('Testing StdinSource: With null data...');
+
+  const source = StdinSource.fromData(null);
+
+  assert(source !== null, 'Should create source');
+  assert(source.isData(), 'Should be data source');
+  assertEqual(source.data, null, 'Data should be null');
+
+  console.log('  ✓ With null data');
+}
+
+function testStdinSourceWithBinaryContent() {
+  console.log('Testing StdinSource: With binary content...');
+
+  // PNG header bytes
+  const pngHeader = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+  const source = StdinSource.fromData(pngHeader);
+
+  assert(source !== null, 'Should create source');
+  assert(source.isData(), 'Should be data source');
+  assertEqual(source.data.length, 8, 'Should have 8 bytes');
+  assertEqual(source.data[0], 0x89, 'First byte should be 0x89');
+  assertEqual(source.data[1], 0x50, 'Second byte should be 0x50 (P)');
+
+  console.log('  ✓ With binary content');
+}
+
+function testStdinSourceKindConstants() {
+  console.log('Testing StdinSource: Kind constants...');
+
+  assert(StdinSourceKind.DATA !== undefined, 'DATA kind should be defined');
+  assert(StdinSourceKind.FILE_REFERENCE !== undefined, 'FILE_REFERENCE kind should be defined');
+  assert(StdinSourceKind.DATA !== StdinSourceKind.FILE_REFERENCE, 'Kind values should be distinct');
+
+  console.log('  ✓ Kind constants');
+}
+
+function testStdinSourcePassedToExecuteCap() {
+  console.log('Testing StdinSource: Passed to executeCap...');
+
+  // Create a mock host that verifies stdinSource is passed correctly
+  let receivedSource = null;
+  const mockHost = {
+    executeCap: async (capUrn, positionalArgs, namedArgs, stdinSource) => {
+      receivedSource = stdinSource;
+      return { textOutput: 'ok' };
+    }
+  };
+
+  // Create a simple cap
+  const cap = new Cap(
+    CapUrn.fromString('cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"'),
+    'Test Cap',
+    'test-command'
+  );
+
+  // Create registry and cube
+  const registry = new CapMatrix();
+  registry.registerCapSet('test', mockHost, [cap]);
+
+  const cube = new CapCube();
+  cube.addRegistry('test', registry);
+
+  // Test with Data source
+  const dataSource = StdinSource.fromData(new Uint8Array([1, 2, 3]));
+  const { compositeHost } = cube.can('cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"');
+
+  // Execute and verify
+  return compositeHost.executeCap(
+    'cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"',
+    [],
+    {},
+    dataSource
+  ).then(() => {
+    assert(receivedSource !== null, 'Should receive stdinSource');
+    assert(receivedSource.isData(), 'Should receive data source');
+    assertEqual(receivedSource.data.length, 3, 'Should have correct data length');
+    console.log('  ✓ Passed to executeCap');
+  });
+}
+
+function testStdinSourceFileReferencePassedToExecuteCap() {
+  console.log('Testing StdinSource: File reference passed to executeCap...');
+
+  // Create a mock host that verifies stdinSource is passed correctly
+  let receivedSource = null;
+  const mockHost = {
+    executeCap: async (capUrn, positionalArgs, namedArgs, stdinSource) => {
+      receivedSource = stdinSource;
+      return { textOutput: 'ok' };
+    }
+  };
+
+  // Create a simple cap
+  const cap = new Cap(
+    CapUrn.fromString('cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"'),
+    'Test Cap',
+    'test-command'
+  );
+
+  // Create registry and cube
+  const registry = new CapMatrix();
+  registry.registerCapSet('test', mockHost, [cap]);
+
+  const cube = new CapCube();
+  cube.addRegistry('test', registry);
+
+  // Test with FileReference source
+  const fileSource = StdinSource.fromFileReference(
+    'tracked-123',
+    '/path/to/file.pdf',
+    new Uint8Array([0x42, 0x4f, 0x4f, 0x4b]),
+    'media:type=pdf;v=1;binary'
+  );
+
+  const { compositeHost } = cube.can('cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"');
+
+  // Execute and verify
+  return compositeHost.executeCap(
+    'cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"',
+    [],
+    {},
+    fileSource
+  ).then(() => {
+    assert(receivedSource !== null, 'Should receive stdinSource');
+    assert(receivedSource.isFileReference(), 'Should receive file reference source');
+    assertEqual(receivedSource.trackedFileId, 'tracked-123', 'Should have correct trackedFileId');
+    assertEqual(receivedSource.originalPath, '/path/to/file.pdf', 'Should have correct originalPath');
+    assertEqual(receivedSource.mediaUrn, 'media:type=pdf;v=1;binary', 'Should have correct mediaUrn');
+    console.log('  ✓ File reference passed to executeCap');
+  });
+}
+
 // Update runTests to include new tests
-function runTests() {
+async function runTests() {
   console.log('Running Cap URN JavaScript tests...\n');
 
   // Original URN tests
@@ -1442,18 +1633,27 @@ function runTests() {
   testCapGraphStats();
   testCapGraphWithCapCube();
 
+  // StdinSource tests
+  testStdinSourceFromData();
+  testStdinSourceFromFileReference();
+  testStdinSourceWithEmptyData();
+  testStdinSourceWithNullData();
+  testStdinSourceWithBinaryContent();
+  testStdinSourceKindConstants();
+  await testStdinSourcePassedToExecuteCap();
+  await testStdinSourceFileReferencePassedToExecuteCap();
+
   console.log('OK All tests passed!');
 }
 
 // Run the tests
 if (require.main === module) {
-  try {
-    runTests();
-    process.exit(0);
-  } catch (error) {
-    console.error('\nERR Test failed:', error.message);
-    process.exit(1);
-  }
+  runTests()
+    .then(() => process.exit(0))
+    .catch(error => {
+      console.error('\nERR Test failed:', error.message);
+      process.exit(1);
+    });
 }
 
 module.exports = { runTests };
