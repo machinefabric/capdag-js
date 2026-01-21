@@ -1220,6 +1220,186 @@ class RegisteredBy {
   }
 }
 
+// ============================================================================
+// CAP ARGUMENT SYSTEM
+// ============================================================================
+
+/**
+ * Known source keys for argument sources
+ */
+const KNOWN_SOURCE_KEYS = ['stdin', 'position', 'cli_flag'];
+
+/**
+ * Reserved CLI flags that cannot be used
+ */
+const RESERVED_CLI_FLAGS = ['manifest', '--help', '--version', '-v', '-h'];
+
+/**
+ * Argument source - specifies how an argument can be provided
+ */
+class ArgSource {
+  constructor() {
+    this.stdin = null;    // string (media URN) or null
+    this.position = null; // number or null
+    this.cli_flag = null; // string or null
+  }
+
+  /**
+   * Create an ArgSource from a JSON object
+   * @param {Object} obj - The source object with one of: stdin, position, cli_flag
+   * @returns {ArgSource} The ArgSource instance
+   * @throws {Error} If unknown keys are present (RULE8)
+   */
+  static fromJSON(obj) {
+    // RULE8: Reject unknown keys
+    for (const key of Object.keys(obj)) {
+      if (!KNOWN_SOURCE_KEYS.includes(key)) {
+        throw new ValidationError('InvalidCapSchema', 'unknown',
+          { issue: `Unknown source key: ${key}` });
+      }
+    }
+    const source = new ArgSource();
+    if (obj.stdin !== undefined) source.stdin = obj.stdin;
+    if (obj.position !== undefined) source.position = obj.position;
+    if (obj.cli_flag !== undefined) source.cli_flag = obj.cli_flag;
+    return source;
+  }
+
+  /**
+   * Get the type of this source
+   * @returns {string|null} The source type: 'stdin', 'position', 'cli_flag', or null
+   */
+  getType() {
+    if (this.stdin !== null) return 'stdin';
+    if (this.position !== null) return 'position';
+    if (this.cli_flag !== null) return 'cli_flag';
+    return null;
+  }
+
+  /**
+   * Convert to JSON representation
+   * @returns {Object} The JSON representation
+   */
+  toJSON() {
+    if (this.stdin !== null) return { stdin: this.stdin };
+    if (this.position !== null) return { position: this.position };
+    if (this.cli_flag !== null) return { cli_flag: this.cli_flag };
+    return {};
+  }
+}
+
+/**
+ * Cap argument definition - media_urn is the unique identifier
+ */
+class CapArg {
+  /**
+   * Create a new CapArg
+   * @param {string} mediaUrn - The unique media URN for this argument
+   * @param {boolean} required - Whether this argument is required
+   * @param {Array<ArgSource>} sources - How this argument can be provided
+   * @param {Object} options - Optional fields: arg_description, validation, default_value, metadata
+   */
+  constructor(mediaUrn, required, sources, options = {}) {
+    this.media_urn = mediaUrn;
+    this.required = required;
+    this.sources = sources;  // Array of ArgSource
+    this.arg_description = options.arg_description || null;
+    this.validation = options.validation || null;
+    this.default_value = options.default_value !== undefined ? options.default_value : null;
+    this.metadata = options.metadata || null;
+  }
+
+  /**
+   * Create a CapArg from JSON
+   * @param {Object} json - The JSON representation
+   * @returns {CapArg} The CapArg instance
+   */
+  static fromJSON(json) {
+    const sources = (json.sources || []).map(s => ArgSource.fromJSON(s));
+    return new CapArg(
+      json.media_urn,
+      json.required,
+      sources,
+      {
+        arg_description: json.arg_description,
+        validation: json.validation,
+        default_value: json.default_value,
+        metadata: json.metadata
+      }
+    );
+  }
+
+  /**
+   * Convert to JSON representation
+   * @returns {Object} The JSON representation
+   */
+  toJSON() {
+    const result = {
+      media_urn: this.media_urn,
+      required: this.required,
+      sources: this.sources.map(s => s.toJSON())
+    };
+    if (this.arg_description) result.arg_description = this.arg_description;
+    if (this.validation) result.validation = this.validation;
+    if (this.default_value !== null && this.default_value !== undefined) {
+      result.default_value = this.default_value;
+    }
+    if (this.metadata) result.metadata = this.metadata;
+    return result;
+  }
+
+  /**
+   * Check if this argument has a stdin source
+   * @returns {boolean} True if has stdin source
+   */
+  hasStdinSource() {
+    return this.sources.some(s => s.stdin !== null);
+  }
+
+  /**
+   * Get the stdin media URN if present
+   * @returns {string|null} The stdin media URN or null
+   */
+  getStdinMediaUrn() {
+    const stdinSource = this.sources.find(s => s.stdin !== null);
+    return stdinSource ? stdinSource.stdin : null;
+  }
+
+  /**
+   * Check if this argument has a position source
+   * @returns {boolean} True if has position source
+   */
+  hasPositionSource() {
+    return this.sources.some(s => s.position !== null);
+  }
+
+  /**
+   * Get the position if present
+   * @returns {number|null} The position or null
+   */
+  getPosition() {
+    const posSource = this.sources.find(s => s.position !== null);
+    return posSource ? posSource.position : null;
+  }
+
+  /**
+   * Check if this argument has a cli_flag source
+   * @returns {boolean} True if has cli_flag source
+   */
+  hasCliFlagSource() {
+    return this.sources.some(s => s.cli_flag !== null);
+  }
+
+  /**
+   * Get the cli_flag if present
+   * @returns {string|null} The cli_flag or null
+   */
+  getCliFlag() {
+    const flagSource = this.sources.find(s => s.cli_flag !== null);
+    return flagSource ? flagSource.cli_flag : null;
+  }
+}
+
 /**
  * Capability definition class
  */
@@ -1250,19 +1430,38 @@ class Cap {
     this.cap_description = capDescription;
     this.metadata = metadata || {};
     this.mediaSpecs = {};  // Spec ID resolution table
-    this.arguments = { required: [], optional: [] };
+    this.args = [];  // Array of CapArg - unified argument format
     this.output = null;
-    this.stdin = null;  // If present, media URN that stdin expects. Null means no stdin.
     this.metadata_json = metadataJson;
     this.registered_by = null;  // Registration attribution
   }
 
   /**
-   * Get the media type expected for stdin
+   * Get the media type expected for stdin (derived from args with stdin source)
    * @returns {string|null} The media URN for stdin, or null if cap doesn't accept stdin
    */
   stdinMediaType() {
-    return this.stdin;
+    return this.getStdinMediaUrn();
+  }
+
+  /**
+   * Get the stdin media URN from args
+   * @returns {string|null} The stdin media URN or null if no arg accepts stdin
+   */
+  getStdinMediaUrn() {
+    for (const arg of this.args) {
+      const stdinUrn = arg.getStdinMediaUrn();
+      if (stdinUrn) return stdinUrn;
+    }
+    return null;
+  }
+
+  /**
+   * Check if this cap accepts stdin input
+   * @returns {boolean} True if any arg has a stdin source
+   */
+  acceptsStdin() {
+    return this.getStdinMediaUrn() !== null;
   }
 
   /**
@@ -1355,19 +1554,36 @@ class Cap {
   }
 
   /**
-   * Add a required argument
-   * @param {Object} arg - The argument definition
+   * Add an argument
+   * @param {CapArg} arg - The argument to add
    */
-  addRequiredArgument(arg) {
-    this.arguments.required.push(arg);
+  addArg(arg) {
+    this.args.push(arg);
   }
 
   /**
-   * Add an optional argument
-   * @param {Object} arg - The argument definition
+   * Get all required arguments
+   * @returns {Array<CapArg>} Required arguments
    */
-  addOptionalArgument(arg) {
-    this.arguments.optional.push(arg);
+  getRequiredArgs() {
+    return this.args.filter(arg => arg.required);
+  }
+
+  /**
+   * Get all optional arguments
+   * @returns {Array<CapArg>} Optional arguments
+   */
+  getOptionalArgs() {
+    return this.args.filter(arg => !arg.required);
+  }
+
+  /**
+   * Find argument by media_urn
+   * @param {string} mediaUrn - The media URN to search for
+   * @returns {CapArg|null} The argument or null
+   */
+  findArgByMediaUrn(mediaUrn) {
+    return this.args.find(arg => arg.media_urn === mediaUrn) || null;
   }
 
   /**
@@ -1418,9 +1634,8 @@ class Cap {
            this.cap_description === other.cap_description &&
            JSON.stringify(this.metadata) === JSON.stringify(other.metadata) &&
            JSON.stringify(this.mediaSpecs) === JSON.stringify(other.mediaSpecs) &&
-           JSON.stringify(this.arguments) === JSON.stringify(other.arguments) &&
+           JSON.stringify(this.args.map(a => a.toJSON())) === JSON.stringify(other.args.map(a => a.toJSON())) &&
            JSON.stringify(this.output) === JSON.stringify(other.output) &&
-           this.stdin === other.stdin &&
            JSON.stringify(this.metadata_json) === JSON.stringify(other.metadata_json) &&
            JSON.stringify(this.registered_by) === JSON.stringify(other.registered_by);
   }
@@ -1446,14 +1661,9 @@ class Cap {
       cap_description: this.cap_description,
       metadata: this.metadata,
       media_specs: this.mediaSpecs,
-      arguments: this.arguments,
+      args: this.args.map(a => a.toJSON()),
       output: this.output
     };
-
-    // Only include stdin if present (absence means no stdin)
-    if (this.stdin !== null && this.stdin !== undefined) {
-      result.stdin = this.stdin;
-    }
 
     if (this.metadata_json !== null && this.metadata_json !== undefined) {
       result.metadata_json = this.metadata_json;
@@ -1481,9 +1691,13 @@ class Cap {
 
     const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.metadata_json);
     cap.mediaSpecs = json.media_specs || json.mediaSpecs || {};
-    cap.arguments = json.arguments || { required: [], optional: [] };
+    // Parse args (new format)
+    if (json.args && Array.isArray(json.args)) {
+      cap.args = json.args.map(a => CapArg.fromJSON(a));
+    } else {
+      cap.args = [];
+    }
     cap.output = json.output;
-    cap.stdin = json.stdin || null;  // Absence or null means no stdin
     cap.registered_by = json.registered_by ? RegisteredBy.fromJSON(json.registered_by) : null;
     return cap;
   }
@@ -1584,6 +1798,135 @@ class ValidationError extends Error {
         return `Cap validation error: ${type}`;
     }
   }
+}
+
+/**
+ * Validate cap args against the 12 validation rules
+ * @param {Cap} cap - The capability to validate
+ * @throws {ValidationError} If any validation rule is violated
+ */
+function validateCapArgs(cap) {
+  const capUrn = cap.urnString();
+  const args = cap.args;
+
+  // RULE1: No duplicate media_urns (using string comparison for now)
+  const mediaUrns = new Set();
+  for (const arg of args) {
+    if (mediaUrns.has(arg.media_urn)) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE1: Duplicate media_urn '${arg.media_urn}'`
+      });
+    }
+    mediaUrns.add(arg.media_urn);
+  }
+
+  // RULE2: sources must not be null or empty
+  for (const arg of args) {
+    if (!arg.sources || arg.sources.length === 0) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE2: Argument '${arg.media_urn}' has empty sources`
+      });
+    }
+  }
+
+  // Collect stdin URNs, positions, and cli_flags for cross-arg validation
+  const stdinUrns = [];
+  const positions = [];
+  const cliFlags = [];
+
+  for (const arg of args) {
+    const sourceTypes = new Set();
+    let hasPosition = false;
+    let hasCliFlag = false;
+
+    for (const source of arg.sources) {
+      const sourceType = source.getType();
+
+      // RULE4: No arg may specify same source type more than once
+      if (sourceTypes.has(sourceType)) {
+        throw new ValidationError('InvalidCapSchema', capUrn, {
+          issue: `RULE4: Argument '${arg.media_urn}' has duplicate source type '${sourceType}'`
+        });
+      }
+      sourceTypes.add(sourceType);
+
+      if (source.stdin !== null) {
+        stdinUrns.push(source.stdin);
+      }
+      if (source.position !== null) {
+        hasPosition = true;
+        positions.push({ position: source.position, mediaUrn: arg.media_urn });
+      }
+      if (source.cli_flag !== null) {
+        hasCliFlag = true;
+        cliFlags.push({ flag: source.cli_flag, mediaUrn: arg.media_urn });
+
+        // RULE10: Reserved cli_flags
+        if (RESERVED_CLI_FLAGS.includes(source.cli_flag)) {
+          throw new ValidationError('InvalidCapSchema', capUrn, {
+            issue: `RULE10: Argument '${arg.media_urn}' uses reserved cli_flag '${source.cli_flag}'`
+          });
+        }
+      }
+    }
+
+    // RULE7: No arg may have both position and cli_flag
+    if (hasPosition && hasCliFlag) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE7: Argument '${arg.media_urn}' has both position and cli_flag sources`
+      });
+    }
+  }
+
+  // RULE3: If multiple args have stdin source, stdin media_urns must be identical
+  if (stdinUrns.length > 1) {
+    const firstStdin = stdinUrns[0];
+    for (let i = 1; i < stdinUrns.length; i++) {
+      if (stdinUrns[i] !== firstStdin) {
+        throw new ValidationError('InvalidCapSchema', capUrn, {
+          issue: `RULE3: Multiple args have different stdin media_urns: '${firstStdin}' vs '${stdinUrns[i]}'`
+        });
+      }
+    }
+  }
+
+  // RULE5: No two args may have same position
+  const positionSet = new Set();
+  for (const { position, mediaUrn } of positions) {
+    if (positionSet.has(position)) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE5: Duplicate position ${position} in argument '${mediaUrn}'`
+      });
+    }
+    positionSet.add(position);
+  }
+
+  // RULE6: Positions must be sequential (0-based, no gaps when aggregated)
+  if (positions.length > 0) {
+    const sortedPositions = [...positions].sort((a, b) => a.position - b.position);
+    for (let i = 0; i < sortedPositions.length; i++) {
+      if (sortedPositions[i].position !== i) {
+        throw new ValidationError('InvalidCapSchema', capUrn, {
+          issue: `RULE6: Position gap - expected ${i} but found ${sortedPositions[i].position}`
+        });
+      }
+    }
+  }
+
+  // RULE9: No two args may have same cli_flag
+  const flagSet = new Set();
+  for (const { flag, mediaUrn } of cliFlags) {
+    if (flagSet.has(flag)) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE9: Duplicate cli_flag '${flag}' in argument '${mediaUrn}'`
+      });
+    }
+    flagSet.add(flag);
+  }
+
+  // RULE8: No unknown keys in source objects - this is handled in ArgSource.fromJSON()
+  // RULE11: cli_flag used verbatim as specified - enforced by design
+  // RULE12: media_urn is the key, no name field - enforced by CapArg structure
 }
 
 /**
@@ -2883,6 +3226,8 @@ module.exports = {
   CapUrnError,
   ErrorCodes,
   Cap,
+  CapArg,
+  ArgSource,
   RegisteredBy,
   createCap,
   createCapWithDescription,
@@ -2892,6 +3237,8 @@ module.exports = {
   InputValidator,
   OutputValidator,
   CapValidator,
+  validateCapArgs,
+  RESERVED_CLI_FLAGS,
   MediaSpec,
   MediaSpecError,
   MediaSpecErrorCodes,
