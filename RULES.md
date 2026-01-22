@@ -14,7 +14,7 @@ Cap URNs **must** include `in` and `out` tags that specify input/output media ty
 
 ```javascript
 // Valid cap URN with direction specifiers
-const cap = CapUrn.fromString('cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"');
+const cap = CapUrn.fromString('cap:in="media:binary";op=extract;out="media:object"');
 
 // Invalid - missing direction specifiers
 CapUrn.fromString('cap:op=extract'); // throws ErrorCodes.MISSING_IN_SPEC
@@ -30,7 +30,7 @@ Direction specifier values must be valid Media URNs or wildcard `*`:
 
 ```javascript
 // Valid: Media URN value
-'cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"'
+'cap:in="media:binary";op=extract;out="media:object"'
 
 // Valid: Wildcard
 'cap:in=*;op=extract;out=*'

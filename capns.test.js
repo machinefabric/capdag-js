@@ -68,9 +68,9 @@ function assertThrows(fn, expectedErrorCode, message) {
  */
 function testUrn(tags) {
   if (!tags || tags === '') {
-    return 'cap:in="media:type=void;v=1";out="media:type=object;v=1"';
+    return 'cap:in="media:void";out="media:object"';
   }
-  return 'cap:in="media:type=void;v=1";out="media:type=object;v=1";' + tags;
+  return 'cap:in="media:void";out="media:object";' + tags;
 }
 
 // Test suite - defined at the end of file
@@ -82,8 +82,8 @@ function testCapUrnCreation() {
   assertEqual(cap.getTag('op'), 'generate', 'Should get action tag');
   assertEqual(cap.getTag('target'), 'thumbnail', 'Should get target tag');
   assertEqual(cap.getTag('ext'), 'pdf', 'Should get ext tag');
-  assertEqual(cap.getInSpec(), 'media:type=void;v=1', 'Should get inSpec');
-  assertEqual(cap.getOutSpec(), 'media:type=object;v=1', 'Should get outSpec');
+  assertEqual(cap.getInSpec(), 'media:void', 'Should get inSpec');
+  assertEqual(cap.getOutSpec(), 'media:object', 'Should get outSpec');
 
   console.log('  ✓ Cap URN creation');
 }
@@ -92,7 +92,7 @@ function testCaseInsensitive() {
   console.log('Testing case insensitive behavior...');
 
   // Test that different casing produces the same URN
-  const cap1 = CapUrn.fromString('cap:IN="media:type=void;v=1";OUT="media:type=object;v=1";OP=Generate;EXT=PDF;Target=Thumbnail');
+  const cap1 = CapUrn.fromString('cap:IN="media:void";OUT="media:object";OP=Generate;EXT=PDF;Target=Thumbnail');
   const cap2 = CapUrn.fromString(testUrn('op=generate;ext=pdf;target=thumbnail'));
 
   // Both should be normalized to lowercase
@@ -113,8 +113,8 @@ function testCaseInsensitive() {
   assert(cap1.hasTag('OP', 'generate'), 'Should match with case-insensitive comparison');
 
   // Case-insensitive in/out lookup
-  assertEqual(cap1.getTag('IN'), 'media:type=void;v=1', 'Should lookup in with case-insensitive key');
-  assertEqual(cap1.getTag('OUT'), 'media:type=object;v=1', 'Should lookup out with case-insensitive key');
+  assertEqual(cap1.getTag('IN'), 'media:void', 'Should lookup in with case-insensitive key');
+  assertEqual(cap1.getTag('OUT'), 'media:object', 'Should lookup out with case-insensitive key');
 
   // Matching should work case-insensitively
   assert(cap1.matches(cap2), 'Should match case-insensitively');
@@ -128,7 +128,7 @@ function testCapPrefixRequired() {
 
   // Missing cap: prefix should fail
   assertThrows(
-    () => CapUrn.fromString('in="media:type=void;v=1";out="media:type=object;v=1";op=generate'),
+    () => CapUrn.fromString('in="media:void";out="media:object";op=generate'),
     ErrorCodes.MISSING_CAP_PREFIX,
     'Should require cap: prefix'
   );
@@ -166,7 +166,7 @@ function testCanonicalStringFormat() {
   const cap = CapUrn.fromString(testUrn('op=generate;target=thumbnail;ext=pdf'));
   // Should be sorted alphabetically and have no trailing semicolon in canonical form
   // in/out are included in alphabetical order: 'ext' < 'in' < 'op' < 'out' < 'target'
-  assertEqual(cap.toString(), 'cap:ext=pdf;in="media:type=void;v=1";op=generate;out="media:type=object;v=1";target=thumbnail', 'Should be alphabetically sorted');
+  assertEqual(cap.toString(), 'cap:ext=pdf;in="media:void";op=generate;out="media:object";target=thumbnail', 'Should be alphabetically sorted');
 
   console.log('  ✓ Canonical string format');
 }
@@ -193,7 +193,7 @@ function testTagMatching() {
   assert(!cap.matches(request4), 'Should not match conflicting value');
 
   // Direction must match
-  const request5 = CapUrn.fromString('cap:in="media:type=string;v=1";out="media:type=object;v=1";op=generate');
+  const request5 = CapUrn.fromString('cap:in="media:string";out="media:object";op=generate');
   assert(!cap.matches(request5), 'Should not match different inSpec');
 
   console.log('  ✓ Tag matching');
@@ -224,7 +224,7 @@ function testSpecificity() {
   const cap2 = CapUrn.fromString(testUrn('op=generate'));
   const cap3 = CapUrn.fromString(testUrn('op=*;ext=pdf'));
 
-  // Base: in=media:type=void;v=1 (1) + out=media:type=object;v=1 (1) = 2
+  // Base: in=media:void (1) + out=media:object (1) = 2
   assertEqual(cap1.specificity(), 3, 'Should have specificity 3 (2 for in/out + 1 for type)');
   assertEqual(cap2.specificity(), 3, 'Should have specificity 3 (2 for in/out + 1 for op)');
   assertEqual(cap3.specificity(), 3, 'Should have specificity 3 (2 for in/out + 1 for ext, op=* does not count)');
@@ -255,7 +255,7 @@ function testCompatibility() {
   assert(cap4.isCompatibleWith(cap1), 'Should be compatible with missing tags');
 
   // Different in/out should not be compatible
-  const cap5 = CapUrn.fromString('cap:in="media:type=string;v=1";out="media:type=object;v=1";op=generate');
+  const cap5 = CapUrn.fromString('cap:in="media:string";out="media:object";op=generate');
   assert(!cap1.isCompatibleWith(cap5), 'Should not be compatible with different inSpec');
 
   console.log('  ✓ Compatibility');
@@ -265,8 +265,8 @@ function testBuilder() {
   console.log('Testing builder...');
 
   const cap = new CapUrnBuilder()
-    .inSpec('media:type=void;v=1')
-    .outSpec('media:type=object;v=1')
+    .inSpec('media:void')
+    .outSpec('media:object')
     .tag('op', 'generate')
     .tag('target', 'thumbnail')
     .tag('ext', 'pdf')
@@ -275,8 +275,8 @@ function testBuilder() {
 
   assertEqual(cap.getTag('op'), 'generate', 'Should build with op tag');
   assertEqual(cap.getTag('format'), 'binary', 'Should build with format tag');
-  assertEqual(cap.getInSpec(), 'media:type=void;v=1', 'Should build with inSpec');
-  assertEqual(cap.getOutSpec(), 'media:type=object;v=1', 'Should build with outSpec');
+  assertEqual(cap.getInSpec(), 'media:void', 'Should build with inSpec');
+  assertEqual(cap.getOutSpec(), 'media:object', 'Should build with outSpec');
 
   // Builder should require inSpec and outSpec
   assertThrows(
@@ -286,7 +286,7 @@ function testBuilder() {
   );
 
   assertThrows(
-    () => new CapUrnBuilder().inSpec('media:type=void;v=1').tag('op', 'test').build(),
+    () => new CapUrnBuilder().inSpec('media:void').tag('op', 'test').build(),
     ErrorCodes.MISSING_OUT_SPEC,
     'Should require outSpec'
   );
@@ -303,37 +303,37 @@ function testConvenienceMethods() {
   const modified = original.withTag('ext', 'pdf');
   assertEqual(modified.getTag('op'), 'generate', 'Should preserve original tag');
   assertEqual(modified.getTag('ext'), 'pdf', 'Should add new tag');
-  assertEqual(modified.getInSpec(), 'media:type=void;v=1', 'Should preserve inSpec');
-  assertEqual(modified.getOutSpec(), 'media:type=object;v=1', 'Should preserve outSpec');
+  assertEqual(modified.getInSpec(), 'media:void', 'Should preserve inSpec');
+  assertEqual(modified.getOutSpec(), 'media:object', 'Should preserve outSpec');
 
   // Test withTag silently ignores in/out
-  const modified2 = original.withTag('in', 'media:type=string;v=1');
-  assertEqual(modified2.getInSpec(), 'media:type=void;v=1', 'withTag should ignore in');
+  const modified2 = original.withTag('in', 'media:string');
+  assertEqual(modified2.getInSpec(), 'media:void', 'withTag should ignore in');
   assert(modified2 === original, 'withTag(in) should return same object');
 
   // Test withInSpec/withOutSpec
-  const modifiedIn = original.withInSpec('media:type=string;v=1');
-  assertEqual(modifiedIn.getInSpec(), 'media:type=string;v=1', 'withInSpec should change inSpec');
-  const modifiedOut = original.withOutSpec('media:type=binary;v=1');
-  assertEqual(modifiedOut.getOutSpec(), 'media:type=binary;v=1', 'withOutSpec should change outSpec');
+  const modifiedIn = original.withInSpec('media:string');
+  assertEqual(modifiedIn.getInSpec(), 'media:string', 'withInSpec should change inSpec');
+  const modifiedOut = original.withOutSpec('media:binary');
+  assertEqual(modifiedOut.getOutSpec(), 'media:binary', 'withOutSpec should change outSpec');
 
   // Test withoutTag
   const removed = modified.withoutTag('op');
   assertEqual(removed.getTag('ext'), 'pdf', 'Should preserve remaining tag');
   assertEqual(removed.getTag('op'), undefined, 'Should remove specified tag');
-  assertEqual(removed.getInSpec(), 'media:type=void;v=1', 'Should preserve inSpec after withoutTag');
+  assertEqual(removed.getInSpec(), 'media:void', 'Should preserve inSpec after withoutTag');
 
   // Test withoutTag silently ignores in/out
   const removed2 = modified.withoutTag('in');
-  assertEqual(removed2.getInSpec(), 'media:type=void;v=1', 'withoutTag should ignore in');
+  assertEqual(removed2.getInSpec(), 'media:void', 'withoutTag should ignore in');
   assert(removed2 === modified, 'withoutTag(in) should return same object');
 
   // Test merge (direction from other)
   const cap1 = CapUrn.fromString(testUrn('op=generate'));
-  const cap2 = CapUrn.fromString('cap:in="media:type=string;v=1";out="media:type=binary;v=1";ext=pdf;format=binary');
+  const cap2 = CapUrn.fromString('cap:in="media:string";out="media:binary";ext=pdf;format=binary');
   const merged = cap1.merge(cap2);
-  assertEqual(merged.getInSpec(), 'media:type=string;v=1', 'merge should take inSpec from other');
-  assertEqual(merged.getOutSpec(), 'media:type=binary;v=1', 'merge should take outSpec from other');
+  assertEqual(merged.getInSpec(), 'media:string', 'merge should take inSpec from other');
+  assertEqual(merged.getOutSpec(), 'media:binary', 'merge should take outSpec from other');
   assertEqual(merged.getTag('op'), 'generate', 'merge should keep original tags');
   assertEqual(merged.getTag('ext'), 'pdf', 'merge should add other tags');
 
@@ -341,8 +341,8 @@ function testConvenienceMethods() {
   const subset = merged.subset(['type', 'ext']);
   assertEqual(subset.getTag('ext'), 'pdf', 'Should include ext');
   assertEqual(subset.getTag('op'), undefined, 'Should not include op');
-  assertEqual(subset.getInSpec(), 'media:type=string;v=1', 'subset should preserve inSpec');
-  assertEqual(subset.getOutSpec(), 'media:type=binary;v=1', 'subset should preserve outSpec');
+  assertEqual(subset.getInSpec(), 'media:string', 'subset should preserve inSpec');
+  assertEqual(subset.getOutSpec(), 'media:binary', 'subset should preserve outSpec');
 
   // Test wildcardTag for in/out
   const cap = CapUrn.fromString(testUrn('ext=pdf'));
@@ -370,7 +370,7 @@ function testCapMatcher() {
 
   // Most specific cap that can handle the request (ext=pdf is more specific)
   // Canonical order is alphabetical: ext, in, op, out
-  assertEqual(best.toString(), 'cap:ext=pdf;in="media:type=void;v=1";op=generate;out="media:type=object;v=1"', 'Should find most specific match');
+  assertEqual(best.toString(), 'cap:ext=pdf;in="media:void";op=generate;out="media:object"', 'Should find most specific match');
 
   // Test findAllMatches - now only 2 match because first has wildcard in/out
   const matches = CapMatcher.findAllMatches(caps, request);
@@ -390,8 +390,8 @@ function testJSONSerialization() {
   const restored = CapUrn.fromString(parsed.urn);
 
   assert(original.equals(restored), 'Should serialize/deserialize correctly');
-  assertEqual(restored.getInSpec(), 'media:type=void;v=1', 'Should preserve inSpec');
-  assertEqual(restored.getOutSpec(), 'media:type=object;v=1', 'Should preserve outSpec');
+  assertEqual(restored.getInSpec(), 'media:void', 'Should preserve inSpec');
+  assertEqual(restored.getOutSpec(), 'media:object', 'Should preserve outSpec');
 
   console.log('  ✓ JSON serialization');
 }
@@ -408,7 +408,7 @@ function testEmptyCapUrn() {
 
   // Missing out should fail
   assertThrows(
-    () => CapUrn.fromString('cap:in="media:type=void;v=1"'),
+    () => CapUrn.fromString('cap:in="media:void"'),
     ErrorCodes.MISSING_OUT_SPEC,
     'Cap URN without out should fail with MISSING_OUT_SPEC'
   );
@@ -416,8 +416,8 @@ function testEmptyCapUrn() {
   // Minimal valid cap (just in/out)
   const minimal = CapUrn.fromString(testUrn(''));
   assertEqual(Object.keys(minimal.tags).length, 0, 'Should have no other tags');
-  assertEqual(minimal.getInSpec(), 'media:type=void;v=1', 'Should have inSpec');
-  assertEqual(minimal.getOutSpec(), 'media:type=object;v=1', 'Should have outSpec');
+  assertEqual(minimal.getInSpec(), 'media:void', 'Should have inSpec');
+  assertEqual(minimal.getOutSpec(), 'media:object', 'Should have outSpec');
 
   // For "match anything" behavior, use wildcards
   const wildcard = CapUrn.fromString('cap:in=*;out=*');
@@ -553,7 +553,7 @@ function testBuiltinSpecIds() {
   assert(isBuiltinMediaUrn(MEDIA_BINARY), 'MEDIA_BINARY should be built-in');
 
   // Non-existent spec should not be built-in
-  assert(!isBuiltinMediaUrn('media:type=nonexistent;v=1'), 'Non-existent spec should not be built-in');
+  assert(!isBuiltinMediaUrn('media:nonexistent'), 'Non-existent spec should not be built-in');
 
   console.log('  ✓ Built-in spec IDs');
 }
@@ -585,8 +585,8 @@ function testMediaUrnResolutionWithMediaSpecs() {
 
   // Custom mediaSpecs table (using media URN format as keys)
   const mediaSpecs = {
-    'media:type=custom-json;v=1': 'application/json; profile=https://example.com/schema/custom',
-    'media:type=rich-xml;v=1': {
+    'media:custom-json': 'application/json; profile=https://example.com/schema/custom',
+    'media:rich-xml': {
       media_type: 'application/xml',
       profile_uri: 'https://example.com/schema/rich',
       schema: { type: 'object' }
@@ -594,12 +594,12 @@ function testMediaUrnResolutionWithMediaSpecs() {
   };
 
   // Should resolve custom string form
-  const customSpec = resolveMediaUrn('media:type=custom-json;v=1', mediaSpecs);
+  const customSpec = resolveMediaUrn('media:custom-json', mediaSpecs);
   assertEqual(customSpec.contentType, 'application/json', 'Should resolve custom spec');
   assertEqual(customSpec.profile, 'https://example.com/schema/custom', 'Should have custom profile');
 
   // Should resolve custom object form with schema
-  const richSpec = resolveMediaUrn('media:type=rich-xml;v=1', mediaSpecs);
+  const richSpec = resolveMediaUrn('media:rich-xml', mediaSpecs);
   assertEqual(richSpec.contentType, 'application/xml', 'Should resolve rich spec');
   assertEqual(richSpec.profile, 'https://example.com/schema/rich', 'Should have rich profile');
   assert(richSpec.schema !== null, 'Should have schema from object form');
@@ -617,7 +617,7 @@ function testMediaUrnResolutionFailHard() {
   // Should FAIL HARD on unresolvable media URN
   let caught = false;
   try {
-    resolveMediaUrn('media:type=nonexistent;v=1', {});
+    resolveMediaUrn('media:nonexistent', {});
   } catch (e) {
     if (e instanceof MediaSpecError && e.code === MediaSpecErrorCodes.UNRESOLVABLE_MEDIA_URN) {
       caught = true;
@@ -634,15 +634,15 @@ function testCapWithMediaSpecs() {
   console.log('Testing Cap with mediaSpecs...');
 
   // Now in/out are parsed as first-class fields with media URNs
-  const urn = CapUrn.fromString('cap:in="media:type=string;v=1";op=test;out="media:type=custom;v=1"');
-  assertEqual(urn.getInSpec(), 'media:type=string;v=1', 'Should parse inSpec');
-  assertEqual(urn.getOutSpec(), 'media:type=custom;v=1', 'Should parse outSpec');
+  const urn = CapUrn.fromString('cap:in="media:string";op=test;out="media:custom"');
+  assertEqual(urn.getInSpec(), 'media:string', 'Should parse inSpec');
+  assertEqual(urn.getOutSpec(), 'media:custom', 'Should parse outSpec');
 
   const cap = new Cap(urn, 'Test Cap', 'test_command');
 
   // Set custom mediaSpecs
   cap.mediaSpecs = {
-    'media:type=custom;v=1': {
+    'media:custom': {
       media_type: 'application/json',
       profile_uri: 'https://example.com/schema/output',
       schema: {
@@ -657,7 +657,7 @@ function testCapWithMediaSpecs() {
   assertEqual(strSpec.contentType, 'text/plain', 'Should resolve built-in through cap');
 
   // Should resolve custom spec via cap.resolveMediaUrn
-  const outputSpec = cap.resolveMediaUrn('media:type=custom;v=1');
+  const outputSpec = cap.resolveMediaUrn('media:custom');
   assertEqual(outputSpec.contentType, 'application/json', 'Should resolve custom spec through cap');
   assert(outputSpec.schema !== null, 'Should have schema');
 
@@ -670,28 +670,28 @@ function testCapJSONSerialization() {
   const urn = CapUrn.fromString(testUrn('op=test'));
   const cap = new Cap(urn, 'Test Cap', 'test_command');
   cap.mediaSpecs = {
-    'media:type=custom;v=1': 'text/plain; profile=https://example.com'
+    'media:custom': 'text/plain; profile=https://example.com'
   };
   cap.arguments = {
     required: [{ name: 'input', media_urn: MEDIA_STRING }],
     optional: []
   };
-  cap.output = { media_urn: 'media:type=custom;v=1', output_description: 'Test output' };
+  cap.output = { media_urn: 'media:custom', output_description: 'Test output' };
 
   // Serialize to JSON
   const json = cap.toJSON();
   assert(json.media_specs !== undefined, 'Should have media_specs in JSON');
-  assertEqual(json.media_specs['media:type=custom;v=1'], 'text/plain; profile=https://example.com', 'Should serialize mediaSpecs');
+  assertEqual(json.media_specs['media:custom'], 'text/plain; profile=https://example.com', 'Should serialize mediaSpecs');
   // URN tags should include in and out
-  assertEqual(json.urn.tags['in'], 'media:type=void;v=1', 'Should serialize inSpec in tags');
-  assertEqual(json.urn.tags['out'], 'media:type=object;v=1', 'Should serialize outSpec in tags');
+  assertEqual(json.urn.tags['in'], 'media:void', 'Should serialize inSpec in tags');
+  assertEqual(json.urn.tags['out'], 'media:object', 'Should serialize outSpec in tags');
 
   // Deserialize from JSON
   const restored = Cap.fromJSON(json);
   assert(restored.mediaSpecs !== undefined, 'Should restore mediaSpecs');
-  assertEqual(restored.mediaSpecs['media:type=custom;v=1'], 'text/plain; profile=https://example.com', 'Should restore mediaSpecs content');
-  assertEqual(restored.urn.getInSpec(), 'media:type=void;v=1', 'Should restore inSpec');
-  assertEqual(restored.urn.getOutSpec(), 'media:type=object;v=1', 'Should restore outSpec');
+  assertEqual(restored.mediaSpecs['media:custom'], 'text/plain; profile=https://example.com', 'Should restore mediaSpecs content');
+  assertEqual(restored.urn.getInSpec(), 'media:void', 'Should restore inSpec');
+  assertEqual(restored.urn.getOutSpec(), 'media:object', 'Should restore outSpec');
 
   console.log('  ✓ Cap JSON serialization with mediaSpecs');
 }
@@ -706,8 +706,8 @@ function testOpTagRename() {
 
   // Builder should use op
   const built = new CapUrnBuilder()
-    .inSpec('media:type=void;v=1')
-    .outSpec('media:type=object;v=1')
+    .inSpec('media:void')
+    .outSpec('media:object')
     .tag('op', 'transform')
     .tag('type', 'data')
     .build();
@@ -725,8 +725,8 @@ function testOpTagRename() {
 function testMatchingSemantics_Test1_ExactMatch() {
   console.log('Testing Matching Semantics Test 1: Exact match...');
   // Test 1: Exact match (including in/out)
-  // Cap:     cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=pdf
-  // Request: cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=pdf
+  // Cap:     cap:in="media:void";out="media:object";op=generate;ext=pdf
+  // Request: cap:in="media:void";out="media:object";op=generate;ext=pdf
   // Result:  MATCH
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
@@ -737,8 +737,8 @@ function testMatchingSemantics_Test1_ExactMatch() {
 function testMatchingSemantics_Test2_CapMissingTag() {
   console.log('Testing Matching Semantics Test 2: Cap missing tag...');
   // Test 2: Cap missing tag (implicit wildcard for other tags, not in/out)
-  // Cap:     cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate
-  // Request: cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=pdf
+  // Cap:     cap:in="media:void";out="media:object";op=generate
+  // Request: cap:in="media:void";out="media:object";op=generate;ext=pdf
   // Result:  MATCH (cap can handle any ext)
   const cap = CapUrn.fromString(testUrn('op=generate'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
@@ -749,8 +749,8 @@ function testMatchingSemantics_Test2_CapMissingTag() {
 function testMatchingSemantics_Test3_CapHasExtraTag() {
   console.log('Testing Matching Semantics Test 3: Cap has extra tag...');
   // Test 3: Cap has extra tag
-  // Cap:     cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=pdf;version=2
-  // Request: cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=pdf
+  // Cap:     cap:in="media:void";out="media:object";op=generate;ext=pdf;version=2
+  // Request: cap:in="media:void";out="media:object";op=generate;ext=pdf
   // Result:  MATCH (request doesn't constrain version)
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf;version=2'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
@@ -761,8 +761,8 @@ function testMatchingSemantics_Test3_CapHasExtraTag() {
 function testMatchingSemantics_Test4_RequestHasWildcard() {
   console.log('Testing Matching Semantics Test 4: Request has wildcard...');
   // Test 4: Request has wildcard
-  // Cap:     cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=pdf
-  // Request: cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=*
+  // Cap:     cap:in="media:void";out="media:object";op=generate;ext=pdf
+  // Request: cap:in="media:void";out="media:object";op=generate;ext=*
   // Result:  MATCH (request accepts any ext)
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=*'));
@@ -773,8 +773,8 @@ function testMatchingSemantics_Test4_RequestHasWildcard() {
 function testMatchingSemantics_Test5_CapHasWildcard() {
   console.log('Testing Matching Semantics Test 5: Cap has wildcard...');
   // Test 5: Cap has wildcard
-  // Cap:     cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=*
-  // Request: cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=pdf
+  // Cap:     cap:in="media:void";out="media:object";op=generate;ext=*
+  // Request: cap:in="media:void";out="media:object";op=generate;ext=pdf
   // Result:  MATCH (cap handles any ext)
   const cap = CapUrn.fromString(testUrn('op=generate;ext=*'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
@@ -785,8 +785,8 @@ function testMatchingSemantics_Test5_CapHasWildcard() {
 function testMatchingSemantics_Test6_ValueMismatch() {
   console.log('Testing Matching Semantics Test 6: Value mismatch...');
   // Test 6: Value mismatch
-  // Cap:     cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=pdf
-  // Request: cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=docx
+  // Cap:     cap:in="media:void";out="media:object";op=generate;ext=pdf
+  // Request: cap:in="media:void";out="media:object";op=generate;ext=docx
   // Result:  NO MATCH
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=docx'));
@@ -797,11 +797,11 @@ function testMatchingSemantics_Test6_ValueMismatch() {
 function testMatchingSemantics_Test7_FallbackPattern() {
   console.log('Testing Matching Semantics Test 7: Fallback pattern...');
   // Test 7: Fallback pattern
-  // Cap:     cap:in="media:type=void;v=1";out="media:type=binary;v=1";op=generate_thumbnail
-  // Request: cap:in="media:type=void;v=1";out="media:type=binary;v=1";op=generate_thumbnail;ext=wav
+  // Cap:     cap:in="media:void";out="media:binary";op=generate_thumbnail
+  // Request: cap:in="media:void";out="media:binary";op=generate_thumbnail;ext=wav
   // Result:  MATCH (cap has implicit ext=*)
-  const cap = CapUrn.fromString('cap:in="media:type=void;v=1";out="media:type=binary;v=1";op=generate_thumbnail');
-  const request = CapUrn.fromString('cap:in="media:type=void;v=1";out="media:type=binary;v=1";op=generate_thumbnail;ext=wav');
+  const cap = CapUrn.fromString('cap:in="media:void";out="media:binary";op=generate_thumbnail');
+  const request = CapUrn.fromString('cap:in="media:void";out="media:binary";op=generate_thumbnail;ext=wav');
   assert(cap.matches(request), 'Test 7: Fallback pattern should match (cap missing ext = implicit wildcard)');
   console.log('  ✓ Test 7: Fallback pattern');
 }
@@ -810,7 +810,7 @@ function testMatchingSemantics_Test8_WildcardCapMatchesAnything() {
   console.log('Testing Matching Semantics Test 8: Wildcard cap matches anything...');
   // Test 8: Wildcard cap matches anything (replaces empty cap test)
   // Cap:     cap:in=*;out=*
-  // Request: cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate;ext=pdf
+  // Request: cap:in="media:void";out="media:object";op=generate;ext=pdf
   // Result:  MATCH
   const cap = CapUrn.fromString('cap:in=*;out=*');
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
@@ -821,8 +821,8 @@ function testMatchingSemantics_Test8_WildcardCapMatchesAnything() {
 function testMatchingSemantics_Test9_CrossDimensionIndependence() {
   console.log('Testing Matching Semantics Test 9: Cross-dimension independence...');
   // Test 9: Cross-dimension independence (for other tags, not in/out)
-  // Cap:     cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate
-  // Request: cap:in="media:type=void;v=1";out="media:type=object;v=1";ext=pdf
+  // Cap:     cap:in="media:void";out="media:object";op=generate
+  // Request: cap:in="media:void";out="media:object";ext=pdf
   // Result:  MATCH (both have implicit wildcards for missing tags)
   const cap = CapUrn.fromString(testUrn('op=generate'));
   const request = CapUrn.fromString(testUrn('ext=pdf'));
@@ -833,11 +833,11 @@ function testMatchingSemantics_Test9_CrossDimensionIndependence() {
 function testMatchingSemantics_Test10_DirectionMismatch() {
   console.log('Testing Matching Semantics Test 10: Direction mismatch...');
   // Test 10: Direction mismatch (in/out must match)
-  // Cap:     cap:in="media:type=void;v=1";out="media:type=object;v=1";op=generate
-  // Request: cap:in="media:type=string;v=1";out="media:type=object;v=1";op=generate
+  // Cap:     cap:in="media:void";out="media:object";op=generate
+  // Request: cap:in="media:string";out="media:object";op=generate
   // Result:  NO MATCH (different inSpec)
   const cap = CapUrn.fromString(testUrn('op=generate'));
-  const request = CapUrn.fromString('cap:in="media:type=string;v=1";out="media:type=object;v=1";op=generate');
+  const request = CapUrn.fromString('cap:in="media:string";out="media:object";op=generate');
   assert(!cap.matches(request), 'Test 10: Direction mismatch should not match');
   console.log('  ✓ Test 10: Direction mismatch');
 }
@@ -849,9 +849,9 @@ function testMatchingSemantics_Test10_DirectionMismatch() {
 // Helper to create a test URN
 function matrixTestUrn(tags) {
   if (!tags) {
-    return 'cap:in="media:type=void;v=1";out="media:type=object;v=1"';
+    return 'cap:in="media:void";out="media:object"';
   }
-  return `cap:in="media:type=void;v=1";out="media:type=object;v=1";${tags}`;
+  return `cap:in="media:void";out="media:object";${tags}`;
 }
 
 // Mock CapSet for testing
@@ -883,7 +883,7 @@ function testCapCubeMoreSpecificWins() {
   // Provider: less specific cap (no ext tag)
   const providerHost = new MockCapSet('provider');
   const providerCap = makeCap(
-    'cap:in="media:type=binary;v=1";op=generate_thumbnail;out="media:type=binary;v=1"',
+    'cap:in="media:binary";op=generate_thumbnail;out="media:binary"',
     'Provider Thumbnail Generator (generic)'
   );
   providerRegistry.registerCapSet('provider', providerHost, [providerCap]);
@@ -891,7 +891,7 @@ function testCapCubeMoreSpecificWins() {
   // Plugin: more specific cap (has ext=pdf)
   const pluginHost = new MockCapSet('plugin');
   const pluginCap = makeCap(
-    'cap:ext=pdf;in="media:type=binary;v=1";op=generate_thumbnail;out="media:type=binary;v=1"',
+    'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"',
     'Plugin PDF Thumbnail Generator (specific)'
   );
   pluginRegistry.registerCapSet('plugin', pluginHost, [pluginCap]);
@@ -902,7 +902,7 @@ function testCapCubeMoreSpecificWins() {
   composite.addRegistry('plugins', pluginRegistry);
 
   // Request for PDF thumbnails - plugin's more specific cap should win
-  const request = 'cap:ext=pdf;in="media:type=binary;v=1";op=generate_thumbnail;out="media:type=binary;v=1"';
+  const request = 'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"';
   const best = composite.findBestCapSet(request);
 
   assertEqual(best.registryName, 'plugins', 'More specific plugin should win');
@@ -1000,7 +1000,7 @@ function testCapCubeFallbackScenario() {
   // Provider with generic fallback
   const providerHost = new MockCapSet('provider_fallback');
   const providerCap = makeCap(
-    'cap:in="media:type=binary;v=1";op=generate_thumbnail;out="media:type=binary;v=1"',
+    'cap:in="media:binary";op=generate_thumbnail;out="media:binary"',
     'Generic Thumbnail Provider'
   );
   providerRegistry.registerCapSet('provider_fallback', providerHost, [providerCap]);
@@ -1008,7 +1008,7 @@ function testCapCubeFallbackScenario() {
   // Plugin with PDF-specific handler
   const pluginHost = new MockCapSet('pdf_plugin');
   const pluginCap = makeCap(
-    'cap:ext=pdf;in="media:type=binary;v=1";op=generate_thumbnail;out="media:type=binary;v=1"',
+    'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"',
     'PDF Thumbnail Plugin'
   );
   pluginRegistry.registerCapSet('pdf_plugin', pluginHost, [pluginCap]);
@@ -1018,7 +1018,7 @@ function testCapCubeFallbackScenario() {
   composite.addRegistry('plugins', pluginRegistry);
 
   // Request for PDF thumbnail
-  const request = 'cap:ext=pdf;in="media:type=binary;v=1";op=generate_thumbnail;out="media:type=binary;v=1"';
+  const request = 'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"';
   const best = composite.findBestCapSet(request);
 
   assertEqual(best.registryName, 'plugins', 'Plugin should win for PDF');
@@ -1026,7 +1026,7 @@ function testCapCubeFallbackScenario() {
   assertEqual(best.specificity, 4, 'Plugin has specificity 4');
 
   // Test that for a different file type, provider wins
-  const requestWav = 'cap:ext=wav;in="media:type=binary;v=1";op=generate_thumbnail;out="media:type=binary;v=1"';
+  const requestWav = 'cap:ext=wav;in="media:binary";op=generate_thumbnail;out="media:binary"';
   const bestWav = composite.findBestCapSet(requestWav);
 
   assertEqual(bestWav.registryName, 'providers', 'Provider should win for wav');
@@ -1107,8 +1107,8 @@ function testCapGraphBasicConstruction() {
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
 
   // binary -> str -> obj
-  const cap1 = makeGraphCap('media:type=binary;v=1', 'media:type=string;v=1', 'Binary to String');
-  const cap2 = makeGraphCap('media:type=string;v=1', 'media:type=object;v=1', 'String to Object');
+  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
+  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2]);
 
@@ -1140,8 +1140,8 @@ function testCapGraphOutgoingIncoming() {
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
 
   // binary -> str, binary -> obj
-  const cap1 = makeGraphCap('media:type=binary;v=1', 'media:type=string;v=1', 'Binary to String');
-  const cap2 = makeGraphCap('media:type=binary;v=1', 'media:type=object;v=1', 'Binary to Object');
+  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
+  const cap2 = makeGraphCap('media:binary', 'media:object', 'Binary to Object');
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2]);
 
@@ -1151,15 +1151,15 @@ function testCapGraphOutgoingIncoming() {
   const graph = cube.graph();
 
   // binary has 2 outgoing edges
-  const outgoing = graph.getOutgoing('media:type=binary;v=1');
+  const outgoing = graph.getOutgoing('media:binary');
   assertEqual(outgoing.length, 2, 'Expected 2 outgoing edges from binary');
 
   // str has 1 incoming edge
-  const incomingStr = graph.getIncoming('media:type=string;v=1');
+  const incomingStr = graph.getIncoming('media:string');
   assertEqual(incomingStr.length, 1, 'Expected 1 incoming edge to str');
 
   // obj has 1 incoming edge
-  const incomingObj = graph.getIncoming('media:type=object;v=1');
+  const incomingObj = graph.getIncoming('media:object');
   assertEqual(incomingObj.length, 1, 'Expected 1 incoming edge to obj');
 
   console.log('  ✓ Outgoing and incoming edges');
@@ -1172,8 +1172,8 @@ function testCapGraphCanConvert() {
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
 
   // binary -> str -> obj
-  const cap1 = makeGraphCap('media:type=binary;v=1', 'media:type=string;v=1', 'Binary to String');
-  const cap2 = makeGraphCap('media:type=string;v=1', 'media:type=object;v=1', 'String to Object');
+  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
+  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2]);
 
@@ -1183,18 +1183,18 @@ function testCapGraphCanConvert() {
   const graph = cube.graph();
 
   // Direct conversions
-  assert(graph.canConvert('media:type=binary;v=1', 'media:type=string;v=1'), 'Should convert binary to str');
-  assert(graph.canConvert('media:type=string;v=1', 'media:type=object;v=1'), 'Should convert str to obj');
+  assert(graph.canConvert('media:binary', 'media:string'), 'Should convert binary to str');
+  assert(graph.canConvert('media:string', 'media:object'), 'Should convert str to obj');
 
   // Transitive conversion
-  assert(graph.canConvert('media:type=binary;v=1', 'media:type=object;v=1'), 'Should convert binary to obj transitively');
+  assert(graph.canConvert('media:binary', 'media:object'), 'Should convert binary to obj transitively');
 
   // Same spec
-  assert(graph.canConvert('media:type=binary;v=1', 'media:type=binary;v=1'), 'Should convert same spec');
+  assert(graph.canConvert('media:binary', 'media:binary'), 'Should convert same spec');
 
   // Impossible conversions
-  assert(!graph.canConvert('media:type=object;v=1', 'media:type=binary;v=1'), 'Should not convert obj to binary');
-  assert(!graph.canConvert('media:type=nonexistent;v=1', 'media:type=string;v=1'), 'Should not convert nonexistent');
+  assert(!graph.canConvert('media:object', 'media:binary'), 'Should not convert obj to binary');
+  assert(!graph.canConvert('media:nonexistent', 'media:string'), 'Should not convert nonexistent');
 
   console.log('  ✓ Can convert');
 }
@@ -1206,8 +1206,8 @@ function testCapGraphFindPath() {
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
 
   // binary -> str -> obj
-  const cap1 = makeGraphCap('media:type=binary;v=1', 'media:type=string;v=1', 'Binary to String');
-  const cap2 = makeGraphCap('media:type=string;v=1', 'media:type=object;v=1', 'String to Object');
+  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
+  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2]);
 
@@ -1217,23 +1217,23 @@ function testCapGraphFindPath() {
   const graph = cube.graph();
 
   // Direct path
-  let path = graph.findPath('media:type=binary;v=1', 'media:type=string;v=1');
+  let path = graph.findPath('media:binary', 'media:string');
   assert(path !== null, 'Should find path from binary to str');
   assertEqual(path.length, 1, 'Expected path length 1');
 
   // Transitive path
-  path = graph.findPath('media:type=binary;v=1', 'media:type=object;v=1');
+  path = graph.findPath('media:binary', 'media:object');
   assert(path !== null, 'Should find path from binary to obj');
   assertEqual(path.length, 2, 'Expected path length 2');
   assertEqual(path[0].cap.title, 'Binary to String', 'First edge');
   assertEqual(path[1].cap.title, 'String to Object', 'Second edge');
 
   // No path
-  path = graph.findPath('media:type=object;v=1', 'media:type=binary;v=1');
+  path = graph.findPath('media:object', 'media:binary');
   assertEqual(path, null, 'Should not find impossible path');
 
   // Same spec
-  path = graph.findPath('media:type=binary;v=1', 'media:type=binary;v=1');
+  path = graph.findPath('media:binary', 'media:binary');
   assert(path !== null, 'Should return empty path for same spec');
   assertEqual(path.length, 0, 'Expected empty path for same spec');
 
@@ -1248,9 +1248,9 @@ function testCapGraphFindAllPaths() {
 
   // binary -> str -> obj
   // binary -> obj (direct)
-  const cap1 = makeGraphCap('media:type=binary;v=1', 'media:type=string;v=1', 'Binary to String');
-  const cap2 = makeGraphCap('media:type=string;v=1', 'media:type=object;v=1', 'String to Object');
-  const cap3 = makeGraphCap('media:type=binary;v=1', 'media:type=object;v=1', 'Binary to Object (direct)');
+  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
+  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
+  const cap3 = makeGraphCap('media:binary', 'media:object', 'Binary to Object (direct)');
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2, cap3]);
 
@@ -1260,7 +1260,7 @@ function testCapGraphFindAllPaths() {
   const graph = cube.graph();
 
   // Find all paths from binary to obj
-  const paths = graph.findAllPaths('media:type=binary;v=1', 'media:type=object;v=1', 3);
+  const paths = graph.findAllPaths('media:binary', 'media:object', 3);
 
   assertEqual(paths.length, 2, 'Expected 2 paths');
 
@@ -1280,10 +1280,10 @@ function testCapGraphGetDirectEdges() {
   const mockHost2 = { executeCap: async () => ({ textOutput: 'mock2' }) };
 
   // Two converters: binary -> str with different specificities
-  const cap1 = makeGraphCap('media:type=binary;v=1', 'media:type=string;v=1', 'Generic Binary to String');
+  const cap1 = makeGraphCap('media:binary', 'media:string', 'Generic Binary to String');
 
   // More specific converter (with extra tag for higher specificity)
-  const capUrn2 = CapUrn.fromString('cap:ext=pdf;in="media:type=binary;v=1";op=convert;out="media:type=string;v=1"');
+  const capUrn2 = CapUrn.fromString('cap:ext=pdf;in="media:binary";op=convert;out="media:string"');
   const cap2 = new Cap(capUrn2, 'PDF Binary to String', 'convert', 'PDF Binary to String');
 
   registry1.registerCapSet('converter1', mockHost1, [cap1]);
@@ -1296,7 +1296,7 @@ function testCapGraphGetDirectEdges() {
   const graph = cube.graph();
 
   // Get direct edges (should be sorted by specificity)
-  const edges = graph.getDirectEdges('media:type=binary;v=1', 'media:type=string;v=1');
+  const edges = graph.getDirectEdges('media:binary', 'media:string');
 
   assertEqual(edges.length, 2, 'Expected 2 direct edges');
 
@@ -1315,9 +1315,9 @@ function testCapGraphStats() {
 
   // binary -> str -> obj
   //         \-> json
-  const cap1 = makeGraphCap('media:type=binary;v=1', 'media:type=string;v=1', 'Binary to String');
-  const cap2 = makeGraphCap('media:type=string;v=1', 'media:type=object;v=1', 'String to Object');
-  const cap3 = makeGraphCap('media:type=binary;v=1', 'media:type=json;v=1', 'Binary to JSON');
+  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
+  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
+  const cap3 = makeGraphCap('media:binary', 'media:json', 'Binary to JSON');
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2, cap3]);
 
@@ -1352,11 +1352,11 @@ function testCapGraphWithCapCube() {
   const pluginHost = { executeCap: async () => ({ textOutput: 'plugin' }) };
 
   // Provider: binary -> str
-  const providerCap = makeGraphCap('media:type=binary;v=1', 'media:type=string;v=1', 'Provider Binary to String');
+  const providerCap = makeGraphCap('media:binary', 'media:string', 'Provider Binary to String');
   providerRegistry.registerCapSet('provider', providerHost, [providerCap]);
 
   // Plugin: str -> obj
-  const pluginCap = makeGraphCap('media:type=string;v=1', 'media:type=object;v=1', 'Plugin String to Object');
+  const pluginCap = makeGraphCap('media:string', 'media:object', 'Plugin String to Object');
   pluginRegistry.registerCapSet('plugin', pluginHost, [pluginCap]);
 
   const cube = new CapCube();
@@ -1366,9 +1366,9 @@ function testCapGraphWithCapCube() {
   const graph = cube.graph();
 
   // Should be able to convert binary -> obj through both registries
-  assert(graph.canConvert('media:type=binary;v=1', 'media:type=object;v=1'), 'Should convert across registries');
+  assert(graph.canConvert('media:binary', 'media:object'), 'Should convert across registries');
 
-  const path = graph.findPath('media:type=binary;v=1', 'media:type=object;v=1');
+  const path = graph.findPath('media:binary', 'media:object');
   assert(path !== null, 'Should find path');
   assertEqual(path.length, 2, 'Expected path length 2');
 
@@ -1404,7 +1404,7 @@ function testStdinSourceFromFileReference() {
   const trackedFileId = 'tracked-file-123';
   const originalPath = '/path/to/original.pdf';
   const securityBookmark = new Uint8Array([0x62, 0x6f, 0x6f, 0x6b]); // "book"
-  const mediaUrn = 'media:type=pdf;v=1;binary';
+  const mediaUrn = 'media:pdf;binary';
 
   const source = StdinSource.fromFileReference(trackedFileId, originalPath, securityBookmark, mediaUrn);
 
@@ -1485,7 +1485,7 @@ function testStdinSourcePassedToExecuteCap() {
 
   // Create a simple cap
   const cap = new Cap(
-    CapUrn.fromString('cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"'),
+    CapUrn.fromString('cap:in="media:void";op=test;out="media:string"'),
     'Test Cap',
     'test-command'
   );
@@ -1499,11 +1499,11 @@ function testStdinSourcePassedToExecuteCap() {
 
   // Test with Data source
   const dataSource = StdinSource.fromData(new Uint8Array([1, 2, 3]));
-  const { compositeHost } = cube.can('cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"');
+  const { compositeHost } = cube.can('cap:in="media:void";op=test;out="media:string"');
 
   // Execute and verify
   return compositeHost.executeCap(
-    'cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"',
+    'cap:in="media:void";op=test;out="media:string"',
     [],
     {},
     dataSource
@@ -1529,7 +1529,7 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
 
   // Create a simple cap
   const cap = new Cap(
-    CapUrn.fromString('cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"'),
+    CapUrn.fromString('cap:in="media:void";op=test;out="media:string"'),
     'Test Cap',
     'test-command'
   );
@@ -1546,14 +1546,14 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
     'tracked-123',
     '/path/to/file.pdf',
     new Uint8Array([0x42, 0x4f, 0x4f, 0x4b]),
-    'media:type=pdf;v=1;binary'
+    'media:pdf;binary'
   );
 
-  const { compositeHost } = cube.can('cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"');
+  const { compositeHost } = cube.can('cap:in="media:void";op=test;out="media:string"');
 
   // Execute and verify
   return compositeHost.executeCap(
-    'cap:in="media:type=void;v=1";op=test;out="media:type=string;v=1"',
+    'cap:in="media:void";op=test;out="media:string"',
     [],
     {},
     fileSource
@@ -1562,7 +1562,7 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
     assert(receivedSource.isFileReference(), 'Should receive file reference source');
     assertEqual(receivedSource.trackedFileId, 'tracked-123', 'Should have correct trackedFileId');
     assertEqual(receivedSource.originalPath, '/path/to/file.pdf', 'Should have correct originalPath');
-    assertEqual(receivedSource.mediaUrn, 'media:type=pdf;v=1;binary', 'Should have correct mediaUrn');
+    assertEqual(receivedSource.mediaUrn, 'media:pdf;binary', 'Should have correct mediaUrn');
     console.log('  ✓ File reference passed to executeCap');
   });
 }

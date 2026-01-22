@@ -21,26 +21,26 @@ npm install capns
 const { CapUrn, CapUrnBuilder, CapMatcher } = require('capns');
 
 // Create from string (with required direction specifiers)
-const cap = CapUrn.fromString('cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"');
+const cap = CapUrn.fromString('cap:in="media:binary";op=extract;out="media:object"');
 console.log(cap.toString());
 
 // Use builder pattern
 const built = new CapUrnBuilder()
-  .inSpec('media:type=void;v=1')
-  .outSpec('media:type=object;v=1')
+  .inSpec('media:void')
+  .outSpec('media:object')
   .tag('op', 'generate')
   .tag('target', 'thumbnail')
   .build();
 
 // Matching
-const request = CapUrn.fromString('cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"');
+const request = CapUrn.fromString('cap:in="media:binary";op=extract;out="media:object"');
 console.log(cap.matches(request)); // true
 
 // Find best match by specificity
 const caps = [
   CapUrn.fromString('cap:in=*;op=extract;out=*'),
-  CapUrn.fromString('cap:in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"'),
-  CapUrn.fromString('cap:ext=pdf;in="media:type=binary;v=1";op=extract;out="media:type=object;v=1"')
+  CapUrn.fromString('cap:in="media:binary";op=extract;out="media:object"'),
+  CapUrn.fromString('cap:ext=pdf;in="media:binary";op=extract;out="media:object"')
 ];
 const best = CapMatcher.findBestMatch(caps, request);
 console.log(best.toString()); // Most specific match
@@ -74,8 +74,8 @@ Fluent builder for constructing Cap URNs:
 
 ```javascript
 const cap = new CapUrnBuilder()
-  .inSpec('media:type=binary;v=1')
-  .outSpec('media:type=object;v=1')
+  .inSpec('media:binary')
+  .outSpec('media:object')
   .tag('op', 'extract')
   .tag('target', 'metadata')
   .build();

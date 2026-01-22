@@ -53,8 +53,8 @@ function isValidMediaUrnOrWildcard(value) {
 class CapUrn {
   /**
    * Create a new CapUrn with required direction specs
-   * @param {string} inSpec - Required input media URN (e.g., "media:type=void;v=1") or wildcard "*"
-   * @param {string} outSpec - Required output media URN (e.g., "media:type=object;v=1") or wildcard "*"
+   * @param {string} inSpec - Required input media URN (e.g., "media:void") or wildcard "*"
+   * @param {string} outSpec - Required output media URN (e.g., "media:object") or wildcard "*"
    * @param {Object} tags - Other tags (must NOT contain 'in' or 'out')
    */
   constructor(inSpec, outSpec, tags = {}) {
@@ -755,35 +755,35 @@ const MediaSpecErrorCodes = {
  * Well-known built-in media URN constants
  * These media URNs are implicitly available and do not need to be declared in mediaSpecs
  */
-const MEDIA_STRING = 'media:type=string;v=1;textable;scalar';
-const MEDIA_INTEGER = 'media:type=integer;v=1;textable;numeric;scalar';
-const MEDIA_NUMBER = 'media:type=number;v=1;textable;numeric;scalar';
-const MEDIA_BOOLEAN = 'media:type=boolean;v=1;textable;scalar';
-const MEDIA_OBJECT = 'media:type=object;v=1;textable;keyed';
-const MEDIA_STRING_ARRAY = 'media:type=string-array;v=1;textable;sequence';
-const MEDIA_INTEGER_ARRAY = 'media:type=integer-array;v=1;textable;numeric;sequence';
-const MEDIA_NUMBER_ARRAY = 'media:type=number-array;v=1;textable;numeric;sequence';
-const MEDIA_BOOLEAN_ARRAY = 'media:type=boolean-array;v=1;textable;sequence';
-const MEDIA_OBJECT_ARRAY = 'media:type=object-array;v=1;textable;keyed;sequence';
-const MEDIA_BINARY = 'media:type=raw;v=1;binary';
-const MEDIA_VOID = 'media:type=void;v=1';
+const MEDIA_STRING = 'media:string;textable;scalar';
+const MEDIA_INTEGER = 'media:integer;textable;numeric;scalar';
+const MEDIA_NUMBER = 'media:number;textable;numeric;scalar';
+const MEDIA_BOOLEAN = 'media:boolean;textable;scalar';
+const MEDIA_OBJECT = 'media:object;textable;keyed';
+const MEDIA_STRING_ARRAY = 'media:string-array;textable;sequence';
+const MEDIA_INTEGER_ARRAY = 'media:integer-array;textable;numeric;sequence';
+const MEDIA_NUMBER_ARRAY = 'media:number-array;textable;numeric;sequence';
+const MEDIA_BOOLEAN_ARRAY = 'media:boolean-array;textable;sequence';
+const MEDIA_OBJECT_ARRAY = 'media:object-array;textable;keyed;sequence';
+const MEDIA_BINARY = 'media:raw;binary';
+const MEDIA_VOID = 'media:void';
 // Semantic content types
-const MEDIA_PNG = 'media:type=png;v=1;binary';
-const MEDIA_AUDIO = 'media:type=wav;audio;binary;v=1;';
-const MEDIA_VIDEO = 'media:type=video;v=1;binary';
-const MEDIA_TEXT = 'media:type=text;v=1;textable';
+const MEDIA_PNG = 'media:png;binary';
+const MEDIA_AUDIO = 'media:wav;audio;binary;';
+const MEDIA_VIDEO = 'media:video;binary';
+const MEDIA_TEXT = 'media:text;textable';
 // Document types (PRIMARY naming - type IS the format)
-const MEDIA_PDF = 'media:type=pdf;v=1;binary';
-const MEDIA_EPUB = 'media:type=epub;v=1;binary';
+const MEDIA_PDF = 'media:pdf;binary';
+const MEDIA_EPUB = 'media:epub;binary';
 // Text format types (PRIMARY naming - type IS the format)
-const MEDIA_MD = 'media:type=md;v=1;textable';
-const MEDIA_TXT = 'media:type=txt;v=1;textable';
-const MEDIA_RST = 'media:type=rst;v=1;textable';
-const MEDIA_LOG = 'media:type=log;v=1;textable';
-const MEDIA_HTML = 'media:type=html;v=1;textable';
-const MEDIA_XML = 'media:type=xml;v=1;textable';
-const MEDIA_JSON = 'media:type=json;v=1;textable;keyed';
-const MEDIA_YAML = 'media:type=yaml;v=1;textable;keyed';
+const MEDIA_MD = 'media:md;textable';
+const MEDIA_TXT = 'media:txt;textable';
+const MEDIA_RST = 'media:rst;textable';
+const MEDIA_LOG = 'media:log;textable';
+const MEDIA_HTML = 'media:html;textable';
+const MEDIA_XML = 'media:xml;textable';
+const MEDIA_JSON = 'media:json;textable;keyed';
+const MEDIA_YAML = 'media:yaml;textable;keyed';
 
 /**
  * Built-in media URN definitions - canonical media spec strings
@@ -1096,7 +1096,7 @@ class MediaSpec {
  * 2. If not found AND mediaUrn is a known built-in: use built-in definition
  * 3. If not found and not a built-in: FAIL HARD
  *
- * @param {string} mediaUrn - The media URN (e.g., "media:type=string;v=1")
+ * @param {string} mediaUrn - The media URN (e.g., "media:string")
  * @param {Object} mediaSpecs - The mediaSpecs lookup table
  * @returns {MediaSpec} The resolved MediaSpec
  * @throws {MediaSpecError} If media URN cannot be resolved
@@ -1466,7 +1466,7 @@ class Cap {
 
   /**
    * Resolve a media URN to a MediaSpec using this cap's mediaSpecs table
-   * @param {string} mediaUrn - The media URN (e.g., "media:type=string;v=1")
+   * @param {string} mediaUrn - The media URN (e.g., "media:string")
    * @returns {MediaSpec} The resolved MediaSpec
    * @throws {MediaSpecError} If media URN cannot be resolved
    */
@@ -2755,7 +2755,7 @@ class CapCube {
   /**
    * Build a directed graph from all capabilities across all registries.
    * The graph represents all possible conversions where:
-   * - Nodes are media URNs (e.g., "media:type=string;v=1", "media:type=binary;v=1")
+   * - Nodes are media URNs (e.g., "media:string", "media:binary")
    * - Edges are capabilities that convert from one media URN to another
    * @returns {CapGraph} The capability graph
    */
