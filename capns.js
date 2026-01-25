@@ -785,9 +785,54 @@ const MEDIA_XML = 'media:xml;textable';
 const MEDIA_JSON = 'media:json;textable;keyed';
 const MEDIA_YAML = 'media:yaml;textable;keyed';
 
+// =============================================================================
+// SCHEMA URL CONFIGURATION
+// =============================================================================
+
+const DEFAULT_SCHEMA_BASE = 'https://capns.org/schema';
+
+/**
+ * Get the schema base URL from environment variables or default
+ *
+ * Checks in order:
+ * 1. CAPNS_SCHEMA_BASE_URL environment variable
+ * 2. CAPNS_REGISTRY_URL environment variable + "/schema"
+ * 3. Default: "https://capns.org/schema"
+ *
+ * @returns {string} The schema base URL
+ */
+function getSchemaBaseURL() {
+  if (typeof process !== 'undefined' && process.env) {
+    if (process.env.CAPNS_SCHEMA_BASE_URL) {
+      return process.env.CAPNS_SCHEMA_BASE_URL;
+    }
+    if (process.env.CAPNS_REGISTRY_URL) {
+      return process.env.CAPNS_REGISTRY_URL + '/schema';
+    }
+  }
+  return DEFAULT_SCHEMA_BASE;
+}
+
+/**
+ * Get a profile URL for the given profile name
+ *
+ * @param {string} profileName - The profile name (e.g., 'str', 'int')
+ * @returns {string} The full profile URL
+ */
+function getProfileURL(profileName) {
+  return `${getSchemaBaseURL()}/${profileName}`;
+}
+
+// =============================================================================
+// BUILTIN MEDIA SPECS
+// =============================================================================
+
 /**
  * Built-in media URN definitions - canonical media spec strings
  * Maps media URN to canonical format: <media-type>; profile=<url>
+ *
+ * NOTE: These use hardcoded URLs for static initialization.
+ * Use getSchemaBaseURL() and getProfileURL() for dynamic resolution.
  */
 const BUILTIN_SPECS = {
   [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str',
@@ -3499,6 +3544,8 @@ module.exports = {
   resolveMediaUrn,
   isBuiltinMediaUrn,
   BUILTIN_SPECS,
+  getSchemaBaseURL,
+  getProfileURL,
   MEDIA_STRING,
   MEDIA_INTEGER,
   MEDIA_NUMBER,
