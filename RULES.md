@@ -2,7 +2,7 @@
 
 ## Overview
 
-Cap URNs extend Tagged URNs with capability-specific requirements. For base Tagged URN format rules (case handling, tag ordering, wildcards, quoting, value-less tags, etc.), see [Tagged URN RULES.md](../tagged-urn-js/RULES.md).
+Cap URNs extend Tagged URNs with capability-specific requirements. For base Tagged URN format rules (case handling, tag ordering, special values, quoting, value-less tags, etc.), see [Tagged URN RULES.md](../tagged-urn-js/RULES.md).
 
 This document covers only cap-specific rules.
 
@@ -20,24 +20,47 @@ const cap = CapUrn.fromString('cap:in="media:binary";op=extract;out="media:objec
 CapUrn.fromString('cap:op=extract'); // throws ErrorCodes.MISSING_IN_SPEC
 ```
 
-### 2. No Value-less Tags
+### 2. Media URN Validation
 
-Unlike base Tagged URNs which allow value-less tags, Cap URNs require explicit `key=value` format for all tags.
-
-### 3. Media URN Validation
-
-Direction specifier values must be valid Media URNs or wildcard `*`:
+Direction specifier values must be valid Media URNs or special pattern values:
 
 ```javascript
 // Valid: Media URN value
 'cap:in="media:binary";op=extract;out="media:object"'
 
-// Valid: Wildcard
+// Valid: Must-have-any (any media type)
 'cap:in=*;op=extract;out=*'
 
-// Invalid: Not a Media URN
+// Invalid: Not a Media URN or special value
 'cap:in=binary;op=extract;out=object' // throws ErrorCodes.INVALID_MEDIA_URN
 ```
+
+### 3. Matching Semantics
+
+Cap matching uses Tagged URN matching semantics:
+
+| Pattern Value | Meaning | Instance Missing | Instance=v | Instance=x≠v |
+|---------------|---------|------------------|------------|--------------|
+| (missing) | No constraint | OK | OK | OK |
+| `K=?` | No constraint (explicit) | OK | OK | OK |
+| `K=!` | Must-not-have | OK | NO | NO |
+| `K=*` | Must-have, any value | NO | OK | OK |
+| `K=v` | Must-have, exact value | NO | OK | NO |
+
+### 4. Graded Specificity
+
+Specificity uses graded scoring:
+
+| Value Type | Score |
+|------------|-------|
+| Exact value (K=v) | 3 |
+| Must-have-any (K=*) | 2 |
+| Must-not-have (K=!) | 1 |
+| Unspecified (K=?) or missing | 0 |
+
+Examples:
+- `cap:in="media:binary";op=extract;out="media:object"` → 3+3+3 = 9
+- `cap:in=*;op=extract;out=*` → 2+3+2 = 7
 
 ## Cap-Specific Error Codes
 

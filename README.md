@@ -6,6 +6,8 @@ JavaScript implementation of Cap URN (Capability Uniform Resource Names), built 
 
 - **Required Direction Specifiers** - `in`/`out` tags for input/output media types
 - **Media URN Validation** - Validates direction spec values are valid Media URNs
+- **Special Pattern Values** - `*` (must-have-any), `?` (unspecified), `!` (must-not-have)
+- **Graded Specificity** - Exact values score higher than wildcards
 - **Cross-Language Compatible** - Identical behavior to Rust, Go, and Objective-C implementations
 - **Production Ready** - No fallbacks, fails hard on invalid input
 
