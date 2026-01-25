@@ -922,14 +922,16 @@ class MediaSpec {
    * @param {string|null} title - Optional display-friendly title
    * @param {string|null} description - Optional description
    * @param {string|null} mediaUrn - Source media URN for tag-based checks
+   * @param {Object|null} validation - Optional validation rules (min, max, min_length, max_length, pattern, allowed_values)
    */
-  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null) {
+  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null, validation = null) {
     this.contentType = contentType;
     this.profile = profile;
     this.schema = schema;
     this.title = title;
     this.description = description;
     this.mediaUrn = mediaUrn;
+    this.validation = validation;
   }
 
   /**
@@ -1112,12 +1114,13 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
       spec.mediaUrn = mediaUrn; // Attach source URN for tag-based checks
       return spec;
     } else if (typeof def === 'object') {
-      // Object form: { media_type, profile_uri, schema?, title?, description? }
+      // Object form: { media_type, profile_uri, schema?, title?, description?, validation? }
       const mediaType = def.media_type || def.mediaType;
       const profileUri = def.profile_uri || def.profileUri;
       const schema = def.schema || null;
       const title = def.title || null;
       const description = def.description || null;
+      const validation = def.validation || null;
 
       if (!mediaType) {
         throw new MediaSpecError(
@@ -1126,7 +1129,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
         );
       }
 
-      return new MediaSpec(mediaType, profileUri, schema, title, description, mediaUrn);
+      return new MediaSpec(mediaType, profileUri, schema, title, description, mediaUrn, validation);
     }
   }
 
@@ -1778,6 +1781,8 @@ class ValidationError extends Error {
         return `Cap '${capUrn}' argument '${details.argumentName}' expects type '${details.expectedType}' but received '${details.actualType}' with value: ${JSON.stringify(details.actualValue)}`;
       case 'ArgumentValidationFailed':
         return `Cap '${capUrn}' argument '${details.argumentName}' failed validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
+      case 'MediaSpecValidationFailed':
+        return `Cap '${capUrn}' argument '${details.argumentName}' failed media spec '${details.mediaUrn}' validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
       case 'InvalidOutputType':
         if (details.expectedMediaSpec) {
           const errors = details.schemaErrors ? details.schemaErrors.join(', ') : 'validation failed';
@@ -1786,6 +1791,8 @@ class ValidationError extends Error {
         return `Cap '${capUrn}' output expects type '${details.expectedType}' but received '${details.actualType}' with value: ${JSON.stringify(details.actualValue)}`;
       case 'OutputValidationFailed':
         return `Cap '${capUrn}' output failed validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
+      case 'OutputMediaSpecValidationFailed':
+        return `Cap '${capUrn}' output failed media spec '${details.mediaUrn}' validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
       case 'InvalidCapSchema':
         return `Cap '${capUrn}' has invalid schema: ${details.issue}`;
       case 'TooManyArguments':
@@ -2023,18 +2030,27 @@ class InputValidator {
 
   /**
    * Validate a single argument against its definition
+   * Two-pass validation:
+   * 1. Type validation + media spec validation rules (inherent to semantic type)
+   * 2. Arg-level validation rules (context-specific)
    */
   static validateSingleArgument(cap, argDef, value) {
-    // Type validation
-    InputValidator.validateArgumentType(cap, argDef, value);
+    // Type validation - returns the resolved MediaSpec
+    const mediaSpec = InputValidator.validateArgumentType(cap, argDef, value);
 
-    // Validation rules
+    // FIRST PASS: Media spec validation rules (inherent to the semantic type)
+    if (mediaSpec && mediaSpec.validation) {
+      InputValidator.validateMediaSpecRules(cap, argDef, mediaSpec, value);
+    }
+
+    // SECOND PASS: Arg-level validation rules (context-specific)
     InputValidator.validateArgumentRules(cap, argDef, value);
   }
 
   /**
    * Validate argument type using MediaSpec
    * Resolves spec ID to MediaSpec before validation
+   * @returns {MediaSpec|null} The resolved MediaSpec
    */
   static validateArgumentType(cap, argDef, value) {
     const capUrn = cap.urnString();
@@ -2043,7 +2059,7 @@ class InputValidator {
     const mediaUrn = argDef.mediaUrn || argDef.media_urn;
     if (!mediaUrn) {
       // No media_urn - skip validation
-      return;
+      return null;
     }
 
     // Resolve media URN to MediaSpec - FAIL HARD if unresolvable
@@ -2066,7 +2082,7 @@ class InputValidator {
           schemaErrors: ['Expected base64-encoded string for binary type']
         });
       }
-      return;
+      return mediaSpec;
     }
 
     // If the resolved media spec has a local schema, validate against it
@@ -2084,6 +2100,87 @@ class InputValidator {
           expectedMediaSpec: mediaUrn,
           actualValue: value,
           schemaErrors: [`Value does not match profile schema`]
+        });
+      }
+    }
+
+    return mediaSpec;
+  }
+
+  /**
+   * Validate value against media spec's inherent validation rules (first pass)
+   * @param {Cap} cap - The capability
+   * @param {Object} argDef - The argument definition
+   * @param {MediaSpec} mediaSpec - The resolved media spec
+   * @param {*} value - The value to validate
+   */
+  static validateMediaSpecRules(cap, argDef, mediaSpec, value) {
+    const capUrn = cap.urnString();
+    const validation = mediaSpec.validation;
+    const mediaUrn = mediaSpec.mediaUrn;
+
+    // Min/max validation for numbers
+    if (typeof value === 'number') {
+      if (validation.min !== undefined && value < validation.min) {
+        throw new ValidationError('MediaSpecValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          mediaUrn: mediaUrn,
+          validationRule: `min value ${validation.min}`,
+          actualValue: value
+        });
+      }
+      if (validation.max !== undefined && value > validation.max) {
+        throw new ValidationError('MediaSpecValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          mediaUrn: mediaUrn,
+          validationRule: `max value ${validation.max}`,
+          actualValue: value
+        });
+      }
+    }
+
+    // Length validation for strings and arrays
+    if (typeof value === 'string' || Array.isArray(value)) {
+      const length = value.length;
+      if (validation.min_length !== undefined && length < validation.min_length) {
+        throw new ValidationError('MediaSpecValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          mediaUrn: mediaUrn,
+          validationRule: `min length ${validation.min_length}`,
+          actualValue: value
+        });
+      }
+      if (validation.max_length !== undefined && length > validation.max_length) {
+        throw new ValidationError('MediaSpecValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          mediaUrn: mediaUrn,
+          validationRule: `max length ${validation.max_length}`,
+          actualValue: value
+        });
+      }
+    }
+
+    // Pattern validation for strings
+    if (typeof value === 'string' && validation.pattern) {
+      const regex = new RegExp(validation.pattern);
+      if (!regex.test(value)) {
+        throw new ValidationError('MediaSpecValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          mediaUrn: mediaUrn,
+          validationRule: `pattern ${validation.pattern}`,
+          actualValue: value
+        });
+      }
+    }
+
+    // Allowed values validation
+    if (validation.allowed_values && Array.isArray(validation.allowed_values)) {
+      if (!validation.allowed_values.includes(value)) {
+        throw new ValidationError('MediaSpecValidationFailed', capUrn, {
+          argumentName: argDef.name,
+          mediaUrn: mediaUrn,
+          validationRule: `allowed values [${validation.allowed_values.join(', ')}]`,
+          actualValue: value
         });
       }
     }
@@ -2222,6 +2319,9 @@ class OutputValidator {
   /**
    * Validate output against cap output schema using MediaSpec
    * Resolves spec ID to MediaSpec before validation
+   * Two-pass validation:
+   * 1. Type validation + media spec validation rules (inherent to semantic type)
+   * 2. Output-level validation rules (context-specific)
    */
   static validateOutput(cap, output) {
     const capUrn = cap.urnString();
@@ -2229,11 +2329,32 @@ class OutputValidator {
 
     if (!outputDef) return; // No output definition to validate against
 
+    // Type validation - returns the resolved MediaSpec
+    const mediaSpec = OutputValidator.validateOutputType(cap, outputDef, output);
+
+    // FIRST PASS: Media spec validation rules (inherent to the semantic type)
+    if (mediaSpec && mediaSpec.validation) {
+      OutputValidator.validateOutputMediaSpecRules(cap, mediaSpec, output);
+    }
+
+    // SECOND PASS: Output-level validation rules (context-specific)
+    if (outputDef.validation) {
+      OutputValidator.validateOutputRules(cap, outputDef, output);
+    }
+  }
+
+  /**
+   * Validate output type using MediaSpec
+   * @returns {MediaSpec|null} The resolved MediaSpec
+   */
+  static validateOutputType(cap, outputDef, value) {
+    const capUrn = cap.urnString();
+
     // Get mediaUrn field (now contains a media URN)
     const mediaUrn = outputDef.mediaUrn || outputDef.media_urn;
     if (!mediaUrn) {
       // No media_urn - skip validation
-      return;
+      return null;
     }
 
     // Resolve media URN to MediaSpec - FAIL HARD if unresolvable
@@ -2248,14 +2369,14 @@ class OutputValidator {
 
     // For binary media types, expect base64-encoded string
     if (mediaSpec.isBinary()) {
-      if (typeof output !== 'string') {
+      if (typeof value !== 'string') {
         throw new ValidationError('InvalidOutputType', capUrn, {
           expectedMediaSpec: mediaUrn,
-          actualValue: output,
+          actualValue: value,
           schemaErrors: ['Expected base64-encoded string for binary type']
         });
       }
-      return;
+      return mediaSpec;
     }
 
     // If the resolved media spec has a local schema, validate against it
@@ -2266,12 +2387,143 @@ class OutputValidator {
 
     // For types with profile, validate against profile
     if (mediaSpec.profile) {
-      const valid = InputValidator.validateAgainstProfile(mediaSpec.profile, output);
+      const valid = InputValidator.validateAgainstProfile(mediaSpec.profile, value);
       if (!valid) {
         throw new ValidationError('InvalidOutputType', capUrn, {
           expectedMediaSpec: mediaUrn,
-          actualValue: output,
+          actualValue: value,
           schemaErrors: [`Value does not match profile schema`]
+        });
+      }
+    }
+
+    return mediaSpec;
+  }
+
+  /**
+   * Validate output against media spec's inherent validation rules (first pass)
+   */
+  static validateOutputMediaSpecRules(cap, mediaSpec, value) {
+    const capUrn = cap.urnString();
+    const validation = mediaSpec.validation;
+    const mediaUrn = mediaSpec.mediaUrn;
+
+    // Min/max validation for numbers
+    if (typeof value === 'number') {
+      if (validation.min !== undefined && value < validation.min) {
+        throw new ValidationError('OutputMediaSpecValidationFailed', capUrn, {
+          mediaUrn: mediaUrn,
+          validationRule: `min value ${validation.min}`,
+          actualValue: value
+        });
+      }
+      if (validation.max !== undefined && value > validation.max) {
+        throw new ValidationError('OutputMediaSpecValidationFailed', capUrn, {
+          mediaUrn: mediaUrn,
+          validationRule: `max value ${validation.max}`,
+          actualValue: value
+        });
+      }
+    }
+
+    // Length validation for strings
+    if (typeof value === 'string') {
+      if (validation.min_length !== undefined && value.length < validation.min_length) {
+        throw new ValidationError('OutputMediaSpecValidationFailed', capUrn, {
+          mediaUrn: mediaUrn,
+          validationRule: `min length ${validation.min_length}`,
+          actualValue: value
+        });
+      }
+      if (validation.max_length !== undefined && value.length > validation.max_length) {
+        throw new ValidationError('OutputMediaSpecValidationFailed', capUrn, {
+          mediaUrn: mediaUrn,
+          validationRule: `max length ${validation.max_length}`,
+          actualValue: value
+        });
+      }
+    }
+
+    // Pattern validation for strings
+    if (typeof value === 'string' && validation.pattern) {
+      const regex = new RegExp(validation.pattern);
+      if (!regex.test(value)) {
+        throw new ValidationError('OutputMediaSpecValidationFailed', capUrn, {
+          mediaUrn: mediaUrn,
+          validationRule: `pattern ${validation.pattern}`,
+          actualValue: value
+        });
+      }
+    }
+
+    // Allowed values validation
+    if (validation.allowed_values && Array.isArray(validation.allowed_values)) {
+      if (!validation.allowed_values.includes(value)) {
+        throw new ValidationError('OutputMediaSpecValidationFailed', capUrn, {
+          mediaUrn: mediaUrn,
+          validationRule: `allowed values [${validation.allowed_values.join(', ')}]`,
+          actualValue: value
+        });
+      }
+    }
+  }
+
+  /**
+   * Validate output against output definition's validation rules (second pass)
+   */
+  static validateOutputRules(cap, outputDef, value) {
+    const capUrn = cap.urnString();
+    const validation = outputDef.validation;
+
+    // Min/max validation for numbers
+    if (typeof value === 'number') {
+      if (validation.min !== undefined && value < validation.min) {
+        throw new ValidationError('OutputValidationFailed', capUrn, {
+          validationRule: `min value ${validation.min}`,
+          actualValue: value
+        });
+      }
+      if (validation.max !== undefined && value > validation.max) {
+        throw new ValidationError('OutputValidationFailed', capUrn, {
+          validationRule: `max value ${validation.max}`,
+          actualValue: value
+        });
+      }
+    }
+
+    // Length validation for strings
+    if (typeof value === 'string') {
+      if (validation.minLength !== undefined && value.length < validation.minLength) {
+        throw new ValidationError('OutputValidationFailed', capUrn, {
+          validationRule: `min length ${validation.minLength}`,
+          actualValue: value
+        });
+      }
+      if (validation.maxLength !== undefined && value.length > validation.maxLength) {
+        throw new ValidationError('OutputValidationFailed', capUrn, {
+          validationRule: `max length ${validation.maxLength}`,
+          actualValue: value
+        });
+      }
+    }
+
+    // Pattern validation for strings
+    if (typeof value === 'string' && validation.pattern) {
+      const regex = new RegExp(validation.pattern);
+      if (!regex.test(value)) {
+        throw new ValidationError('OutputValidationFailed', capUrn, {
+          validationRule: `pattern ${validation.pattern}`,
+          actualValue: value
+        });
+      }
+    }
+
+    // Allowed values validation
+    if (validation.allowedValues && Array.isArray(validation.allowedValues)) {
+      if (!validation.allowedValues.includes(value)) {
+        throw new ValidationError('OutputValidationFailed', capUrn, {
+          validationRule: `allowed values [${validation.allowedValues.join(', ')}]`,
+          actualValue: value
         });
       }
     }

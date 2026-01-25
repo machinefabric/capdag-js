@@ -166,7 +166,8 @@ function testCanonicalStringFormat() {
   const cap = CapUrn.fromString(testUrn('op=generate;target=thumbnail;ext=pdf'));
   // Should be sorted alphabetically and have no trailing semicolon in canonical form
   // in/out are included in alphabetical order: 'ext' < 'in' < 'op' < 'out' < 'target'
-  assertEqual(cap.toString(), 'cap:ext=pdf;in="media:void";op=generate;out="media:object";target=thumbnail', 'Should be alphabetically sorted');
+  // Colons don't need quoting - media:void and media:object are valid unquoted values
+  assertEqual(cap.toString(), 'cap:ext=pdf;in=media:void;op=generate;out=media:object;target=thumbnail', 'Should be alphabetically sorted');
 
   console.log('  ✓ Canonical string format');
 }
@@ -370,7 +371,7 @@ function testCapMatcher() {
 
   // Most specific cap that can handle the request (ext=pdf is more specific)
   // Canonical order is alphabetical: ext, in, op, out
-  assertEqual(best.toString(), 'cap:ext=pdf;in="media:void";op=generate;out="media:object"', 'Should find most specific match');
+  assertEqual(best.toString(), 'cap:ext=pdf;in=media:void;op=generate;out=media:object', 'Should find most specific match');
 
   // Test findAllMatches - now only 2 match because first has wildcard in/out
   const matches = CapMatcher.findAllMatches(caps, request);
