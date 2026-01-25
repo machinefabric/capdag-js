@@ -2,7 +2,7 @@
 
 ## Overview
 
-Cap URNs extend Tagged URNs with capability-specific requirements. For base Tagged URN format rules (case handling, tag ordering, special values, quoting, value-less tags, etc.), see [Tagged URN RULES.md](../tagged-urn-js/RULES.md).
+Cap URNs extend Tagged URNs with capability-specific requirements. For base Tagged URN format rules (case handling, tag ordering, special values, quoting, value-less tags, etc.), see [Tagged URN RULES.md](https://github.com/filegrind/tagged-urn-js/blob/main/RULES.md).
 
 This document covers only cap-specific rules.
 
@@ -73,6 +73,6 @@ Examples:
 ## Cross-Language Compatibility
 
 This JavaScript implementation follows the same rules as:
-- [Rust reference implementation](../capns/)
-- [Go implementation](../capns-go/)
-- [Objective-C implementation](../capns-objc/)
+- [Rust reference implementation](https://github.com/filegrind/capns)
+- [Go implementation](https://github.com/filegrind/capns-go)
+- [Objective-C implementation](https://github.com/filegrind/capns-objc)

@@ -1,6 +1,6 @@
 # Cap URN - JavaScript Implementation
 
-JavaScript implementation of Cap URN (Capability Uniform Resource Names), built on [Tagged URN](../tagged-urn-js/).
+JavaScript implementation of Cap URN (Capability Uniform Resource Names), built on [Tagged URN](https://github.com/filegrind/tagged-urn-js).
 
 ## Features
 
@@ -109,12 +109,12 @@ Cap-specific error codes:
 - `ErrorCodes.MISSING_OUT_SPEC` - Missing required `out` tag
 - `ErrorCodes.INVALID_MEDIA_URN` - Invalid Media URN in direction spec
 
-For base Tagged URN error codes, see [Tagged URN documentation](../tagged-urn-js/).
+For base Tagged URN error codes, see [Tagged URN documentation](https://github.com/filegrind/tagged-urn-js).
 
 ## Documentation
 
 - [RULES.md](./RULES.md) - Cap-specific rules
-- [Tagged URN RULES.md](../tagged-urn-js/RULES.md) - Base format rules (case, quoting, wildcards, etc.)
+- [Tagged URN RULES.md](https://github.com/filegrind/tagged-urn-js/blob/main/RULES.md) - Base format rules (case, quoting, wildcards, etc.)
 
 ## Testing
 
@@ -125,8 +125,8 @@ npm test
 ## Cross-Language Compatibility
 
 This JavaScript implementation produces identical results to:
-- [Rust reference implementation](../capns/)
-- [Go implementation](../capns-go/)
-- [Objective-C implementation](../capns-objc/)
+- [Rust reference implementation](https://github.com/filegrind/capns)
+- [Go implementation](https://github.com/filegrind/capns-go)
+- [Objective-C implementation](https://github.com/filegrind/capns-objc)
 
 All implementations pass the same test cases and follow identical rules.
