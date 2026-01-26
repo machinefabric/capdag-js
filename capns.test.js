@@ -631,6 +631,95 @@ function testMediaUrnResolutionFailHard() {
   console.log('  ✓ Media URN resolution fail hard');
 }
 
+function testMetadataPropagation() {
+  console.log('Testing metadata propagation...');
+
+  // Create a media spec definition with metadata
+  const mediaSpecs = {
+    'media:custom-setting;setting': {
+      media_type: 'text/plain',
+      profile_uri: 'https://example.com/schema',
+      title: 'Custom Setting',
+      description: 'A custom setting',
+      metadata: {
+        category_key: 'interface',
+        ui_type: 'SETTING_UI_TYPE_CHECKBOX',
+        subcategory_key: 'appearance',
+        display_index: 5
+      }
+    }
+  };
+
+  // Resolve and verify metadata is propagated
+  const resolved = resolveMediaUrn('media:custom-setting;setting', mediaSpecs);
+  assert(resolved.metadata !== null, 'Should have metadata');
+  assertEqual(resolved.metadata.category_key, 'interface', 'Should have category_key');
+  assertEqual(resolved.metadata.ui_type, 'SETTING_UI_TYPE_CHECKBOX', 'Should have ui_type');
+  assertEqual(resolved.metadata.subcategory_key, 'appearance', 'Should have subcategory_key');
+  assertEqual(resolved.metadata.display_index, 5, 'Should have display_index');
+
+  console.log('  ✓ Metadata propagation from object definition');
+}
+
+function testMetadataForStringDef() {
+  console.log('Testing metadata for string definition...');
+
+  // String form definitions should have no metadata
+  const mediaSpecs = {
+    'media:simple;textable': 'text/plain; profile=https://example.com'
+  };
+
+  const resolved = resolveMediaUrn('media:simple;textable', mediaSpecs);
+  assert(resolved.metadata === null, 'String form should have no metadata');
+
+  console.log('  ✓ String form has no metadata');
+}
+
+function testMetadataForBuiltin() {
+  console.log('Testing metadata for built-in...');
+
+  // Built-in media URNs should have no metadata
+  const resolved = resolveMediaUrn(MEDIA_STRING, {});
+  assert(resolved.metadata === null, 'Built-in should have no metadata');
+
+  console.log('  ✓ Built-in has no metadata');
+}
+
+function testMetadataWithValidation() {
+  console.log('Testing metadata with validation...');
+
+  // Ensure metadata and validation can coexist
+  const mediaSpecs = {
+    'media:bounded-number;numeric;setting': {
+      media_type: 'text/plain',
+      profile_uri: 'https://example.com/schema',
+      title: 'Bounded Number',
+      validation: {
+        min: 0,
+        max: 100
+      },
+      metadata: {
+        category_key: 'inference',
+        ui_type: 'SETTING_UI_TYPE_SLIDER'
+      }
+    }
+  };
+
+  const resolved = resolveMediaUrn('media:bounded-number;numeric;setting', mediaSpecs);
+
+  // Verify validation
+  assert(resolved.validation !== null, 'Should have validation');
+  assertEqual(resolved.validation.min, 0, 'Should have min validation');
+  assertEqual(resolved.validation.max, 100, 'Should have max validation');
+
+  // Verify metadata
+  assert(resolved.metadata !== null, 'Should have metadata');
+  assertEqual(resolved.metadata.category_key, 'inference', 'Should have category_key');
+  assertEqual(resolved.metadata.ui_type, 'SETTING_UI_TYPE_SLIDER', 'Should have ui_type');
+
+  console.log('  ✓ Metadata coexists with validation');
+}
+
 function testCapWithMediaSpecs() {
   console.log('Testing Cap with mediaSpecs...');
 
@@ -1599,6 +1688,10 @@ async function runTests() {
   testSpecIdResolution();
   testMediaUrnResolutionWithMediaSpecs();
   testMediaUrnResolutionFailHard();
+  testMetadataPropagation();
+  testMetadataForStringDef();
+  testMetadataForBuiltin();
+  testMetadataWithValidation();
   testCapWithMediaSpecs();
   testCapJSONSerialization();
   testOpTagRename();

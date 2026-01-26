@@ -867,24 +867,6 @@ const BUILTIN_SPECS = {
 };
 
 /**
- * Extract a tag value from a media URN string.
- * @param {string} mediaUrn - The media URN
- * @param {string} tagName - The tag name to extract
- * @returns {string|null} The tag value or null if not found
- */
-function extractMediaUrnTag(mediaUrn, tagName) {
-  const prefix = tagName + '=';
-  const pos = mediaUrn.indexOf(prefix);
-  if (pos === -1) return null;
-
-  const start = pos + prefix.length;
-  const rest = mediaUrn.substring(start);
-  const semicolonPos = rest.indexOf(';');
-  if (semicolonPos === -1) return rest;
-  return rest.substring(0, semicolonPos);
-}
-
-/**
  * Check if a media URN has a marker tag (e.g., binary, keyed, textable).
  * Uses TaggedUrn parsing for proper tag detection.
  * @param {string} mediaUrn - The media URN
@@ -895,54 +877,6 @@ function hasMediaUrnTag(mediaUrn, tagName) {
   if (!mediaUrn) return false;
   const parsed = TaggedUrn.fromString(mediaUrn);
   return parsed.getTag(tagName) !== undefined;
-}
-
-/**
- * Check if a provided media URN satisfies another media URN's requirements.
- * Used for cap matching - checks if a provided media type can satisfy a cap's input requirement.
- *
- * Matching rules:
- * - Type must match (e.g., "image" != "binary")
- * - Extension must match if specified in requirement
- * - Version must match if specified in requirement
- *
- * @param {string} providedUrn - The media URN being provided (e.g., from a listing)
- * @param {string} requirementUrn - The media URN required (e.g., from a cap's input spec)
- * @returns {boolean} True if providedUrn satisfies requirementUrn
- */
-function mediaUrnSatisfies(providedUrn, requirementUrn) {
-  if (!providedUrn || !requirementUrn) return false;
-
-  // Extract type from both URNs
-  const providedType = extractMediaUrnTag(providedUrn, 'type');
-  const requiredType = extractMediaUrnTag(requirementUrn, 'type');
-
-  // Type must match if required
-  if (requiredType) {
-    if (!providedType || providedType !== requiredType) {
-      return false;
-    }
-  }
-
-  // Extension must match if specified in requirement
-  const requiredExt = extractMediaUrnTag(requirementUrn, 'ext');
-  if (requiredExt) {
-    const providedExt = extractMediaUrnTag(providedUrn, 'ext');
-    if (!providedExt || providedExt !== requiredExt) {
-      return false;
-    }
-  }
-
-  // Version must match if specified in requirement
-  const requiredVersion = extractMediaUrnTag(requirementUrn, 'v');
-  if (requiredVersion) {
-    const providedVersion = extractMediaUrnTag(providedUrn, 'v');
-    if (!providedVersion || providedVersion !== requiredVersion) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 /**
@@ -3046,9 +2980,23 @@ class CapGraph {
    * @returns {CapGraphEdge[]}
    */
   getOutgoing(urn) {
-    // Use satisfies-based matching: find all edges where the provided URN
+    // Use TaggedUrn matching: find all edges where the provided URN
     // satisfies the edge's input requirement (fromUrn)
-    const edges = this.edges.filter(edge => mediaUrnSatisfies(urn, edge.fromUrn));
+    let providedUrn;
+    try {
+      providedUrn = TaggedUrn.fromString(urn);
+    } catch (e) {
+      return []; // Invalid URN, return empty
+    }
+
+    const edges = this.edges.filter(edge => {
+      try {
+        const requirementUrn = TaggedUrn.fromString(edge.fromUrn);
+        return providedUrn.matches(requirementUrn);
+      } catch (e) {
+        return false; // Invalid requirement URN, skip
+      }
+    });
 
     // Sort by specificity (highest first) for consistent ordering
     edges.sort((a, b) => b.specificity - a.specificity);
@@ -3431,7 +3379,6 @@ module.exports = {
   MEDIA_XML,
   MEDIA_JSON,
   MEDIA_YAML,
-  mediaUrnSatisfies,
   CapMatrixError,
   CapMatrix,
   BestCapSetMatch,
