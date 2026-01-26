@@ -1758,7 +1758,7 @@ class ValidationError extends Error {
           return `Cap '${capUrn}' argument '${details.argumentName}' expects media_spec '${details.expectedMediaSpec}' but ${errors} for value: ${JSON.stringify(details.actualValue)}`;
         }
         return `Cap '${capUrn}' argument '${details.argumentName}' expects type '${details.expectedType}' but received '${details.actualType}' with value: ${JSON.stringify(details.actualValue)}`;
-      case 'ArgumentValidationFailed':
+      case 'MediaValidationFailed':
         return `Cap '${capUrn}' argument '${details.argumentName}' failed validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
       case 'MediaSpecValidationFailed':
         return `Cap '${capUrn}' argument '${details.argumentName}' failed media spec '${details.mediaUrn}' validation rule '${details.validationRule}' with value: ${JSON.stringify(details.actualValue)}`;
