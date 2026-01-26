@@ -1348,14 +1348,13 @@ class CapArg {
    * @param {string} mediaUrn - The unique media URN for this argument
    * @param {boolean} required - Whether this argument is required
    * @param {Array<ArgSource>} sources - How this argument can be provided
-   * @param {Object} options - Optional fields: arg_description, validation, default_value, metadata
+   * @param {Object} options - Optional fields: arg_description, default_value, metadata
    */
   constructor(mediaUrn, required, sources, options = {}) {
     this.media_urn = mediaUrn;
     this.required = required;
     this.sources = sources;  // Array of ArgSource
     this.arg_description = options.arg_description || null;
-    this.validation = options.validation || null;
     this.default_value = options.default_value !== undefined ? options.default_value : null;
     this.metadata = options.metadata || null;
   }
@@ -1373,7 +1372,6 @@ class CapArg {
       sources,
       {
         arg_description: json.arg_description,
-        validation: json.validation,
         default_value: json.default_value,
         metadata: json.metadata
       }
@@ -1391,7 +1389,6 @@ class CapArg {
       sources: this.sources.map(s => s.toJSON())
     };
     if (this.arg_description) result.arg_description = this.arg_description;
-    if (this.validation) result.validation = this.validation;
     if (this.default_value !== null && this.default_value !== undefined) {
       result.default_value = this.default_value;
     }
@@ -2080,19 +2077,15 @@ class InputValidator {
    * Validate a single argument against its definition
    * Two-pass validation:
    * 1. Type validation + media spec validation rules (inherent to semantic type)
-   * 2. Arg-level validation rules (context-specific)
    */
   static validateSingleArgument(cap, argDef, value) {
     // Type validation - returns the resolved MediaSpec
     const mediaSpec = InputValidator.validateArgumentType(cap, argDef, value);
 
-    // FIRST PASS: Media spec validation rules (inherent to the semantic type)
+    // Media spec validation rules (inherent to the semantic type)
     if (mediaSpec && mediaSpec.validation) {
       InputValidator.validateMediaSpecRules(cap, argDef, mediaSpec, value);
     }
-
-    // SECOND PASS: Arg-level validation rules (context-specific)
-    InputValidator.validateArgumentRules(cap, argDef, value);
   }
 
   /**
@@ -2279,76 +2272,6 @@ class InputValidator {
   }
 
   /**
-   * Validate argument rules (min/max, length, pattern, allowed values)
-   */
-  static validateArgumentRules(cap, argDef, value) {
-    const capUrn = cap.urnString();
-    const validation = argDef.validation;
-
-    if (!validation) return;
-
-    // Min/max validation for numbers
-    if (typeof value === 'number') {
-      if (validation.min !== undefined && value < validation.min) {
-        throw new ValidationError('ArgumentValidationFailed', capUrn, {
-          argumentName: argDef.name,
-          validationRule: `min value ${validation.min}`,
-          actualValue: value
-        });
-      }
-      if (validation.max !== undefined && value > validation.max) {
-        throw new ValidationError('ArgumentValidationFailed', capUrn, {
-          argumentName: argDef.name,
-          validationRule: `max value ${validation.max}`,
-          actualValue: value
-        });
-      }
-    }
-
-    // Length validation for strings and arrays
-    if (typeof value === 'string' || Array.isArray(value)) {
-      const length = value.length;
-      if (validation.minLength !== undefined && length < validation.minLength) {
-        throw new ValidationError('ArgumentValidationFailed', capUrn, {
-          argumentName: argDef.name,
-          validationRule: `min length ${validation.minLength}`,
-          actualValue: value
-        });
-      }
-      if (validation.maxLength !== undefined && length > validation.maxLength) {
-        throw new ValidationError('ArgumentValidationFailed', capUrn, {
-          argumentName: argDef.name,
-          validationRule: `max length ${validation.maxLength}`,
-          actualValue: value
-        });
-      }
-    }
-
-    // Pattern validation for strings
-    if (typeof value === 'string' && validation.pattern) {
-      const regex = new RegExp(validation.pattern);
-      if (!regex.test(value)) {
-        throw new ValidationError('ArgumentValidationFailed', capUrn, {
-          argumentName: argDef.name,
-          validationRule: `pattern ${validation.pattern}`,
-          actualValue: value
-        });
-      }
-    }
-
-    // Allowed values validation
-    if (validation.allowedValues && Array.isArray(validation.allowedValues)) {
-      if (!validation.allowedValues.includes(value)) {
-        throw new ValidationError('ArgumentValidationFailed', capUrn, {
-          argumentName: argDef.name,
-          validationRule: `allowed values [${validation.allowedValues.join(', ')}]`,
-          actualValue: value
-        });
-      }
-    }
-  }
-
-  /**
    * Get JSON type name for a value
    */
   static getJsonTypeName(value) {
@@ -2367,9 +2290,6 @@ class OutputValidator {
   /**
    * Validate output against cap output schema using MediaSpec
    * Resolves spec ID to MediaSpec before validation
-   * Two-pass validation:
-   * 1. Type validation + media spec validation rules (inherent to semantic type)
-   * 2. Output-level validation rules (context-specific)
    */
   static validateOutput(cap, output) {
     const capUrn = cap.urnString();
@@ -2380,14 +2300,9 @@ class OutputValidator {
     // Type validation - returns the resolved MediaSpec
     const mediaSpec = OutputValidator.validateOutputType(cap, outputDef, output);
 
-    // FIRST PASS: Media spec validation rules (inherent to the semantic type)
+    // Media spec validation rules (inherent to the semantic type)
     if (mediaSpec && mediaSpec.validation) {
       OutputValidator.validateOutputMediaSpecRules(cap, mediaSpec, output);
-    }
-
-    // SECOND PASS: Output-level validation rules (context-specific)
-    if (outputDef.validation) {
-      OutputValidator.validateOutputRules(cap, outputDef, output);
     }
   }
 
@@ -2510,67 +2425,6 @@ class OutputValidator {
         throw new ValidationError('OutputMediaSpecValidationFailed', capUrn, {
           mediaUrn: mediaUrn,
           validationRule: `allowed values [${validation.allowed_values.join(', ')}]`,
-          actualValue: value
-        });
-      }
-    }
-  }
-
-  /**
-   * Validate output against output definition's validation rules (second pass)
-   */
-  static validateOutputRules(cap, outputDef, value) {
-    const capUrn = cap.urnString();
-    const validation = outputDef.validation;
-
-    // Min/max validation for numbers
-    if (typeof value === 'number') {
-      if (validation.min !== undefined && value < validation.min) {
-        throw new ValidationError('OutputValidationFailed', capUrn, {
-          validationRule: `min value ${validation.min}`,
-          actualValue: value
-        });
-      }
-      if (validation.max !== undefined && value > validation.max) {
-        throw new ValidationError('OutputValidationFailed', capUrn, {
-          validationRule: `max value ${validation.max}`,
-          actualValue: value
-        });
-      }
-    }
-
-    // Length validation for strings
-    if (typeof value === 'string') {
-      if (validation.minLength !== undefined && value.length < validation.minLength) {
-        throw new ValidationError('OutputValidationFailed', capUrn, {
-          validationRule: `min length ${validation.minLength}`,
-          actualValue: value
-        });
-      }
-      if (validation.maxLength !== undefined && value.length > validation.maxLength) {
-        throw new ValidationError('OutputValidationFailed', capUrn, {
-          validationRule: `max length ${validation.maxLength}`,
-          actualValue: value
-        });
-      }
-    }
-
-    // Pattern validation for strings
-    if (typeof value === 'string' && validation.pattern) {
-      const regex = new RegExp(validation.pattern);
-      if (!regex.test(value)) {
-        throw new ValidationError('OutputValidationFailed', capUrn, {
-          validationRule: `pattern ${validation.pattern}`,
-          actualValue: value
-        });
-      }
-    }
-
-    // Allowed values validation
-    if (validation.allowedValues && Array.isArray(validation.allowedValues)) {
-      if (!validation.allowedValues.includes(value)) {
-        throw new ValidationError('OutputValidationFailed', capUrn, {
-          validationRule: `allowed values [${validation.allowedValues.join(', ')}]`,
           actualValue: value
         });
       }
