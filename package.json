@@ -1,7 +1,7 @@
 {
   "author": "Bahram Joharshamshiri",
   "dependencies": {
-    "tagged-urn": "^0.11.2835"
+    "tagged-urn": "^0.15.3103"
   },
   "description": "JavaScript implementation of Cap URN (Capability Uniform Resource Names) with strict validation and matching",
   "engines": {
@@ -32,5 +32,5 @@
   "scripts": {
     "test": "node capns.test.js"
   },
-  "version": "0.43.10973"
+  "version": "0.48.11180"
 }
