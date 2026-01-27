@@ -772,6 +772,13 @@ const MEDIA_PNG = 'media:png;binary';
 const MEDIA_AUDIO = 'media:wav;audio;binary;';
 const MEDIA_VIDEO = 'media:video;binary';
 const MEDIA_TEXT = 'media:text;textable';
+// Semantic AI input types
+const MEDIA_IMAGE_VISUAL_EMBEDDING = 'media:image;png;binary;visual-embedding-source';
+const MEDIA_IMAGE_CAPTIONING = 'media:image;png;binary;captioning-source';
+const MEDIA_IMAGE_VISION_QUERY = 'media:image;png;binary;vision-query-source';
+const MEDIA_AUDIO_SPEECH = 'media:audio;wav;binary;speech';
+const MEDIA_TEXT_EMBEDDING = 'media:text;textable;scalar;embedding-source';
+const MEDIA_IMAGE_THUMBNAIL = 'media:image;png;binary;thumbnail';
 // Document types (PRIMARY naming - type IS the format)
 const MEDIA_PDF = 'media:pdf;binary';
 const MEDIA_EPUB = 'media:epub;binary';
