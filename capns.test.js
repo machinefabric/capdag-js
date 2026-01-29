@@ -33,7 +33,9 @@ const {
   CapGraph,
   // StdinSource
   StdinSource,
-  StdinSourceKind
+  StdinSourceKind,
+  // XV5 validation
+  validateNoMediaSpecRedefinitionSync
 } = require('./capns.js');
 
 // Test assertion utility
@@ -1658,6 +1660,71 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
   });
 }
 
+// ============================================================================
+// XV5 VALIDATION TESTS
+// TEST054-056: Validate that inline media_specs don't redefine registry specs
+// ============================================================================
+
+// TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected
+function testXV5InlineSpecRedefinitionDetected() {
+  console.log('Testing XV5: Inline spec redefinition detected...');
+
+  // Try to redefine MEDIA_STRING which is a built-in spec
+  const mediaSpecs = {
+    [MEDIA_STRING]: {
+      media_type: 'text/plain',
+      title: 'My Custom String',
+      description: 'Trying to redefine string'
+    }
+  };
+
+  const result = validateNoMediaSpecRedefinitionSync(mediaSpecs);
+
+  assert(!result.valid, 'Should fail validation when redefining built-in spec');
+  assert(result.error && result.error.includes('XV5'), 'Error should mention XV5');
+  assert(result.redefines && result.redefines.includes(MEDIA_STRING), 'Should identify MEDIA_STRING as redefined');
+
+  console.log('  ✓ Inline spec redefinition detected');
+}
+
+// TEST055: XV5 - Test new inline media spec (not in registry) is allowed
+function testXV5NewInlineSpecAllowed() {
+  console.log('Testing XV5: New inline spec allowed...');
+
+  // Define a completely new media spec that doesn't exist in built-ins
+  const mediaSpecs = {
+    'media:my-unique-custom-type-xyz123': {
+      media_type: 'application/json',
+      title: 'My Custom Output',
+      description: 'A custom output type'
+    }
+  };
+
+  const result = validateNoMediaSpecRedefinitionSync(mediaSpecs);
+
+  assert(result.valid, 'Should pass validation for new spec not in built-ins');
+  assert(!result.error, 'Should not have error message');
+
+  console.log('  ✓ New inline spec allowed');
+}
+
+// TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation
+function testXV5EmptyMediaSpecsAllowed() {
+  console.log('Testing XV5: Empty media_specs allowed...');
+
+  // Empty or null media_specs should pass
+  let result = validateNoMediaSpecRedefinitionSync({});
+  assert(result.valid, 'Empty object should pass validation');
+
+  result = validateNoMediaSpecRedefinitionSync(null);
+  assert(result.valid, 'Null should pass validation');
+
+  result = validateNoMediaSpecRedefinitionSync(undefined);
+  assert(result.valid, 'Undefined should pass validation');
+
+  console.log('  ✓ Empty media_specs allowed');
+}
+
 // Update runTests to include new tests
 async function runTests() {
   console.log('Running Cap URN JavaScript tests...\n');
@@ -1737,6 +1804,11 @@ async function runTests() {
   testStdinSourceKindConstants();
   await testStdinSourcePassedToExecuteCap();
   await testStdinSourceFileReferencePassedToExecuteCap();
+
+  // XV5 validation tests
+  testXV5InlineSpecRedefinitionDetected();
+  testXV5NewInlineSpecAllowed();
+  testXV5EmptyMediaSpecsAllowed();
 
   console.log('OK All tests passed!');
 }
