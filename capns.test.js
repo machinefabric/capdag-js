@@ -77,6 +77,7 @@ function testUrn(tags) {
 
 // Test suite - defined at the end of file
 
+// TEST001: Test that cap URN is created with tags parsed correctly and direction specs accessible
 function testCapUrnCreation() {
   console.log('Testing Cap URN creation...');
 
@@ -90,6 +91,7 @@ function testCapUrnCreation() {
   console.log('  ✓ Cap URN creation');
 }
 
+// TEST002: Test that tag keys and values are normalized to lowercase for case-insensitive comparison
 function testCaseInsensitive() {
   console.log('Testing case insensitive behavior...');
 
@@ -125,6 +127,7 @@ function testCaseInsensitive() {
   console.log('  ✓ Case insensitive behavior');
 }
 
+// TEST003: Test that URN without cap prefix is rejected with MISSING_CAP_PREFIX error
 function testCapPrefixRequired() {
   console.log('Testing cap: prefix requirement...');
 
@@ -142,6 +145,7 @@ function testCapPrefixRequired() {
   console.log('  ✓ Cap prefix requirement');
 }
 
+// TEST004: Test that URNs with and without trailing semicolon are equivalent
 function testTrailingSemicolonEquivalence() {
   console.log('Testing trailing semicolon equivalence...');
 
@@ -162,6 +166,7 @@ function testTrailingSemicolonEquivalence() {
   console.log('  ✓ Trailing semicolon equivalence');
 }
 
+// TEST005: Test that toString produces canonical form with alphabetically sorted tags
 function testCanonicalStringFormat() {
   console.log('Testing canonical string format...');
 
@@ -174,6 +179,7 @@ function testCanonicalStringFormat() {
   console.log('  ✓ Canonical string format');
 }
 
+// TEST006: Test that cap matches request with exact tags, subset tags, and wildcards
 function testTagMatching() {
   console.log('Testing tag matching...');
 
@@ -202,6 +208,7 @@ function testTagMatching() {
   console.log('  ✓ Tag matching');
 }
 
+// TEST007: Test that missing tags are treated as wildcards for matching
 function testMissingTagHandling() {
   console.log('Testing missing tag handling...');
 
@@ -219,6 +226,7 @@ function testMissingTagHandling() {
   console.log('  ✓ Missing tag handling');
 }
 
+// TEST008: Test that specificity counts non-wildcard tags including in and out
 function testSpecificity() {
   console.log('Testing specificity...');
 
@@ -241,6 +249,7 @@ function testSpecificity() {
   console.log('  ✓ Specificity');
 }
 
+// TEST009: Test that compatibility checks if caps can handle same requests
 function testCompatibility() {
   console.log('Testing compatibility...');
 
@@ -264,6 +273,7 @@ function testCompatibility() {
   console.log('  ✓ Compatibility');
 }
 
+// TEST010: Test that CapUrnBuilder creates valid URN with tags and direction specs
 function testBuilder() {
   console.log('Testing builder...');
 
@@ -297,6 +307,7 @@ function testBuilder() {
   console.log('  ✓ Builder');
 }
 
+// TEST011: Test convenience methods withTag, withoutTag, withInSpec, withOutSpec, merge, subset, withWildcardTag
 function testConvenienceMethods() {
   console.log('Testing convenience methods...');
 
@@ -359,6 +370,7 @@ function testConvenienceMethods() {
   console.log('  ✓ Convenience methods');
 }
 
+// TEST012: Test that CapMatcher finds best and all matches from cap list
 function testCapMatcher() {
   console.log('Testing CapMatcher...');
 
@@ -385,6 +397,7 @@ function testCapMatcher() {
   console.log('  ✓ CapMatcher');
 }
 
+// TEST013: Test that cap URN serializes to and deserializes from JSON
 function testJSONSerialization() {
   console.log('Testing JSON serialization...');
 
@@ -400,6 +413,7 @@ function testJSONSerialization() {
   console.log('  ✓ JSON serialization');
 }
 
+// TEST014: Test that empty cap URN without in/out fails, minimal URN with just in/out succeeds
 function testEmptyCapUrn() {
   console.log('Testing empty cap URN now fails (in/out required)...');
 
@@ -432,6 +446,7 @@ function testEmptyCapUrn() {
   console.log('  ✓ Empty cap URN now fails (in/out required)');
 }
 
+// TEST015: Test that URN supports forward slashes and colons in tag values
 function testExtendedCharacterSupport() {
   console.log('Testing extended character support...');
 
@@ -443,6 +458,7 @@ function testExtendedCharacterSupport() {
   console.log('  ✓ Extended character support');
 }
 
+// TEST016: Test that wildcard is rejected in keys but accepted in values
 function testWildcardRestrictions() {
   console.log('Testing wildcard restrictions...');
 
@@ -465,6 +481,7 @@ function testWildcardRestrictions() {
   console.log('  ✓ Wildcard restrictions');
 }
 
+// TEST017: Test that duplicate keys in URN are rejected with DUPLICATE_KEY error
 function testDuplicateKeyRejection() {
   console.log('Testing duplicate key rejection...');
 
@@ -478,6 +495,7 @@ function testDuplicateKeyRejection() {
   console.log('  ✓ Duplicate key rejection');
 }
 
+// TEST018: Test that pure numeric keys are rejected but mixed alphanumeric keys are allowed
 function testNumericKeyRestriction() {
   console.log('Testing numeric key restriction...');
 
@@ -506,6 +524,7 @@ function testNumericKeyRestriction() {
 // NEW FORMAT TESTS - Spec ID Resolution and MediaSpec
 // ============================================================================
 
+// TEST057: Test MediaSpec parses canonical format without content-type prefix
 function testMediaSpecCanonicalFormat() {
   console.log('Testing MediaSpec canonical format...');
 
@@ -526,6 +545,7 @@ function testMediaSpecCanonicalFormat() {
   console.log('  ✓ MediaSpec canonical format');
 }
 
+// TEST058: Test MediaSpec fails hard on legacy content-type prefix format
 function testMediaSpecLegacyFormatRejection() {
   console.log('Testing legacy format rejection...');
 
@@ -545,6 +565,7 @@ function testMediaSpecLegacyFormatRejection() {
   console.log('  ✓ Legacy format rejection');
 }
 
+// TEST059: Test built-in media URNs are recognized by isBuiltinMediaUrn
 function testBuiltinSpecIds() {
   console.log('Testing built-in spec IDs...');
 
@@ -562,6 +583,7 @@ function testBuiltinSpecIds() {
   console.log('  ✓ Built-in spec IDs');
 }
 
+// TEST060: Test resolveMediaUrn resolves built-in media URNs to MediaSpec
 function testSpecIdResolution() {
   console.log('Testing spec ID resolution...');
 
@@ -584,6 +606,7 @@ function testSpecIdResolution() {
   console.log('  ✓ Spec ID resolution');
 }
 
+// TEST061: Test resolveMediaUrn resolves custom media URNs from mediaSpecs table
 function testMediaUrnResolutionWithMediaSpecs() {
   console.log('Testing media URN resolution with custom mediaSpecs...');
 
@@ -615,6 +638,7 @@ function testMediaUrnResolutionWithMediaSpecs() {
   console.log('  ✓ Media URN resolution with custom mediaSpecs');
 }
 
+// TEST062: Test resolveMediaUrn fails hard on unresolvable media URN
 function testMediaUrnResolutionFailHard() {
   console.log('Testing media URN resolution fail hard...');
 
@@ -634,6 +658,7 @@ function testMediaUrnResolutionFailHard() {
   console.log('  ✓ Media URN resolution fail hard');
 }
 
+// TEST063: Test metadata is propagated from object form media spec definition
 function testMetadataPropagation() {
   console.log('Testing metadata propagation...');
 
@@ -664,6 +689,7 @@ function testMetadataPropagation() {
   console.log('  ✓ Metadata propagation from object definition');
 }
 
+// TEST064: Test string form media spec definition has no metadata
 function testMetadataForStringDef() {
   console.log('Testing metadata for string definition...');
 
@@ -678,6 +704,7 @@ function testMetadataForStringDef() {
   console.log('  ✓ String form has no metadata');
 }
 
+// TEST065: Test built-in media URNs have no metadata
 function testMetadataForBuiltin() {
   console.log('Testing metadata for built-in...');
 
@@ -688,6 +715,7 @@ function testMetadataForBuiltin() {
   console.log('  ✓ Built-in has no metadata');
 }
 
+// TEST066: Test metadata and validation coexist in media spec definition
 function testMetadataWithValidation() {
   console.log('Testing metadata with validation...');
 
@@ -723,6 +751,7 @@ function testMetadataWithValidation() {
   console.log('  ✓ Metadata coexists with validation');
 }
 
+// TEST108: Test Cap with mediaSpecs resolves custom and built-in media URNs
 function testCapWithMediaSpecs() {
   console.log('Testing Cap with mediaSpecs...');
 
@@ -757,6 +786,7 @@ function testCapWithMediaSpecs() {
   console.log('  ✓ Cap with mediaSpecs');
 }
 
+// TEST109: Test Cap JSON serialization includes mediaSpecs and direction specs
 function testCapJSONSerialization() {
   console.log('Testing Cap JSON serialization with mediaSpecs...');
 
@@ -789,6 +819,7 @@ function testCapJSONSerialization() {
   console.log('  ✓ Cap JSON serialization with mediaSpecs');
 }
 
+// TEST019: Test op tag is used instead of deprecated action tag
 function testOpTagRename() {
   console.log('Testing op tag (renamed from action)...');
 
@@ -815,6 +846,7 @@ function testOpTagRename() {
 // All implementations (Rust, Go, JS, ObjC) must pass these identically
 // ============================================================================
 
+// TEST020: Test matching semantics - exact match including in/out
 function testMatchingSemantics_Test1_ExactMatch() {
   console.log('Testing Matching Semantics Test 1: Exact match...');
   // Test 1: Exact match (including in/out)
@@ -827,6 +859,7 @@ function testMatchingSemantics_Test1_ExactMatch() {
   console.log('  ✓ Test 1: Exact match');
 }
 
+// TEST021: Test matching semantics - cap missing tag treated as implicit wildcard
 function testMatchingSemantics_Test2_CapMissingTag() {
   console.log('Testing Matching Semantics Test 2: Cap missing tag...');
   // Test 2: Cap missing tag (implicit wildcard for other tags, not in/out)
@@ -839,6 +872,7 @@ function testMatchingSemantics_Test2_CapMissingTag() {
   console.log('  ✓ Test 2: Cap missing tag');
 }
 
+// TEST022: Test matching semantics - cap with extra tag matches request
 function testMatchingSemantics_Test3_CapHasExtraTag() {
   console.log('Testing Matching Semantics Test 3: Cap has extra tag...');
   // Test 3: Cap has extra tag
@@ -851,6 +885,7 @@ function testMatchingSemantics_Test3_CapHasExtraTag() {
   console.log('  ✓ Test 3: Cap has extra tag');
 }
 
+// TEST023: Test matching semantics - request with wildcard matches specific cap
 function testMatchingSemantics_Test4_RequestHasWildcard() {
   console.log('Testing Matching Semantics Test 4: Request has wildcard...');
   // Test 4: Request has wildcard
@@ -863,6 +898,7 @@ function testMatchingSemantics_Test4_RequestHasWildcard() {
   console.log('  ✓ Test 4: Request has wildcard');
 }
 
+// TEST024: Test matching semantics - cap with wildcard matches specific request
 function testMatchingSemantics_Test5_CapHasWildcard() {
   console.log('Testing Matching Semantics Test 5: Cap has wildcard...');
   // Test 5: Cap has wildcard
@@ -875,6 +911,7 @@ function testMatchingSemantics_Test5_CapHasWildcard() {
   console.log('  ✓ Test 5: Cap has wildcard');
 }
 
+// TEST025: Test matching semantics - value mismatch does not match
 function testMatchingSemantics_Test6_ValueMismatch() {
   console.log('Testing Matching Semantics Test 6: Value mismatch...');
   // Test 6: Value mismatch
@@ -887,6 +924,7 @@ function testMatchingSemantics_Test6_ValueMismatch() {
   console.log('  ✓ Test 6: Value mismatch');
 }
 
+// TEST026: Test matching semantics - fallback pattern with missing tag as implicit wildcard
 function testMatchingSemantics_Test7_FallbackPattern() {
   console.log('Testing Matching Semantics Test 7: Fallback pattern...');
   // Test 7: Fallback pattern
@@ -899,6 +937,7 @@ function testMatchingSemantics_Test7_FallbackPattern() {
   console.log('  ✓ Test 7: Fallback pattern');
 }
 
+// TEST027: Test matching semantics - wildcard cap with in=* out=* matches anything
 function testMatchingSemantics_Test8_WildcardCapMatchesAnything() {
   console.log('Testing Matching Semantics Test 8: Wildcard cap matches anything...');
   // Test 8: Wildcard cap matches anything (replaces empty cap test)
@@ -911,6 +950,7 @@ function testMatchingSemantics_Test8_WildcardCapMatchesAnything() {
   console.log('  ✓ Test 8: Wildcard cap matches anything');
 }
 
+// TEST028: Test matching semantics - cross-dimension independence for other tags
 function testMatchingSemantics_Test9_CrossDimensionIndependence() {
   console.log('Testing Matching Semantics Test 9: Cross-dimension independence...');
   // Test 9: Cross-dimension independence (for other tags, not in/out)
@@ -923,6 +963,7 @@ function testMatchingSemantics_Test9_CrossDimensionIndependence() {
   console.log('  ✓ Test 9: Cross-dimension independence');
 }
 
+// TEST029: Test matching semantics - direction mismatch in/out does not match
 function testMatchingSemantics_Test10_DirectionMismatch() {
   console.log('Testing Matching Semantics Test 10: Direction mismatch...');
   // Test 10: Direction mismatch (in/out must match)
@@ -967,6 +1008,7 @@ function makeCap(urnString, title) {
   return new Cap(capUrn, title, 'test', title);
 }
 
+// TEST117: Test CapCube finds more specific cap across registries
 function testCapCubeMoreSpecificWins() {
   console.log('Testing CapCube: More specific wins...');
 
@@ -1005,6 +1047,7 @@ function testCapCubeMoreSpecificWins() {
   console.log('  ✓ More specific wins');
 }
 
+// TEST118: Test CapCube tie-breaking prefers first registry in order
 function testCapCubeTieGoesToFirst() {
   console.log('Testing CapCube: Tie goes to first...');
 
@@ -1032,6 +1075,7 @@ function testCapCubeTieGoesToFirst() {
   console.log('  ✓ Tie goes to first');
 }
 
+// TEST119: Test CapCube polls all registries to find best match
 function testCapCubePollsAll() {
   console.log('Testing CapCube: Polls all registries...');
 
@@ -1066,6 +1110,7 @@ function testCapCubePollsAll() {
   console.log('  ✓ Polls all registries');
 }
 
+// TEST120: Test CapCube returns error when no cap matches request
 function testCapCubeNoMatch() {
   console.log('Testing CapCube: No match error...');
 
@@ -1084,6 +1129,7 @@ function testCapCubeNoMatch() {
   console.log('  ✓ No match error');
 }
 
+// TEST121: Test CapCube fallback scenario where generic cap handles unknown file types
 function testCapCubeFallbackScenario() {
   console.log('Testing CapCube: Fallback scenario...');
 
@@ -1128,6 +1174,7 @@ function testCapCubeFallbackScenario() {
   console.log('  ✓ Fallback scenario');
 }
 
+// TEST122: Test CapCube can method returns execution info and canHandle checks capability
 function testCapCubeCanMethod() {
   console.log('Testing CapCube: can() method...');
 
@@ -1152,6 +1199,7 @@ function testCapCubeCanMethod() {
   console.log('  ✓ can() method');
 }
 
+// TEST123: Test CapCube registry management add, get, remove operations
 function testCapCubeRegistryManagement() {
   console.log('Testing CapCube: Registry management...');
 
@@ -1193,6 +1241,7 @@ function makeGraphCap(inUrn, outUrn, title) {
   return new Cap(capUrn, title, 'convert', title);
 }
 
+// TEST124: Test CapGraph basic construction builds nodes and edges from caps
 function testCapGraphBasicConstruction() {
   console.log('Testing CapGraph: Basic construction...');
 
@@ -1226,6 +1275,7 @@ function testCapGraphBasicConstruction() {
   console.log('  ✓ Basic construction');
 }
 
+// TEST125: Test CapGraph getOutgoing and getIncoming return correct edges for media URN
 function testCapGraphOutgoingIncoming() {
   console.log('Testing CapGraph: Outgoing and incoming edges...');
 
@@ -1258,6 +1308,7 @@ function testCapGraphOutgoingIncoming() {
   console.log('  ✓ Outgoing and incoming edges');
 }
 
+// TEST126: Test CapGraph canConvert checks direct and transitive conversion paths
 function testCapGraphCanConvert() {
   console.log('Testing CapGraph: Can convert...');
 
@@ -1292,6 +1343,7 @@ function testCapGraphCanConvert() {
   console.log('  ✓ Can convert');
 }
 
+// TEST127: Test CapGraph findPath returns shortest path between media URNs
 function testCapGraphFindPath() {
   console.log('Testing CapGraph: Find path...');
 
@@ -1333,6 +1385,7 @@ function testCapGraphFindPath() {
   console.log('  ✓ Find path');
 }
 
+// TEST128: Test CapGraph findAllPaths returns all paths sorted by length
 function testCapGraphFindAllPaths() {
   console.log('Testing CapGraph: Find all paths...');
 
@@ -1364,6 +1417,7 @@ function testCapGraphFindAllPaths() {
   console.log('  ✓ Find all paths');
 }
 
+// TEST129: Test CapGraph getDirectEdges returns edges sorted by specificity
 function testCapGraphGetDirectEdges() {
   console.log('Testing CapGraph: Get direct edges...');
 
@@ -1400,6 +1454,7 @@ function testCapGraphGetDirectEdges() {
   console.log('  ✓ Get direct edges');
 }
 
+// TEST130: Test CapGraph stats returns node count, edge count, input/output URN counts
 function testCapGraphStats() {
   console.log('Testing CapGraph: Stats...');
 
@@ -1435,6 +1490,7 @@ function testCapGraphStats() {
   console.log('  ✓ Stats');
 }
 
+// TEST131: Test CapGraph with CapCube builds graph from multiple registries
 function testCapGraphWithCapCube() {
   console.log('Testing CapGraph: With CapCube...');
 
@@ -1476,6 +1532,7 @@ function testCapGraphWithCapCube() {
 // StdinSource Tests
 // ============================================================================
 
+// TEST156: Test creating StdinSource Data variant with byte vector
 function testStdinSourceFromData() {
   console.log('Testing StdinSource: From data...');
 
@@ -1491,6 +1548,7 @@ function testStdinSourceFromData() {
   console.log('  ✓ From data');
 }
 
+// TEST157: Test creating StdinSource FileReference variant with all required fields
 function testStdinSourceFromFileReference() {
   console.log('Testing StdinSource: From file reference...');
 
@@ -1513,6 +1571,7 @@ function testStdinSourceFromFileReference() {
   console.log('  ✓ From file reference');
 }
 
+// TEST158: Test StdinSource Data with empty vector stores and retrieves correctly
 function testStdinSourceWithEmptyData() {
   console.log('Testing StdinSource: With empty data...');
 
@@ -1526,6 +1585,7 @@ function testStdinSourceWithEmptyData() {
   console.log('  ✓ With empty data');
 }
 
+// TEST030: Test StdinSource with null data creates valid Data source
 function testStdinSourceWithNullData() {
   console.log('Testing StdinSource: With null data...');
 
@@ -1538,6 +1598,7 @@ function testStdinSourceWithNullData() {
   console.log('  ✓ With null data');
 }
 
+// TEST159: Test StdinSource Data with binary content like PNG header bytes
 function testStdinSourceWithBinaryContent() {
   console.log('Testing StdinSource: With binary content...');
 
@@ -1554,6 +1615,7 @@ function testStdinSourceWithBinaryContent() {
   console.log('  ✓ With binary content');
 }
 
+// TEST031: Test StdinSourceKind constants are defined and distinct
 function testStdinSourceKindConstants() {
   console.log('Testing StdinSource: Kind constants...');
 
@@ -1564,6 +1626,7 @@ function testStdinSourceKindConstants() {
   console.log('  ✓ Kind constants');
 }
 
+// TEST032: Test StdinSource Data is passed correctly to executeCap
 function testStdinSourcePassedToExecuteCap() {
   console.log('Testing StdinSource: Passed to executeCap...');
 
@@ -1608,6 +1671,7 @@ function testStdinSourcePassedToExecuteCap() {
   });
 }
 
+// TEST033: Test StdinSource FileReference is passed correctly to executeCap
 function testStdinSourceFileReferencePassedToExecuteCap() {
   console.log('Testing StdinSource: File reference passed to executeCap...');
 
@@ -1665,7 +1729,7 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
 // TEST054-056: Validate that inline media_specs don't redefine registry specs
 // ============================================================================
 
-// TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected
+// TEST054: Test XV5 validation detects inline media spec redefinition of built-in spec
 function testXV5InlineSpecRedefinitionDetected() {
   console.log('Testing XV5: Inline spec redefinition detected...');
 
@@ -1687,7 +1751,7 @@ function testXV5InlineSpecRedefinitionDetected() {
   console.log('  ✓ Inline spec redefinition detected');
 }
 
-// TEST055: XV5 - Test new inline media spec (not in registry) is allowed
+// TEST055: Test XV5 validation allows new inline media spec not in built-ins
 function testXV5NewInlineSpecAllowed() {
   console.log('Testing XV5: New inline spec allowed...');
 
@@ -1708,7 +1772,7 @@ function testXV5NewInlineSpecAllowed() {
   console.log('  ✓ New inline spec allowed');
 }
 
-// TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation
+// TEST056: Test XV5 validation passes for empty or null media_specs
 function testXV5EmptyMediaSpecsAllowed() {
   console.log('Testing XV5: Empty media_specs allowed...');
 

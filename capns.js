@@ -768,7 +768,7 @@ const MEDIA_OBJECT_ARRAY = 'media:form=list;textable';
 const MEDIA_BINARY = 'media:bytes';
 const MEDIA_VOID = 'media:void';
 // Semantic content types
-const MEDIA_PNG = 'media:png;bytes';
+const MEDIA_PNG = 'media:image;png;bytes';
 const MEDIA_AUDIO = 'media:wav;audio;bytes;';
 const MEDIA_VIDEO = 'media:video;bytes';
 // Semantic AI input types
@@ -785,7 +785,15 @@ const MEDIA_LOG = 'media:log;textable';
 const MEDIA_HTML = 'media:html;textable';
 const MEDIA_XML = 'media:xml;textable';
 const MEDIA_JSON = 'media:json;textable;form=map';
+const MEDIA_JSON_SCHEMA = 'media:json;json-schema;textable;form=map';
 const MEDIA_YAML = 'media:yaml;textable;form=map';
+// Semantic input types
+const MEDIA_MODEL_SPEC = 'media:model-spec;textable;form=scalar';
+const MEDIA_MODEL_REPO = 'media:model-repo;textable;form=map';
+// Semantic output types
+const MEDIA_MODEL_DIM = 'media:model-dim;integer;textable;numeric;form=scalar';
+const MEDIA_DECISION = 'media:decision;bool;textable;form=scalar';
+const MEDIA_DECISION_ARRAY = 'media:decision;bool;textable;form=list';
 
 // =============================================================================
 // SCHEMA URL CONFIGURATION
@@ -3534,7 +3542,13 @@ module.exports = {
   MEDIA_HTML,
   MEDIA_XML,
   MEDIA_JSON,
+  MEDIA_JSON_SCHEMA,
   MEDIA_YAML,
+  MEDIA_MODEL_SPEC,
+  MEDIA_MODEL_REPO,
+  MEDIA_MODEL_DIM,
+  MEDIA_DECISION,
+  MEDIA_DECISION_ARRAY,
   CapMatrixError,
   CapMatrix,
   BestCapSetMatch,
