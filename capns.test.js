@@ -68,9 +68,9 @@ function assertThrows(fn, expectedErrorCode, message) {
  */
 function testUrn(tags) {
   if (!tags || tags === '') {
-    return 'cap:in="media:void";out="media:object"';
+    return 'cap:in="media:void";out="media:form=map"';
   }
-  return 'cap:in="media:void";out="media:object";' + tags;
+  return 'cap:in="media:void";out="media:form=map";' + tags;
 }
 
 // Test suite - defined at the end of file
@@ -83,7 +83,7 @@ function testCapUrnCreation() {
   assertEqual(cap.getTag('target'), 'thumbnail', 'Should get target tag');
   assertEqual(cap.getTag('ext'), 'pdf', 'Should get ext tag');
   assertEqual(cap.getInSpec(), 'media:void', 'Should get inSpec');
-  assertEqual(cap.getOutSpec(), 'media:object', 'Should get outSpec');
+  assertEqual(cap.getOutSpec(), 'media:form=map', 'Should get outSpec');
 
   console.log('  ✓ Cap URN creation');
 }
@@ -92,7 +92,7 @@ function testCaseInsensitive() {
   console.log('Testing case insensitive behavior...');
 
   // Test that different casing produces the same URN
-  const cap1 = CapUrn.fromString('cap:IN="media:void";OUT="media:object";OP=Generate;EXT=PDF;Target=Thumbnail');
+  const cap1 = CapUrn.fromString('cap:IN="media:void";OUT="media:form=map";OP=Generate;EXT=PDF;Target=Thumbnail');
   const cap2 = CapUrn.fromString(testUrn('op=generate;ext=pdf;target=thumbnail'));
 
   // Both should be normalized to lowercase
@@ -114,7 +114,7 @@ function testCaseInsensitive() {
 
   // Case-insensitive in/out lookup
   assertEqual(cap1.getTag('IN'), 'media:void', 'Should lookup in with case-insensitive key');
-  assertEqual(cap1.getTag('OUT'), 'media:object', 'Should lookup out with case-insensitive key');
+  assertEqual(cap1.getTag('OUT'), 'media:form=map', 'Should lookup out with case-insensitive key');
 
   // Matching should work case-insensitively
   assert(cap1.matches(cap2), 'Should match case-insensitively');
@@ -166,8 +166,8 @@ function testCanonicalStringFormat() {
   const cap = CapUrn.fromString(testUrn('op=generate;target=thumbnail;ext=pdf'));
   // Should be sorted alphabetically and have no trailing semicolon in canonical form
   // in/out are included in alphabetical order: 'ext' < 'in' < 'op' < 'out' < 'target'
-  // Colons don't need quoting - media:void and media:object are valid unquoted values
-  assertEqual(cap.toString(), 'cap:ext=pdf;in=media:void;op=generate;out=media:object;target=thumbnail', 'Should be alphabetically sorted');
+  // Values with '=' need quoting - media:form=map requires quotes
+  assertEqual(cap.toString(), 'cap:ext=pdf;in=media:void;op=generate;out="media:form=map";target=thumbnail', 'Should be alphabetically sorted');
 
   console.log('  ✓ Canonical string format');
 }
@@ -305,7 +305,7 @@ function testConvenienceMethods() {
   assertEqual(modified.getTag('op'), 'generate', 'Should preserve original tag');
   assertEqual(modified.getTag('ext'), 'pdf', 'Should add new tag');
   assertEqual(modified.getInSpec(), 'media:void', 'Should preserve inSpec');
-  assertEqual(modified.getOutSpec(), 'media:object', 'Should preserve outSpec');
+  assertEqual(modified.getOutSpec(), 'media:form=map', 'Should preserve outSpec');
 
   // Test withTag silently ignores in/out
   const modified2 = original.withTag('in', 'media:string');
@@ -371,7 +371,8 @@ function testCapMatcher() {
 
   // Most specific cap that can handle the request (ext=pdf is more specific)
   // Canonical order is alphabetical: ext, in, op, out
-  assertEqual(best.toString(), 'cap:ext=pdf;in=media:void;op=generate;out=media:object', 'Should find most specific match');
+  // Note: media:form=map needs quotes because it contains '='
+  assertEqual(best.toString(), 'cap:ext=pdf;in=media:void;op=generate;out="media:form=map"', 'Should find most specific match');
 
   // Test findAllMatches - now only 2 match because first has wildcard in/out
   const matches = CapMatcher.findAllMatches(caps, request);
@@ -392,7 +393,7 @@ function testJSONSerialization() {
 
   assert(original.equals(restored), 'Should serialize/deserialize correctly');
   assertEqual(restored.getInSpec(), 'media:void', 'Should preserve inSpec');
-  assertEqual(restored.getOutSpec(), 'media:object', 'Should preserve outSpec');
+  assertEqual(restored.getOutSpec(), 'media:form=map', 'Should preserve outSpec');
 
   console.log('  ✓ JSON serialization');
 }
@@ -418,7 +419,7 @@ function testEmptyCapUrn() {
   const minimal = CapUrn.fromString(testUrn(''));
   assertEqual(Object.keys(minimal.tags).length, 0, 'Should have no other tags');
   assertEqual(minimal.getInSpec(), 'media:void', 'Should have inSpec');
-  assertEqual(minimal.getOutSpec(), 'media:object', 'Should have outSpec');
+  assertEqual(minimal.getOutSpec(), 'media:form=map', 'Should have outSpec');
 
   // For "match anything" behavior, use wildcards
   const wildcard = CapUrn.fromString('cap:in=*;out=*');
@@ -774,14 +775,14 @@ function testCapJSONSerialization() {
   assertEqual(json.media_specs['media:custom'], 'text/plain; profile=https://example.com', 'Should serialize mediaSpecs');
   // URN tags should include in and out
   assertEqual(json.urn.tags['in'], 'media:void', 'Should serialize inSpec in tags');
-  assertEqual(json.urn.tags['out'], 'media:object', 'Should serialize outSpec in tags');
+  assertEqual(json.urn.tags['out'], 'media:form=map', 'Should serialize outSpec in tags');
 
   // Deserialize from JSON
   const restored = Cap.fromJSON(json);
   assert(restored.mediaSpecs !== undefined, 'Should restore mediaSpecs');
   assertEqual(restored.mediaSpecs['media:custom'], 'text/plain; profile=https://example.com', 'Should restore mediaSpecs content');
   assertEqual(restored.urn.getInSpec(), 'media:void', 'Should restore inSpec');
-  assertEqual(restored.urn.getOutSpec(), 'media:object', 'Should restore outSpec');
+  assertEqual(restored.urn.getOutSpec(), 'media:form=map', 'Should restore outSpec');
 
   console.log('  ✓ Cap JSON serialization with mediaSpecs');
 }
@@ -1494,7 +1495,7 @@ function testStdinSourceFromFileReference() {
   const trackedFileId = 'tracked-file-123';
   const originalPath = '/path/to/original.pdf';
   const securityBookmark = new Uint8Array([0x62, 0x6f, 0x6f, 0x6b]); // "book"
-  const mediaUrn = 'media:pdf;binary';
+  const mediaUrn = 'media:pdf;bytes';
 
   const source = StdinSource.fromFileReference(trackedFileId, originalPath, securityBookmark, mediaUrn);
 
@@ -1636,7 +1637,7 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
     'tracked-123',
     '/path/to/file.pdf',
     new Uint8Array([0x42, 0x4f, 0x4f, 0x4b]),
-    'media:pdf;binary'
+    'media:pdf;bytes'
   );
 
   const { compositeHost } = cube.can('cap:in="media:void";op=test;out="media:string"');
@@ -1652,7 +1653,7 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
     assert(receivedSource.isFileReference(), 'Should receive file reference source');
     assertEqual(receivedSource.trackedFileId, 'tracked-123', 'Should have correct trackedFileId');
     assertEqual(receivedSource.originalPath, '/path/to/file.pdf', 'Should have correct originalPath');
-    assertEqual(receivedSource.mediaUrn, 'media:pdf;binary', 'Should have correct mediaUrn');
+    assertEqual(receivedSource.mediaUrn, 'media:pdf;bytes', 'Should have correct mediaUrn');
     console.log('  ✓ File reference passed to executeCap');
   });
 }

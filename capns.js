@@ -755,33 +755,33 @@ const MediaSpecErrorCodes = {
  * Well-known built-in media URN constants
  * These media URNs are implicitly available and do not need to be declared in mediaSpecs
  */
-const MEDIA_STRING = 'media:string;textable;scalar';
-const MEDIA_INTEGER = 'media:integer;textable;numeric;scalar';
-const MEDIA_NUMBER = 'media:number;textable;numeric;scalar';
-const MEDIA_BOOLEAN = 'media:boolean;textable;scalar';
-const MEDIA_OBJECT = 'media:object;textable;keyed';
-const MEDIA_STRING_ARRAY = 'media:string-array;textable;sequence';
-const MEDIA_INTEGER_ARRAY = 'media:integer-array;textable;numeric;sequence';
-const MEDIA_NUMBER_ARRAY = 'media:number-array;textable;numeric;sequence';
-const MEDIA_BOOLEAN_ARRAY = 'media:boolean-array;textable;sequence';
-const MEDIA_OBJECT_ARRAY = 'media:object-array;textable;keyed;sequence';
-const MEDIA_BINARY = 'media:raw;binary';
+const MEDIA_STRING = 'media:textable;form=scalar';
+const MEDIA_INTEGER = 'media:integer;textable;numeric;form=scalar';
+const MEDIA_NUMBER = 'media:number;textable;numeric;form=scalar';
+const MEDIA_BOOLEAN = 'media:boolean;textable;form=scalar';
+const MEDIA_OBJECT = 'media:object;textable;form=map';
+const MEDIA_STRING_ARRAY = 'media:string-array;textable;form=list';
+const MEDIA_INTEGER_ARRAY = 'media:integer-array;textable;numeric;form=list';
+const MEDIA_NUMBER_ARRAY = 'media:number-array;textable;numeric;form=list';
+const MEDIA_BOOLEAN_ARRAY = 'media:boolean-array;textable;form=list';
+const MEDIA_OBJECT_ARRAY = 'media:object-array;textable;form=list';
+const MEDIA_BINARY = 'media:bytes';
 const MEDIA_VOID = 'media:void';
 // Semantic content types
-const MEDIA_PNG = 'media:png;binary';
-const MEDIA_AUDIO = 'media:wav;audio;binary;';
-const MEDIA_VIDEO = 'media:video;binary';
-const MEDIA_TEXT = 'media:text;textable';
+const MEDIA_PNG = 'media:png;bytes';
+const MEDIA_AUDIO = 'media:wav;audio;bytes;';
+const MEDIA_VIDEO = 'media:video;bytes';
+const MEDIA_TEXT = 'media:textable';
 // Semantic AI input types
-const MEDIA_IMAGE_VISUAL_EMBEDDING = 'media:image;png;binary;visual-embedding-source';
-const MEDIA_IMAGE_CAPTIONING = 'media:image;png;binary;captioning-source';
-const MEDIA_IMAGE_VISION_QUERY = 'media:image;png;binary;vision-query-source';
-const MEDIA_AUDIO_SPEECH = 'media:audio;wav;binary;speech';
-const MEDIA_TEXT_EMBEDDING = 'media:text;textable;scalar;embedding-source';
-const MEDIA_IMAGE_THUMBNAIL = 'media:image;png;binary;thumbnail';
+const MEDIA_IMAGE_VISUAL_EMBEDDING = 'media:image;bytes';
+const MEDIA_IMAGE_CAPTIONING = 'media:image;bytes';
+const MEDIA_IMAGE_VISION_QUERY = 'media:image;bytes';
+const MEDIA_AUDIO_SPEECH = 'media:audio;wav;bytes;speech';
+const MEDIA_TEXT_EMBEDDING = 'media:image;bytes';
+const MEDIA_IMAGE_THUMBNAIL = 'media:image;png;bytes;thumbnail';
 // Document types (PRIMARY naming - type IS the format)
-const MEDIA_PDF = 'media:pdf;binary';
-const MEDIA_EPUB = 'media:epub;binary';
+const MEDIA_PDF = 'media:pdf;bytes';
+const MEDIA_EPUB = 'media:epub;bytes';
 // Text format types (PRIMARY naming - type IS the format)
 const MEDIA_MD = 'media:md;textable';
 const MEDIA_TXT = 'media:txt;textable';
@@ -789,8 +789,8 @@ const MEDIA_RST = 'media:rst;textable';
 const MEDIA_LOG = 'media:log;textable';
 const MEDIA_HTML = 'media:html;textable';
 const MEDIA_XML = 'media:xml;textable';
-const MEDIA_JSON = 'media:json;textable;keyed';
-const MEDIA_YAML = 'media:yaml;textable;keyed';
+const MEDIA_JSON = 'media:json;textable;form=map';
+const MEDIA_YAML = 'media:yaml;textable;form=map';
 
 // =============================================================================
 // SCHEMA URL CONFIGURATION
@@ -874,7 +874,7 @@ const BUILTIN_SPECS = {
 };
 
 /**
- * Check if a media URN has a marker tag (e.g., binary, keyed, textable).
+ * Check if a media URN has a marker tag (e.g., bytes, json, textable).
  * Uses TaggedUrn parsing for proper tag detection.
  * @param {string} mediaUrn - The media URN
  * @param {string} tagName - The marker tag name to check
@@ -884,6 +884,20 @@ function hasMediaUrnTag(mediaUrn, tagName) {
   if (!mediaUrn) return false;
   const parsed = TaggedUrn.fromString(mediaUrn);
   return parsed.getTag(tagName) !== undefined;
+}
+
+/**
+ * Check if a media URN has a tag with a specific value (e.g., form=map).
+ * Uses TaggedUrn parsing for proper tag detection.
+ * @param {string} mediaUrn - The media URN
+ * @param {string} tagName - The tag key to check
+ * @param {string} tagValue - The expected tag value
+ * @returns {boolean} True if the tag has the expected value
+ */
+function hasMediaUrnTagValue(mediaUrn, tagName, tagValue) {
+  if (!mediaUrn) return false;
+  const parsed = TaggedUrn.fromString(mediaUrn);
+  return parsed.getTag(tagName) === tagValue;
 }
 
 /**
@@ -1003,23 +1017,51 @@ class MediaSpec {
   }
 
   /**
-   * Check if this media spec represents binary output.
-   * Returns true if the "binary" marker tag is present in the source media URN.
+   * Check if this media spec represents binary data.
+   * Returns true if the "bytes" marker tag is present in the source media URN.
    * @returns {boolean} True if binary
    */
   isBinary() {
     if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'binary');
+    return hasMediaUrnTag(this.mediaUrn, 'bytes');
   }
 
   /**
-   * Check if this media spec represents JSON/keyed output.
-   * Returns true if the "keyed" marker tag is present in the source media URN.
-   * @returns {boolean} True if JSON/keyed
+   * Check if this media spec represents a map/object structure (form=map).
+   * This indicates a key-value structure, regardless of representation format.
+   * @returns {boolean} True if map
+   */
+  isMap() {
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTagValue(this.mediaUrn, 'form', 'map');
+  }
+
+  /**
+   * Check if this media spec represents a scalar value (form=scalar).
+   * @returns {boolean} True if scalar
+   */
+  isScalar() {
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTagValue(this.mediaUrn, 'form', 'scalar');
+  }
+
+  /**
+   * Check if this media spec represents a list/array structure (form=list).
+   * @returns {boolean} True if list
+   */
+  isList() {
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTagValue(this.mediaUrn, 'form', 'list');
+  }
+
+  /**
+   * Check if this media spec represents JSON representation specifically.
+   * Returns true if the "json" marker tag is present in the source media URN.
+   * @returns {boolean} True if JSON representation
    */
   isJSON() {
     if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'keyed');
+    return hasMediaUrnTag(this.mediaUrn, 'json');
   }
 
   /**
@@ -1143,6 +1185,88 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
  */
 function isBuiltinMediaUrn(mediaUrn) {
   return BUILTIN_SPECS.hasOwnProperty(mediaUrn);
+}
+
+/**
+ * XV5: Validate that inline media_specs don't redefine built-in/registry specs.
+ *
+ * For capns-js (client-side), we check against BUILTIN_SPECS.
+ * Server-side validation (capns_dot_org) should check against the full registry.
+ *
+ * @param {Object} mediaSpecs - The inline media_specs object from a capability
+ * @param {Object} [options] - Validation options
+ * @param {Function} [options.registryLookup] - Optional async function to check registry (for server-side)
+ * @returns {Promise<{valid: boolean, error?: string, redefines?: string[]}>}
+ */
+async function validateNoMediaSpecRedefinition(mediaSpecs, options = {}) {
+  if (!mediaSpecs || typeof mediaSpecs !== 'object' || Object.keys(mediaSpecs).length === 0) {
+    return { valid: true };
+  }
+
+  const { registryLookup } = options;
+  const redefines = [];
+
+  for (const mediaUrn of Object.keys(mediaSpecs)) {
+    // Check against built-in specs first (always available)
+    if (isBuiltinMediaUrn(mediaUrn)) {
+      redefines.push(mediaUrn);
+      continue;
+    }
+
+    // If a registry lookup function is provided (server-side), check against it
+    if (registryLookup && typeof registryLookup === 'function') {
+      try {
+        const existsInRegistry = await registryLookup(mediaUrn);
+        if (existsInRegistry) {
+          redefines.push(mediaUrn);
+        }
+      } catch (err) {
+        // Network/registry unavailable - log warning and allow (graceful degradation)
+        console.warn(`[WARN] XV5: Could not verify inline spec '${mediaUrn}' against registry: ${err.message}. Allowing operation in offline mode.`);
+      }
+    }
+  }
+
+  if (redefines.length > 0) {
+    return {
+      valid: false,
+      error: `XV5: Inline media specs redefine existing registry specs: ${redefines.join(', ')}`,
+      redefines
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * XV5: Synchronous version for checking against built-in specs only.
+ * Use this for client-side validation where registry lookup isn't available.
+ *
+ * @param {Object} mediaSpecs - The inline media_specs object from a capability
+ * @returns {{valid: boolean, error?: string, redefines?: string[]}}
+ */
+function validateNoMediaSpecRedefinitionSync(mediaSpecs) {
+  if (!mediaSpecs || typeof mediaSpecs !== 'object' || Object.keys(mediaSpecs).length === 0) {
+    return { valid: true };
+  }
+
+  const redefines = [];
+
+  for (const mediaUrn of Object.keys(mediaSpecs)) {
+    if (isBuiltinMediaUrn(mediaUrn)) {
+      redefines.push(mediaUrn);
+    }
+  }
+
+  if (redefines.length > 0) {
+    return {
+      valid: false,
+      error: `XV5: Inline media specs redefine existing built-in specs: ${redefines.join(', ')}`,
+      redefines
+    };
+  }
+
+  return { valid: true };
 }
 
 /**
@@ -3355,6 +3479,8 @@ module.exports = {
   isJSONCapUrn,
   resolveMediaUrn,
   isBuiltinMediaUrn,
+  validateNoMediaSpecRedefinition,
+  validateNoMediaSpecRedefinitionSync,
   BUILTIN_SPECS,
   getSchemaBaseURL,
   getProfileURL,
