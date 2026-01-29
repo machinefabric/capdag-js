@@ -757,27 +757,22 @@ const MediaSpecErrorCodes = {
  */
 const MEDIA_STRING = 'media:textable;form=scalar';
 const MEDIA_INTEGER = 'media:integer;textable;numeric;form=scalar';
-const MEDIA_NUMBER = 'media:number;textable;numeric;form=scalar';
-const MEDIA_BOOLEAN = 'media:boolean;textable;form=scalar';
-const MEDIA_OBJECT = 'media:object;textable;form=map';
-const MEDIA_STRING_ARRAY = 'media:string-array;textable;form=list';
-const MEDIA_INTEGER_ARRAY = 'media:integer-array;textable;numeric;form=list';
-const MEDIA_NUMBER_ARRAY = 'media:number-array;textable;numeric;form=list';
-const MEDIA_BOOLEAN_ARRAY = 'media:boolean-array;textable;form=list';
-const MEDIA_OBJECT_ARRAY = 'media:object-array;textable;form=list';
+const MEDIA_NUMBER = 'media:textable;numeric;form=scalar';
+const MEDIA_BOOLEAN = 'media:bool;textable;form=scalar';
+const MEDIA_OBJECT = 'media:form=map;textable';
+const MEDIA_STRING_ARRAY = 'media:textable;form=list';
+const MEDIA_INTEGER_ARRAY = 'media:integer;textable;numeric;form=list';
+const MEDIA_NUMBER_ARRAY = 'media:textable;numeric;form=list';
+const MEDIA_BOOLEAN_ARRAY = 'media:bool;textable;form=list';
+const MEDIA_OBJECT_ARRAY = 'media:form=list;textable';
 const MEDIA_BINARY = 'media:bytes';
 const MEDIA_VOID = 'media:void';
 // Semantic content types
 const MEDIA_PNG = 'media:png;bytes';
 const MEDIA_AUDIO = 'media:wav;audio;bytes;';
 const MEDIA_VIDEO = 'media:video;bytes';
-const MEDIA_TEXT = 'media:textable';
 // Semantic AI input types
-const MEDIA_IMAGE_VISUAL_EMBEDDING = 'media:image;bytes';
-const MEDIA_IMAGE_CAPTIONING = 'media:image;bytes';
-const MEDIA_IMAGE_VISION_QUERY = 'media:image;bytes';
 const MEDIA_AUDIO_SPEECH = 'media:audio;wav;bytes;speech';
-const MEDIA_TEXT_EMBEDDING = 'media:image;bytes';
 const MEDIA_IMAGE_THUMBNAIL = 'media:image;png;bytes;thumbnail';
 // Document types (PRIMARY naming - type IS the format)
 const MEDIA_PDF = 'media:pdf;bytes';
@@ -858,7 +853,6 @@ const BUILTIN_SPECS = {
   [MEDIA_PNG]: 'image/png; profile=https://capns.org/schema/image',
   [MEDIA_AUDIO]: 'audio/wav; profile=https://capns.org/schema/audio',
   [MEDIA_VIDEO]: 'video/mp4; profile=https://capns.org/schema/video',
-  [MEDIA_TEXT]: 'text/plain; profile=https://capns.org/schema/text',
   // Document types (PRIMARY naming)
   [MEDIA_PDF]: 'application/pdf',
   [MEDIA_EPUB]: 'application/epub+zip',
@@ -1055,8 +1049,20 @@ class MediaSpec {
   }
 
   /**
+   * Check if this media spec represents structured data (map or list).
+   * Structured data can be serialized as JSON when transmitted as text.
+   * Note: This does NOT check for the explicit `json` tag - use isJSON() for that.
+   * @returns {boolean} True if structured (map or list)
+   */
+  isStructured() {
+    return this.isMap() || this.isList();
+  }
+
+  /**
    * Check if this media spec represents JSON representation specifically.
    * Returns true if the "json" marker tag is present in the source media URN.
+   * Note: This only checks for explicit JSON format marker.
+   * For checking if data is structured (map/list), use isStructured().
    * @returns {boolean} True if JSON representation
    */
   isJSON() {
@@ -1284,15 +1290,30 @@ function isBinaryCapUrn(capUrn, mediaSpecs = {}) {
 
 /**
  * Check if a CapUrn represents JSON output.
+ * Note: This checks for explicit JSON format marker only.
  * Throws error if the output spec cannot be resolved - no fallbacks.
  * @param {CapUrn} capUrn - The cap URN
  * @param {Object} mediaSpecs - Optional mediaSpecs lookup table
- * @returns {boolean} True if JSON
+ * @returns {boolean} True if explicit JSON tag present
  * @throws {MediaSpecError} If 'out' tag is missing or spec ID cannot be resolved
  */
 function isJSONCapUrn(capUrn, mediaSpecs = {}) {
   const mediaSpec = MediaSpec.fromCapUrn(capUrn, mediaSpecs);
   return mediaSpec.isJSON();
+}
+
+/**
+ * Check if a CapUrn represents structured output (map or list).
+ * Structured data can be serialized as JSON when transmitted as text.
+ * Throws error if the output spec cannot be resolved - no fallbacks.
+ * @param {CapUrn} capUrn - The cap URN
+ * @param {Object} mediaSpecs - Optional mediaSpecs lookup table
+ * @returns {boolean} True if structured (map or list)
+ * @throws {MediaSpecError} If 'out' tag is missing or spec ID cannot be resolved
+ */
+function isStructuredCapUrn(capUrn, mediaSpecs = {}) {
+  const mediaSpec = MediaSpec.fromCapUrn(capUrn, mediaSpecs);
+  return mediaSpec.isStructured();
 }
 
 /**
@@ -3477,6 +3498,7 @@ module.exports = {
   MediaSpecErrorCodes,
   isBinaryCapUrn,
   isJSONCapUrn,
+  isStructuredCapUrn,
   resolveMediaUrn,
   isBuiltinMediaUrn,
   validateNoMediaSpecRedefinition,
@@ -3499,7 +3521,8 @@ module.exports = {
   MEDIA_PNG,
   MEDIA_AUDIO,
   MEDIA_VIDEO,
-  MEDIA_TEXT,
+  MEDIA_AUDIO_SPEECH,
+  MEDIA_IMAGE_THUMBNAIL,
   // Document types (PRIMARY naming)
   MEDIA_PDF,
   MEDIA_EPUB,
