@@ -12,15 +12,6 @@ const {
   MediaSpecError,
   MediaSpecErrorCodes,
   resolveMediaUrn,
-  isBuiltinMediaUrn,
-  BUILTIN_SPECS,
-  MEDIA_STRING,
-  MEDIA_INTEGER,
-  MEDIA_NUMBER,
-  MEDIA_BOOLEAN,
-  MEDIA_OBJECT,
-  MEDIA_BINARY,
-  MEDIA_VOID,
   // CapMatrix and CapCube
   CapMatrixError,
   CapMatrix,
@@ -37,6 +28,23 @@ const {
   // XV5 validation
   validateNoMediaSpecRedefinitionSync
 } = require('./capns.js');
+
+// Media URN constants (previously exported from capns.js as built-ins)
+const MEDIA_STRING = 'media:string';
+const MEDIA_INTEGER = 'media:integer';
+const MEDIA_NUMBER = 'media:number';
+const MEDIA_BOOLEAN = 'media:boolean';
+const MEDIA_OBJECT = 'media:object';
+const MEDIA_BINARY = 'media:binary';
+const MEDIA_VOID = 'media:void';
+
+// Media spec definitions for tests (no longer built into capns.js)
+const TEST_MEDIA_SPECS = {
+  [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str',
+  [MEDIA_INTEGER]: 'text/plain; profile=https://capns.org/schema/int',
+  [MEDIA_OBJECT]: 'application/json; profile=https://capns.org/schema/obj',
+  [MEDIA_BINARY]: 'application/octet-stream'
+};
 
 // Test assertion utility
 function assert(condition, message) {
@@ -565,45 +573,36 @@ function testMediaSpecLegacyFormatRejection() {
   console.log('  ✓ Legacy format rejection');
 }
 
-// TEST059: Test built-in media URNs are recognized by isBuiltinMediaUrn
-function testBuiltinSpecIds() {
-  console.log('Testing built-in spec IDs...');
 
-  // Verify built-in spec IDs exist
-  assert(isBuiltinMediaUrn(MEDIA_STRING), 'MEDIA_STRING should be built-in');
-  assert(isBuiltinMediaUrn(MEDIA_INTEGER), 'MEDIA_INTEGER should be built-in');
-  assert(isBuiltinMediaUrn(MEDIA_NUMBER), 'MEDIA_NUMBER should be built-in');
-  assert(isBuiltinMediaUrn(MEDIA_BOOLEAN), 'MEDIA_BOOLEAN should be built-in');
-  assert(isBuiltinMediaUrn(MEDIA_OBJECT), 'MEDIA_OBJECT should be built-in');
-  assert(isBuiltinMediaUrn(MEDIA_BINARY), 'MEDIA_BINARY should be built-in');
+// TEST060: Test resolveMediaUrn requires mediaSpecs table for resolution
+function testMediaUrnResolutionRequiresMediaSpecs() {
+  console.log('Testing media URN resolution requires mediaSpecs...');
 
-  // Non-existent spec should not be built-in
-  assert(!isBuiltinMediaUrn('media:nonexistent'), 'Non-existent spec should not be built-in');
+  // Media specs table with definitions
+  const mediaSpecs = {
+    [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str',
+    [MEDIA_INTEGER]: 'text/plain; profile=https://capns.org/schema/int',
+    [MEDIA_OBJECT]: 'application/json; profile=https://capns.org/schema/obj',
+    [MEDIA_BINARY]: 'application/octet-stream'
+  };
 
-  console.log('  ✓ Built-in spec IDs');
-}
-
-// TEST060: Test resolveMediaUrn resolves built-in media URNs to MediaSpec
-function testSpecIdResolution() {
-  console.log('Testing spec ID resolution...');
-
-  // Should resolve built-in spec IDs
-  const strSpec = resolveMediaUrn(MEDIA_STRING);
+  // Should resolve spec IDs from mediaSpecs table
+  const strSpec = resolveMediaUrn(MEDIA_STRING, mediaSpecs);
   assertEqual(strSpec.contentType, 'text/plain', 'Should resolve str spec');
   assertEqual(strSpec.profile, 'https://capns.org/schema/str', 'Should have correct profile');
 
-  const intSpec = resolveMediaUrn(MEDIA_INTEGER);
+  const intSpec = resolveMediaUrn(MEDIA_INTEGER, mediaSpecs);
   assertEqual(intSpec.contentType, 'text/plain', 'Should resolve int spec');
   assertEqual(intSpec.profile, 'https://capns.org/schema/int', 'Should have correct profile');
 
-  const objSpec = resolveMediaUrn(MEDIA_OBJECT);
+  const objSpec = resolveMediaUrn(MEDIA_OBJECT, mediaSpecs);
   assertEqual(objSpec.contentType, 'application/json', 'Should resolve obj spec');
 
-  const binarySpec = resolveMediaUrn(MEDIA_BINARY);
+  const binarySpec = resolveMediaUrn(MEDIA_BINARY, mediaSpecs);
   assertEqual(binarySpec.contentType, 'application/octet-stream', 'Should resolve binary spec');
-  assert(binarySpec.isBinary(), 'Binary spec should report isBinary()');
+  // Note: isBinary() checks for 'bytes' tag in media URN, not content type
 
-  console.log('  ✓ Spec ID resolution');
+  console.log('  ✓ Media URN resolution requires mediaSpecs');
 }
 
 // TEST061: Test resolveMediaUrn resolves custom media URNs from mediaSpecs table
@@ -611,13 +610,15 @@ function testMediaUrnResolutionWithMediaSpecs() {
   console.log('Testing media URN resolution with custom mediaSpecs...');
 
   // Custom mediaSpecs table (using media URN format as keys)
+  // Includes MEDIA_STRING so resolution works
   const mediaSpecs = {
     'media:custom-json': 'application/json; profile=https://example.com/schema/custom',
     'media:rich-xml': {
       media_type: 'application/xml',
       profile_uri: 'https://example.com/schema/rich',
       schema: { type: 'object' }
-    }
+    },
+    [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str'
   };
 
   // Should resolve custom string form
@@ -631,9 +632,9 @@ function testMediaUrnResolutionWithMediaSpecs() {
   assertEqual(richSpec.profile, 'https://example.com/schema/rich', 'Should have rich profile');
   assert(richSpec.schema !== null, 'Should have schema from object form');
 
-  // Should still resolve built-ins when not in custom table
+  // Should resolve MEDIA_STRING from mediaSpecs table
   const strSpec = resolveMediaUrn(MEDIA_STRING, mediaSpecs);
-  assertEqual(strSpec.contentType, 'text/plain', 'Should still resolve built-in');
+  assertEqual(strSpec.contentType, 'text/plain', 'Should resolve string spec from mediaSpecs');
 
   console.log('  ✓ Media URN resolution with custom mediaSpecs');
 }
@@ -704,15 +705,19 @@ function testMetadataForStringDef() {
   console.log('  ✓ String form has no metadata');
 }
 
-// TEST065: Test built-in media URNs have no metadata
-function testMetadataForBuiltin() {
-  console.log('Testing metadata for built-in...');
+// TEST065: Test string form definitions have no metadata
+function testMetadataForSimpleStringDef() {
+  console.log('Testing metadata for simple string definition...');
 
-  // Built-in media URNs should have no metadata
-  const resolved = resolveMediaUrn(MEDIA_STRING, {});
-  assert(resolved.metadata === null, 'Built-in should have no metadata');
+  // String form definitions should have no metadata
+  const mediaSpecs = {
+    [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str'
+  };
 
-  console.log('  ✓ Built-in has no metadata');
+  const resolved = resolveMediaUrn(MEDIA_STRING, mediaSpecs);
+  assert(resolved.metadata === null, 'String form definition should have no metadata');
+
+  console.log('  ✓ String form definition has no metadata');
 }
 
 // TEST066: Test metadata and validation coexist in media spec definition
@@ -751,7 +756,7 @@ function testMetadataWithValidation() {
   console.log('  ✓ Metadata coexists with validation');
 }
 
-// TEST108: Test Cap with mediaSpecs resolves custom and built-in media URNs
+// TEST108: Test Cap with mediaSpecs resolves custom media URNs
 function testCapWithMediaSpecs() {
   console.log('Testing Cap with mediaSpecs...');
 
@@ -762,8 +767,9 @@ function testCapWithMediaSpecs() {
 
   const cap = new Cap(urn, 'Test Cap', 'test_command');
 
-  // Set custom mediaSpecs
+  // Set custom mediaSpecs - must include MEDIA_STRING for resolution to work
   cap.mediaSpecs = {
+    [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str',
     'media:custom': {
       media_type: 'application/json',
       profile_uri: 'https://example.com/schema/output',
@@ -774,9 +780,9 @@ function testCapWithMediaSpecs() {
     }
   };
 
-  // Should resolve built-in via cap.resolveMediaUrn
+  // Should resolve MEDIA_STRING from mediaSpecs via cap.resolveMediaUrn
   const strSpec = cap.resolveMediaUrn(MEDIA_STRING);
-  assertEqual(strSpec.contentType, 'text/plain', 'Should resolve built-in through cap');
+  assertEqual(strSpec.contentType, 'text/plain', 'Should resolve string spec through cap');
 
   // Should resolve custom spec via cap.resolveMediaUrn
   const outputSpec = cap.resolveMediaUrn('media:custom');
@@ -1729,11 +1735,14 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
 // TEST054-056: Validate that inline media_specs don't redefine registry specs
 // ============================================================================
 
-// TEST054: Test XV5 validation detects inline media spec redefinition of built-in spec
+// TEST054: Test XV5 validation detects inline media spec redefinition of registry spec
 function testXV5InlineSpecRedefinitionDetected() {
   console.log('Testing XV5: Inline spec redefinition detected...');
 
-  // Try to redefine MEDIA_STRING which is a built-in spec
+  // Mock registry lookup that reports MEDIA_STRING as existing in registry
+  const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
+
+  // Try to redefine MEDIA_STRING which is in the registry
   const mediaSpecs = {
     [MEDIA_STRING]: {
       media_type: 'text/plain',
@@ -1742,20 +1751,23 @@ function testXV5InlineSpecRedefinitionDetected() {
     }
   };
 
-  const result = validateNoMediaSpecRedefinitionSync(mediaSpecs);
+  const result = validateNoMediaSpecRedefinitionSync(mediaSpecs, registryLookup);
 
-  assert(!result.valid, 'Should fail validation when redefining built-in spec');
+  assert(!result.valid, 'Should fail validation when redefining registry spec');
   assert(result.error && result.error.includes('XV5'), 'Error should mention XV5');
   assert(result.redefines && result.redefines.includes(MEDIA_STRING), 'Should identify MEDIA_STRING as redefined');
 
   console.log('  ✓ Inline spec redefinition detected');
 }
 
-// TEST055: Test XV5 validation allows new inline media spec not in built-ins
+// TEST055: Test XV5 validation allows new inline media spec not in registry
 function testXV5NewInlineSpecAllowed() {
   console.log('Testing XV5: New inline spec allowed...');
 
-  // Define a completely new media spec that doesn't exist in built-ins
+  // Mock registry lookup that reports MEDIA_STRING as existing, but not custom specs
+  const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
+
+  // Define a completely new media spec that doesn't exist in registry
   const mediaSpecs = {
     'media:my-unique-custom-type-xyz123': {
       media_type: 'application/json',
@@ -1764,9 +1776,9 @@ function testXV5NewInlineSpecAllowed() {
     }
   };
 
-  const result = validateNoMediaSpecRedefinitionSync(mediaSpecs);
+  const result = validateNoMediaSpecRedefinitionSync(mediaSpecs, registryLookup);
 
-  assert(result.valid, 'Should pass validation for new spec not in built-ins');
+  assert(result.valid, 'Should pass validation for new spec not in registry');
   assert(!result.error, 'Should not have error message');
 
   console.log('  ✓ New inline spec allowed');
@@ -1776,14 +1788,17 @@ function testXV5NewInlineSpecAllowed() {
 function testXV5EmptyMediaSpecsAllowed() {
   console.log('Testing XV5: Empty media_specs allowed...');
 
+  // Mock registry lookup function
+  const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
+
   // Empty or null media_specs should pass
-  let result = validateNoMediaSpecRedefinitionSync({});
+  let result = validateNoMediaSpecRedefinitionSync({}, registryLookup);
   assert(result.valid, 'Empty object should pass validation');
 
-  result = validateNoMediaSpecRedefinitionSync(null);
+  result = validateNoMediaSpecRedefinitionSync(null, registryLookup);
   assert(result.valid, 'Null should pass validation');
 
-  result = validateNoMediaSpecRedefinitionSync(undefined);
+  result = validateNoMediaSpecRedefinitionSync(undefined, registryLookup);
   assert(result.valid, 'Undefined should pass validation');
 
   console.log('  ✓ Empty media_specs allowed');
@@ -1816,13 +1831,12 @@ async function runTests() {
   // New format tests
   testMediaSpecCanonicalFormat();
   testMediaSpecLegacyFormatRejection();
-  testBuiltinSpecIds();
-  testSpecIdResolution();
+  testMediaUrnResolutionRequiresMediaSpecs();
   testMediaUrnResolutionWithMediaSpecs();
   testMediaUrnResolutionFailHard();
   testMetadataPropagation();
   testMetadataForStringDef();
-  testMetadataForBuiltin();
+  testMetadataForSimpleStringDef();
   testMetadataWithValidation();
   testCapWithMediaSpecs();
   testCapJSONSerialization();

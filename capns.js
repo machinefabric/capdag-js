@@ -834,46 +834,11 @@ function getProfileURL(profileName) {
 }
 
 // =============================================================================
-// BUILTIN MEDIA SPECS
+// MEDIA URN TAG UTILITIES
 // =============================================================================
-
-/**
- * Built-in media URN definitions - canonical media spec strings
- * Maps media URN to canonical format: <media-type>; profile=<url>
- *
- * NOTE: These use hardcoded URLs for static initialization.
- * Use getSchemaBaseURL() and getProfileURL() for dynamic resolution.
- */
-const BUILTIN_SPECS = {
-  [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str',
-  [MEDIA_INTEGER]: 'text/plain; profile=https://capns.org/schema/int',
-  [MEDIA_NUMBER]: 'text/plain; profile=https://capns.org/schema/num',
-  [MEDIA_BOOLEAN]: 'text/plain; profile=https://capns.org/schema/bool',
-  [MEDIA_OBJECT]: 'application/json; profile=https://capns.org/schema/obj',
-  [MEDIA_STRING_ARRAY]: 'application/json; profile=https://capns.org/schema/str-array',
-  [MEDIA_INTEGER_ARRAY]: 'application/json; profile=https://capns.org/schema/int-array',
-  [MEDIA_NUMBER_ARRAY]: 'application/json; profile=https://capns.org/schema/num-array',
-  [MEDIA_BOOLEAN_ARRAY]: 'application/json; profile=https://capns.org/schema/bool-array',
-  [MEDIA_OBJECT_ARRAY]: 'application/json; profile=https://capns.org/schema/obj-array',
-  [MEDIA_BINARY]: 'application/octet-stream',
-  [MEDIA_VOID]: 'application/x-void; profile=https://capns.org/schema/void',
-  // Semantic content types
-  [MEDIA_PNG]: 'image/png; profile=https://capns.org/schema/image',
-  [MEDIA_AUDIO]: 'audio/wav; profile=https://capns.org/schema/audio',
-  [MEDIA_VIDEO]: 'video/mp4; profile=https://capns.org/schema/video',
-  // Document types (PRIMARY naming)
-  [MEDIA_PDF]: 'application/pdf',
-  [MEDIA_EPUB]: 'application/epub+zip',
-  // Text format types (PRIMARY naming)
-  [MEDIA_MD]: 'text/markdown',
-  [MEDIA_TXT]: 'text/plain',
-  [MEDIA_RST]: 'text/x-rst',
-  [MEDIA_LOG]: 'text/plain',
-  [MEDIA_HTML]: 'text/html',
-  [MEDIA_XML]: 'application/xml',
-  [MEDIA_JSON]: 'application/json',
-  [MEDIA_YAML]: 'application/x-yaml'
-};
+// NOTE: The MEDIA_X constants above are convenience values for referencing
+// common media URNs in code. Resolution must go through mediaSpecs tables -
+// there is NO built-in resolution.
 
 /**
  * Check if a media URN has a marker tag (e.g., bytes, json, textable).
@@ -1137,18 +1102,16 @@ class MediaSpec {
 /**
  * Resolve a media URN to a MediaSpec
  *
- * Resolution algorithm:
- * 1. Look up mediaUrn in mediaSpecs table
- * 2. If not found AND mediaUrn is a known built-in: use built-in definition
- * 3. If not found and not a built-in: FAIL HARD
+ * Resolution: Look up mediaUrn in mediaSpecs table, FAIL HARD if not found.
+ * There is no built-in resolution - all media URNs must be in mediaSpecs.
  *
- * @param {string} mediaUrn - The media URN (e.g., "media:string")
- * @param {Object} mediaSpecs - The mediaSpecs lookup table
+ * @param {string} mediaUrn - The media URN (e.g., "media:textable;form=scalar")
+ * @param {Object} mediaSpecs - The mediaSpecs lookup table (required)
  * @returns {MediaSpec} The resolved MediaSpec
  * @throws {MediaSpecError} If media URN cannot be resolved
  */
 function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
-  // First check local mediaSpecs table
+  // Look up in mediaSpecs table
   if (mediaSpecs && mediaSpecs[mediaUrn]) {
     const def = mediaSpecs[mediaUrn];
 
@@ -1178,38 +1141,24 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
     }
   }
 
-  // Check built-in specs
-  if (BUILTIN_SPECS[mediaUrn]) {
-    const spec = MediaSpec.parse(BUILTIN_SPECS[mediaUrn]);
-    spec.mediaUrn = mediaUrn; // Attach source URN for tag-based checks
-    return spec;
-  }
-
-  // FAIL HARD - no fallbacks, no guessing
+  // FAIL HARD - media URN must be in mediaSpecs table
   throw new MediaSpecError(
     MediaSpecErrorCodes.UNRESOLVABLE_MEDIA_URN,
-    `Cannot resolve media URN: '${mediaUrn}'. Not found in mediaSpecs table and not a known built-in.`
+    `Cannot resolve media URN: '${mediaUrn}'. Not found in mediaSpecs table.`
   );
 }
 
 /**
- * Check if a media URN is a known built-in
- * @param {string} mediaUrn - The media URN to check
- * @returns {boolean} True if built-in
- */
-function isBuiltinMediaUrn(mediaUrn) {
-  return BUILTIN_SPECS.hasOwnProperty(mediaUrn);
-}
-
-/**
- * XV5: Validate that inline media_specs don't redefine built-in/registry specs.
+ * XV5: Validate that inline media_specs don't redefine existing registry specs.
  *
- * For capns-js (client-side), we check against BUILTIN_SPECS.
- * Server-side validation (capns_dot_org) should check against the full registry.
+ * Validation requires a registryLookup function to check if media URNs exist.
+ * If no registryLookup is provided, validation passes (graceful degradation).
  *
  * @param {Object} mediaSpecs - The inline media_specs object from a capability
  * @param {Object} [options] - Validation options
- * @param {Function} [options.registryLookup] - Optional async function to check registry (for server-side)
+ * @param {Function} [options.registryLookup] - Function to check if media URN exists in registry
+ *                                              Returns true if exists, false otherwise
+ *                                              Should handle errors gracefully (return false)
  * @returns {Promise<{valid: boolean, error?: string, redefines?: string[]}>}
  */
 async function validateNoMediaSpecRedefinition(mediaSpecs, options = {}) {
@@ -1218,26 +1167,23 @@ async function validateNoMediaSpecRedefinition(mediaSpecs, options = {}) {
   }
 
   const { registryLookup } = options;
+
+  // If no registry lookup provided, degrade gracefully and allow
+  if (!registryLookup || typeof registryLookup !== 'function') {
+    return { valid: true };
+  }
+
   const redefines = [];
 
   for (const mediaUrn of Object.keys(mediaSpecs)) {
-    // Check against built-in specs first (always available)
-    if (isBuiltinMediaUrn(mediaUrn)) {
-      redefines.push(mediaUrn);
-      continue;
-    }
-
-    // If a registry lookup function is provided (server-side), check against it
-    if (registryLookup && typeof registryLookup === 'function') {
-      try {
-        const existsInRegistry = await registryLookup(mediaUrn);
-        if (existsInRegistry) {
-          redefines.push(mediaUrn);
-        }
-      } catch (err) {
-        // Network/registry unavailable - log warning and allow (graceful degradation)
-        console.warn(`[WARN] XV5: Could not verify inline spec '${mediaUrn}' against registry: ${err.message}. Allowing operation in offline mode.`);
+    try {
+      const existsInRegistry = await registryLookup(mediaUrn);
+      if (existsInRegistry) {
+        redefines.push(mediaUrn);
       }
+    } catch (err) {
+      // Registry lookup failed - log warning and allow (graceful degradation)
+      console.warn(`[WARN] XV5: Could not verify inline spec '${mediaUrn}' against registry: ${err.message}. Allowing operation in offline mode.`);
     }
   }
 
@@ -1253,21 +1199,28 @@ async function validateNoMediaSpecRedefinition(mediaSpecs, options = {}) {
 }
 
 /**
- * XV5: Synchronous version for checking against built-in specs only.
- * Use this for client-side validation where registry lookup isn't available.
+ * XV5: Synchronous version that checks against a provided lookup function.
+ * If no registryLookup is provided, validation passes (graceful degradation).
  *
  * @param {Object} mediaSpecs - The inline media_specs object from a capability
+ * @param {Function} [registryLookup] - Synchronous function to check if media URN exists
+ *                                       Returns true if exists, false otherwise
  * @returns {{valid: boolean, error?: string, redefines?: string[]}}
  */
-function validateNoMediaSpecRedefinitionSync(mediaSpecs) {
+function validateNoMediaSpecRedefinitionSync(mediaSpecs, registryLookup = null) {
   if (!mediaSpecs || typeof mediaSpecs !== 'object' || Object.keys(mediaSpecs).length === 0) {
+    return { valid: true };
+  }
+
+  // If no registry lookup provided, degrade gracefully and allow
+  if (!registryLookup || typeof registryLookup !== 'function') {
     return { valid: true };
   }
 
   const redefines = [];
 
   for (const mediaUrn of Object.keys(mediaSpecs)) {
-    if (isBuiltinMediaUrn(mediaUrn)) {
+    if (registryLookup(mediaUrn)) {
       redefines.push(mediaUrn);
     }
   }
@@ -1275,7 +1228,7 @@ function validateNoMediaSpecRedefinitionSync(mediaSpecs) {
   if (redefines.length > 0) {
     return {
       valid: false,
-      error: `XV5: Inline media specs redefine existing built-in specs: ${redefines.join(', ')}`,
+      error: `XV5: Inline media specs redefine existing registry specs: ${redefines.join(', ')}`,
       redefines
     };
   }
@@ -3508,10 +3461,8 @@ module.exports = {
   isJSONCapUrn,
   isStructuredCapUrn,
   resolveMediaUrn,
-  isBuiltinMediaUrn,
   validateNoMediaSpecRedefinition,
   validateNoMediaSpecRedefinitionSync,
-  BUILTIN_SPECS,
   getSchemaBaseURL,
   getProfileURL,
   MEDIA_STRING,
