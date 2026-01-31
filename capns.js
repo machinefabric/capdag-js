@@ -843,12 +843,16 @@ function getProfileURL(profileName) {
 /**
  * Check if a media URN has a marker tag (e.g., bytes, json, textable).
  * Uses TaggedUrn parsing for proper tag detection.
- * @param {string} mediaUrn - The media URN
+ * Requires a valid, non-empty media URN - fails hard otherwise.
+ * @param {string} mediaUrn - The media URN (must be non-empty)
  * @param {string} tagName - The marker tag name to check
  * @returns {boolean} True if the marker tag is present
+ * @throws {Error} If mediaUrn is null/undefined/empty
  */
 function hasMediaUrnTag(mediaUrn, tagName) {
-  if (!mediaUrn) return false;
+  if (!mediaUrn || mediaUrn.length === 0) {
+    throw new Error('hasMediaUrnTag called with empty mediaUrn - this indicates the MediaSpec was not resolved via resolveMediaUrn');
+  }
   const parsed = TaggedUrn.fromString(mediaUrn);
   return parsed.getTag(tagName) !== undefined;
 }
@@ -856,13 +860,17 @@ function hasMediaUrnTag(mediaUrn, tagName) {
 /**
  * Check if a media URN has a tag with a specific value (e.g., form=map).
  * Uses TaggedUrn parsing for proper tag detection.
- * @param {string} mediaUrn - The media URN
+ * Requires a valid, non-empty media URN - fails hard otherwise.
+ * @param {string} mediaUrn - The media URN (must be non-empty)
  * @param {string} tagName - The tag key to check
  * @param {string} tagValue - The expected tag value
  * @returns {boolean} True if the tag has the expected value
+ * @throws {Error} If mediaUrn is null/undefined/empty
  */
 function hasMediaUrnTagValue(mediaUrn, tagName, tagValue) {
-  if (!mediaUrn) return false;
+  if (!mediaUrn || mediaUrn.length === 0) {
+    throw new Error('hasMediaUrnTagValue called with empty mediaUrn - this indicates the MediaSpec was not resolved via resolveMediaUrn');
+  }
   const parsed = TaggedUrn.fromString(mediaUrn);
   return parsed.getTag(tagName) === tagValue;
 }
@@ -1053,6 +1061,56 @@ class MediaSpec {
   isText() {
     if (!this.mediaUrn) return false;
     return hasMediaUrnTag(this.mediaUrn, 'textable');
+  }
+
+  /**
+   * Check if this media spec represents image data.
+   * Returns true if the "image" marker tag is present in the source media URN.
+   * @returns {boolean} True if image
+   */
+  isImage() {
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTag(this.mediaUrn, 'image');
+  }
+
+  /**
+   * Check if this media spec represents audio data.
+   * Returns true if the "audio" marker tag is present in the source media URN.
+   * @returns {boolean} True if audio
+   */
+  isAudio() {
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTag(this.mediaUrn, 'audio');
+  }
+
+  /**
+   * Check if this media spec represents video data.
+   * Returns true if the "video" marker tag is present in the source media URN.
+   * @returns {boolean} True if video
+   */
+  isVideo() {
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTag(this.mediaUrn, 'video');
+  }
+
+  /**
+   * Check if this media spec represents numeric data.
+   * Returns true if the "numeric" marker tag is present in the source media URN.
+   * @returns {boolean} True if numeric
+   */
+  isNumeric() {
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTag(this.mediaUrn, 'numeric');
+  }
+
+  /**
+   * Check if this media spec represents boolean data.
+   * Returns true if the "bool" marker tag is present in the source media URN.
+   * @returns {boolean} True if boolean
+   */
+  isBool() {
+    if (!this.mediaUrn) return false;
+    return hasMediaUrnTag(this.mediaUrn, 'bool');
   }
 
   /**
