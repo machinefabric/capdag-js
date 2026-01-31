@@ -741,10 +741,8 @@ class MediaSpecError extends Error {
 }
 
 const MediaSpecErrorCodes = {
-  EMPTY_CONTENT_TYPE: 1,
-  UNTERMINATED_QUOTE: 2,
-  LEGACY_FORMAT: 3,
-  UNRESOLVABLE_MEDIA_URN: 4
+  UNRESOLVABLE_MEDIA_URN: 1,
+  DUPLICATE_MEDIA_URN: 2
 };
 
 // ============================================================================
@@ -844,13 +842,14 @@ function getProfileURL(profileName) {
  * Check if a media URN has a marker tag (e.g., bytes, json, textable).
  * Uses TaggedUrn parsing for proper tag detection.
  * Requires a valid, non-empty media URN - fails hard otherwise.
+ * Whitespace validation is handled by TaggedUrn.fromString.
  * @param {string} mediaUrn - The media URN (must be non-empty)
  * @param {string} tagName - The marker tag name to check
  * @returns {boolean} True if the marker tag is present
- * @throws {Error} If mediaUrn is null/undefined/empty
+ * @throws {Error} If mediaUrn is null/undefined/empty or invalid
  */
 function hasMediaUrnTag(mediaUrn, tagName) {
-  if (!mediaUrn || mediaUrn.length === 0) {
+  if (!mediaUrn) {
     throw new Error('hasMediaUrnTag called with empty mediaUrn - this indicates the MediaSpec was not resolved via resolveMediaUrn');
   }
   const parsed = TaggedUrn.fromString(mediaUrn);
@@ -861,14 +860,15 @@ function hasMediaUrnTag(mediaUrn, tagName) {
  * Check if a media URN has a tag with a specific value (e.g., form=map).
  * Uses TaggedUrn parsing for proper tag detection.
  * Requires a valid, non-empty media URN - fails hard otherwise.
+ * Whitespace validation is handled by TaggedUrn.fromString.
  * @param {string} mediaUrn - The media URN (must be non-empty)
  * @param {string} tagName - The tag key to check
  * @param {string} tagValue - The expected tag value
  * @returns {boolean} True if the tag has the expected value
- * @throws {Error} If mediaUrn is null/undefined/empty
+ * @throws {Error} If mediaUrn is null/undefined/empty or invalid
  */
 function hasMediaUrnTagValue(mediaUrn, tagName, tagValue) {
-  if (!mediaUrn || mediaUrn.length === 0) {
+  if (!mediaUrn) {
     throw new Error('hasMediaUrnTagValue called with empty mediaUrn - this indicates the MediaSpec was not resolved via resolveMediaUrn');
   }
   const parsed = TaggedUrn.fromString(mediaUrn);
@@ -876,17 +876,13 @@ function hasMediaUrnTagValue(mediaUrn, tagName, tagValue) {
 }
 
 /**
- * Parsed MediaSpec structure
+ * Resolved MediaSpec structure
  *
- * Parses media_spec values in the canonical format:
- * `<media-type>; profile=<url>`
+ * A MediaSpec is a resolved media specification containing information about
+ * a value type in the CAPNS system. MediaSpecs are identified by unique media URNs
+ * and contain fields like media_type, profile_uri, schema, etc.
  *
- * Examples:
- * - `application/json; profile="https://capns.org/schema/document-outline"`
- * - `image/png; profile="https://capns.org/schema/thumbnail-image"`
- * - `text/plain; profile=https://capns.org/schema/str`
- *
- * NOTE: The legacy "content-type:" prefix is NO LONGER SUPPORTED and will cause a hard failure.
+ * MediaSpecs are defined in JSON files in the registry or inline in cap definitions.
  */
 class MediaSpec {
   /**
@@ -911,86 +907,6 @@ class MediaSpec {
     this.validation = validation;
     this.metadata = metadata;
     this.extension = extension;
-  }
-
-  /**
-   * Parse a media_spec string in canonical format
-   * Format: `<media-type>; profile=<url>`
-   *
-   * IMPORTANT: Legacy "content-type:" prefix is NOT supported and will FAIL HARD
-   *
-   * @param {string} s - The media_spec string
-   * @returns {MediaSpec} The parsed MediaSpec
-   * @throws {MediaSpecError} If parsing fails or legacy format detected
-   */
-  static parse(s) {
-    const trimmed = s.trim();
-    const lower = trimmed.toLowerCase();
-
-    // FAIL HARD on legacy format - no backward compatibility
-    if (lower.startsWith('content-type:')) {
-      throw new MediaSpecError(
-        MediaSpecErrorCodes.LEGACY_FORMAT,
-        "Legacy 'content-type:' prefix is no longer supported. Use canonical format: '<media-type>; profile=<url>'"
-      );
-    }
-
-    // Split by semicolon to separate mime type from parameters
-    const semicolonPos = trimmed.indexOf(';');
-    let contentType, paramsStr;
-
-    if (semicolonPos === -1) {
-      contentType = trimmed.trim();
-      paramsStr = null;
-    } else {
-      contentType = trimmed.slice(0, semicolonPos).trim();
-      paramsStr = trimmed.slice(semicolonPos + 1).trim();
-    }
-
-    if (contentType === '') {
-      throw new MediaSpecError(MediaSpecErrorCodes.EMPTY_CONTENT_TYPE, "media_type cannot be empty");
-    }
-
-    // Parse profile if present
-    let profile = null;
-    if (paramsStr) {
-      profile = MediaSpec.parseProfile(paramsStr);
-    }
-
-    return new MediaSpec(contentType, profile);
-  }
-
-  /**
-   * Parse profile parameter from params string
-   * @param {string} params - The parameters string after semicolon
-   * @returns {string|null} The profile value or null
-   */
-  static parseProfile(params) {
-    // Look for profile= (case-insensitive)
-    const lower = params.toLowerCase();
-    const pos = lower.indexOf('profile=');
-    if (pos === -1) {
-      return null;
-    }
-
-    const afterProfile = params.slice(pos + 8);
-
-    // Handle quoted value
-    if (afterProfile.startsWith('"')) {
-      const rest = afterProfile.slice(1);
-      const endPos = rest.indexOf('"');
-      if (endPos === -1) {
-        throw new MediaSpecError(MediaSpecErrorCodes.UNTERMINATED_QUOTE, "unterminated quote in profile value");
-      }
-      return rest.slice(0, endPos);
-    }
-
-    // Unquoted value - take until semicolon or end
-    const semicolonPos = afterProfile.indexOf(';');
-    if (semicolonPos !== -1) {
-      return afterProfile.slice(0, semicolonPos).trim();
-    }
-    return afterProfile.trim();
   }
 
   /**
@@ -1150,7 +1066,7 @@ class MediaSpec {
    * @returns {MediaSpec} The resolved MediaSpec
    * @throws {MediaSpecError} If media URN cannot be resolved
    */
-  static fromCapUrn(capUrn, mediaSpecs = {}) {
+  static fromCapUrn(capUrn, mediaSpecs = []) {
     // outSpec is now a required field, so it's always present
     const mediaUrn = capUrn.getOutSpec();
 
@@ -1162,28 +1078,23 @@ class MediaSpec {
 /**
  * Resolve a media URN to a MediaSpec
  *
- * Resolution: Look up mediaUrn in mediaSpecs table, FAIL HARD if not found.
+ * Resolution: Look up mediaUrn in mediaSpecs array (by urn field), FAIL HARD if not found.
  * There is no built-in resolution - all media URNs must be in mediaSpecs.
  *
  * @param {string} mediaUrn - The media URN (e.g., "media:textable;form=scalar")
- * @param {Object} mediaSpecs - The mediaSpecs lookup table (required)
+ * @param {Array} mediaSpecs - The mediaSpecs array (each item has urn, media_type, title, etc.)
  * @returns {MediaSpec} The resolved MediaSpec
  * @throws {MediaSpecError} If media URN cannot be resolved
  */
-function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
-  // Look up in mediaSpecs table
-  if (mediaSpecs && mediaSpecs[mediaUrn]) {
-    const def = mediaSpecs[mediaUrn];
+function resolveMediaUrn(mediaUrn, mediaSpecs = []) {
+  // Look up in mediaSpecs array by urn field
+  if (mediaSpecs && Array.isArray(mediaSpecs)) {
+    const def = mediaSpecs.find(spec => spec.urn === mediaUrn);
 
-    if (typeof def === 'string') {
-      // String form: canonical media spec string
-      const spec = MediaSpec.parse(def);
-      spec.mediaUrn = mediaUrn; // Attach source URN for tag-based checks
-      return spec;
-    } else if (typeof def === 'object') {
-      // Object form: { media_type, profile_uri, schema?, title?, description?, validation?, metadata?, extension? }
+    if (def) {
+      // Object form: { urn, media_type, title, profile_uri?, schema?, description?, validation?, metadata?, extension? }
       const mediaType = def.media_type || def.mediaType;
-      const profileUri = def.profile_uri || def.profileUri;
+      const profileUri = def.profile_uri || def.profileUri || null;
       const schema = def.schema || null;
       const title = def.title || null;
       const description = def.description || null;
@@ -1194,7 +1105,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
       if (!mediaType) {
         throw new MediaSpecError(
           MediaSpecErrorCodes.UNRESOLVABLE_MEDIA_URN,
-          `Media URN '${mediaUrn}' has invalid object definition: missing media_type`
+          `Media URN '${mediaUrn}' has invalid definition: missing media_type`
         );
       }
 
@@ -1202,11 +1113,45 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
     }
   }
 
-  // FAIL HARD - media URN must be in mediaSpecs table
+  // FAIL HARD - media URN must be in mediaSpecs array
   throw new MediaSpecError(
     MediaSpecErrorCodes.UNRESOLVABLE_MEDIA_URN,
-    `Cannot resolve media URN: '${mediaUrn}'. Not found in mediaSpecs table.`
+    `Cannot resolve media URN: '${mediaUrn}'. Not found in mediaSpecs array.`
   );
+}
+
+/**
+ * Validate that media_specs array has no duplicate URNs.
+ *
+ * @param {Array} mediaSpecs - The mediaSpecs array to validate
+ * @returns {{valid: boolean, error?: string, duplicates?: string[]}}
+ */
+function validateNoMediaSpecDuplicates(mediaSpecs) {
+  if (!mediaSpecs || !Array.isArray(mediaSpecs) || mediaSpecs.length === 0) {
+    return { valid: true };
+  }
+
+  const seen = new Set();
+  const duplicates = [];
+
+  for (const spec of mediaSpecs) {
+    if (!spec.urn) continue;
+    if (seen.has(spec.urn)) {
+      duplicates.push(spec.urn);
+    } else {
+      seen.add(spec.urn);
+    }
+  }
+
+  if (duplicates.length > 0) {
+    return {
+      valid: false,
+      error: `Duplicate media URNs in media_specs: ${duplicates.join(', ')}`,
+      duplicates
+    };
+  }
+
+  return { valid: true };
 }
 
 /**
@@ -1215,7 +1160,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
  * Validation requires a registryLookup function to check if media URNs exist.
  * If no registryLookup is provided, validation passes (graceful degradation).
  *
- * @param {Object} mediaSpecs - The inline media_specs object from a capability
+ * @param {Array} mediaSpecs - The inline media_specs array from a capability
  * @param {Object} [options] - Validation options
  * @param {Function} [options.registryLookup] - Function to check if media URN exists in registry
  *                                              Returns true if exists, false otherwise
@@ -1223,7 +1168,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
  * @returns {Promise<{valid: boolean, error?: string, redefines?: string[]}>}
  */
 async function validateNoMediaSpecRedefinition(mediaSpecs, options = {}) {
-  if (!mediaSpecs || typeof mediaSpecs !== 'object' || Object.keys(mediaSpecs).length === 0) {
+  if (!mediaSpecs || !Array.isArray(mediaSpecs) || mediaSpecs.length === 0) {
     return { valid: true };
   }
 
@@ -1236,7 +1181,9 @@ async function validateNoMediaSpecRedefinition(mediaSpecs, options = {}) {
 
   const redefines = [];
 
-  for (const mediaUrn of Object.keys(mediaSpecs)) {
+  for (const spec of mediaSpecs) {
+    const mediaUrn = spec.urn;
+    if (!mediaUrn) continue;
     try {
       const existsInRegistry = await registryLookup(mediaUrn);
       if (existsInRegistry) {
@@ -1263,13 +1210,13 @@ async function validateNoMediaSpecRedefinition(mediaSpecs, options = {}) {
  * XV5: Synchronous version that checks against a provided lookup function.
  * If no registryLookup is provided, validation passes (graceful degradation).
  *
- * @param {Object} mediaSpecs - The inline media_specs object from a capability
+ * @param {Array} mediaSpecs - The inline media_specs array from a capability
  * @param {Function} [registryLookup] - Synchronous function to check if media URN exists
  *                                       Returns true if exists, false otherwise
  * @returns {{valid: boolean, error?: string, redefines?: string[]}}
  */
 function validateNoMediaSpecRedefinitionSync(mediaSpecs, registryLookup = null) {
-  if (!mediaSpecs || typeof mediaSpecs !== 'object' || Object.keys(mediaSpecs).length === 0) {
+  if (!mediaSpecs || !Array.isArray(mediaSpecs) || mediaSpecs.length === 0) {
     return { valid: true };
   }
 
@@ -1280,7 +1227,9 @@ function validateNoMediaSpecRedefinitionSync(mediaSpecs, registryLookup = null) 
 
   const redefines = [];
 
-  for (const mediaUrn of Object.keys(mediaSpecs)) {
+  for (const spec of mediaSpecs) {
+    const mediaUrn = spec.urn;
+    if (!mediaUrn) continue;
     if (registryLookup(mediaUrn)) {
       redefines.push(mediaUrn);
     }
@@ -1301,11 +1250,11 @@ function validateNoMediaSpecRedefinitionSync(mediaSpecs, registryLookup = null) 
  * Check if a CapUrn represents binary output.
  * Throws error if the output spec cannot be resolved - no fallbacks.
  * @param {CapUrn} capUrn - The cap URN
- * @param {Object} mediaSpecs - Optional mediaSpecs lookup table
+ * @param {Array} mediaSpecs - Optional mediaSpecs array
  * @returns {boolean} True if binary
  * @throws {MediaSpecError} If 'out' tag is missing or spec ID cannot be resolved
  */
-function isBinaryCapUrn(capUrn, mediaSpecs = {}) {
+function isBinaryCapUrn(capUrn, mediaSpecs = []) {
   const mediaSpec = MediaSpec.fromCapUrn(capUrn, mediaSpecs);
   return mediaSpec.isBinary();
 }
@@ -1315,11 +1264,11 @@ function isBinaryCapUrn(capUrn, mediaSpecs = {}) {
  * Note: This checks for explicit JSON format marker only.
  * Throws error if the output spec cannot be resolved - no fallbacks.
  * @param {CapUrn} capUrn - The cap URN
- * @param {Object} mediaSpecs - Optional mediaSpecs lookup table
+ * @param {Array} mediaSpecs - Optional mediaSpecs array
  * @returns {boolean} True if explicit JSON tag present
  * @throws {MediaSpecError} If 'out' tag is missing or spec ID cannot be resolved
  */
-function isJSONCapUrn(capUrn, mediaSpecs = {}) {
+function isJSONCapUrn(capUrn, mediaSpecs = []) {
   const mediaSpec = MediaSpec.fromCapUrn(capUrn, mediaSpecs);
   return mediaSpec.isJSON();
 }
@@ -1329,11 +1278,11 @@ function isJSONCapUrn(capUrn, mediaSpecs = {}) {
  * Structured data can be serialized as JSON when transmitted as text.
  * Throws error if the output spec cannot be resolved - no fallbacks.
  * @param {CapUrn} capUrn - The cap URN
- * @param {Object} mediaSpecs - Optional mediaSpecs lookup table
+ * @param {Array} mediaSpecs - Optional mediaSpecs array
  * @returns {boolean} True if structured (map or list)
  * @throws {MediaSpecError} If 'out' tag is missing or spec ID cannot be resolved
  */
-function isStructuredCapUrn(capUrn, mediaSpecs = {}) {
+function isStructuredCapUrn(capUrn, mediaSpecs = []) {
   const mediaSpec = MediaSpec.fromCapUrn(capUrn, mediaSpecs);
   return mediaSpec.isStructured();
 }
@@ -1585,7 +1534,7 @@ class Cap {
     this.command = command;
     this.cap_description = capDescription;
     this.metadata = metadata || {};
-    this.mediaSpecs = {};  // Spec ID resolution table
+    this.mediaSpecs = [];  // Media spec definitions array
     this.args = [];  // Array of CapArg - unified argument format
     this.output = null;
     this.metadata_json = metadataJson;
@@ -1846,7 +1795,7 @@ class Cap {
     }
 
     const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.metadata_json);
-    cap.mediaSpecs = json.media_specs || json.mediaSpecs || {};
+    cap.mediaSpecs = json.media_specs || json.mediaSpecs || [];
     // Parse args (new format)
     if (json.args && Array.isArray(json.args)) {
       cap.args = json.args.map(a => CapArg.fromJSON(a));
@@ -3524,6 +3473,7 @@ module.exports = {
   resolveMediaUrn,
   validateNoMediaSpecRedefinition,
   validateNoMediaSpecRedefinitionSync,
+  validateNoMediaSpecDuplicates,
   getSchemaBaseURL,
   getProfileURL,
   MEDIA_STRING,

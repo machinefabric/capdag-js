@@ -38,13 +38,13 @@ const MEDIA_OBJECT = 'media:object';
 const MEDIA_BINARY = 'media:binary';
 const MEDIA_VOID = 'media:void';
 
-// Media spec definitions for tests (no longer built into capns.js)
-const TEST_MEDIA_SPECS = {
-  [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str',
-  [MEDIA_INTEGER]: 'text/plain; profile=https://capns.org/schema/int',
-  [MEDIA_OBJECT]: 'application/json; profile=https://capns.org/schema/obj',
-  [MEDIA_BINARY]: 'application/octet-stream'
-};
+// Media spec definitions for tests (array format - each spec has its own urn)
+const TEST_MEDIA_SPECS = [
+  { urn: MEDIA_STRING, media_type: 'text/plain', title: 'String', profile_uri: 'https://capns.org/schema/str' },
+  { urn: MEDIA_INTEGER, media_type: 'text/plain', title: 'Integer', profile_uri: 'https://capns.org/schema/int' },
+  { urn: MEDIA_OBJECT, media_type: 'application/json', title: 'Object', profile_uri: 'https://capns.org/schema/obj' },
+  { urn: MEDIA_BINARY, media_type: 'application/octet-stream', title: 'Binary' }
+];
 
 // Test assertion utility
 function assert(condition, message) {
@@ -532,61 +532,39 @@ function testNumericKeyRestriction() {
 // NEW FORMAT TESTS - Spec ID Resolution and MediaSpec
 // ============================================================================
 
-// TEST057: Test MediaSpec parses canonical format without content-type prefix
-function testMediaSpecCanonicalFormat() {
-  console.log('Testing MediaSpec canonical format...');
+// TEST057: Test MediaSpec constructor creates object with correct fields
+function testMediaSpecConstruction() {
+  console.log('Testing MediaSpec construction...');
 
-  // Should parse canonical format (no content-type: prefix)
-  const spec1 = MediaSpec.parse('text/plain; profile=https://capns.org/schema/str');
-  assertEqual(spec1.contentType, 'text/plain', 'Should parse content type');
-  assertEqual(spec1.profile, 'https://capns.org/schema/str', 'Should parse profile');
+  // Create MediaSpec directly (no parsing needed - media_type and profile_uri are separate fields)
+  const spec1 = new MediaSpec('text/plain', 'https://capns.org/schema/str', null, 'String', null, 'media:string');
+  assertEqual(spec1.contentType, 'text/plain', 'Should have content type');
+  assertEqual(spec1.profile, 'https://capns.org/schema/str', 'Should have profile');
+  assertEqual(spec1.title, 'String', 'Should have title');
+  assertEqual(spec1.mediaUrn, 'media:string', 'Should have mediaUrn');
 
-  // Should parse without profile
-  const spec2 = MediaSpec.parse('application/json');
-  assertEqual(spec2.contentType, 'application/json', 'Should parse content type without profile');
+  // Create without profile
+  const spec2 = new MediaSpec('application/octet-stream', null, null, 'Binary', null, 'media:binary');
+  assertEqual(spec2.contentType, 'application/octet-stream', 'Should have content type without profile');
   assertEqual(spec2.profile, null, 'Should have null profile');
 
-  // Should output canonical form (no prefix)
-  assertEqual(spec1.toString(), 'text/plain; profile="https://capns.org/schema/str"', 'Should output canonical form');
-  assertEqual(spec2.toString(), 'application/json', 'Should output content type only');
-
-  console.log('  ✓ MediaSpec canonical format');
-}
-
-// TEST058: Test MediaSpec fails hard on legacy content-type prefix format
-function testMediaSpecLegacyFormatRejection() {
-  console.log('Testing legacy format rejection...');
-
-  // MUST FAIL HARD on legacy content-type: prefix
-  let caught = false;
-  try {
-    MediaSpec.parse('content-type: text/plain; profile=https://example.com');
-  } catch (e) {
-    if (e instanceof MediaSpecError && e.code === MediaSpecErrorCodes.LEGACY_FORMAT) {
-      caught = true;
-    } else {
-      throw new Error(`Expected MediaSpecError with LEGACY_FORMAT code, got: ${e.message}`);
-    }
-  }
-  assert(caught, 'Should reject legacy content-type: prefix');
-
-  console.log('  ✓ Legacy format rejection');
+  console.log('  ✓ MediaSpec construction');
 }
 
 
-// TEST060: Test resolveMediaUrn requires mediaSpecs table for resolution
+// TEST060: Test resolveMediaUrn requires mediaSpecs array for resolution
 function testMediaUrnResolutionRequiresMediaSpecs() {
   console.log('Testing media URN resolution requires mediaSpecs...');
 
-  // Media specs table with definitions
-  const mediaSpecs = {
-    [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str',
-    [MEDIA_INTEGER]: 'text/plain; profile=https://capns.org/schema/int',
-    [MEDIA_OBJECT]: 'application/json; profile=https://capns.org/schema/obj',
-    [MEDIA_BINARY]: 'application/octet-stream'
-  };
+  // Media specs array with definitions (each spec has its own urn)
+  const mediaSpecs = [
+    { urn: MEDIA_STRING, media_type: 'text/plain', title: 'String', profile_uri: 'https://capns.org/schema/str' },
+    { urn: MEDIA_INTEGER, media_type: 'text/plain', title: 'Integer', profile_uri: 'https://capns.org/schema/int' },
+    { urn: MEDIA_OBJECT, media_type: 'application/json', title: 'Object', profile_uri: 'https://capns.org/schema/obj' },
+    { urn: MEDIA_BINARY, media_type: 'application/octet-stream', title: 'Binary' }
+  ];
 
-  // Should resolve spec IDs from mediaSpecs table
+  // Should resolve spec IDs from mediaSpecs array
   const strSpec = resolveMediaUrn(MEDIA_STRING, mediaSpecs);
   assertEqual(strSpec.contentType, 'text/plain', 'Should resolve str spec');
   assertEqual(strSpec.profile, 'https://capns.org/schema/str', 'Should have correct profile');
@@ -605,34 +583,29 @@ function testMediaUrnResolutionRequiresMediaSpecs() {
   console.log('  ✓ Media URN resolution requires mediaSpecs');
 }
 
-// TEST061: Test resolveMediaUrn resolves custom media URNs from mediaSpecs table
+// TEST061: Test resolveMediaUrn resolves custom media URNs from mediaSpecs array
 function testMediaUrnResolutionWithMediaSpecs() {
   console.log('Testing media URN resolution with custom mediaSpecs...');
 
-  // Custom mediaSpecs table (using media URN format as keys)
-  // Includes MEDIA_STRING so resolution works
-  const mediaSpecs = {
-    'media:custom-json': 'application/json; profile=https://example.com/schema/custom',
-    'media:rich-xml': {
-      media_type: 'application/xml',
-      profile_uri: 'https://example.com/schema/rich',
-      schema: { type: 'object' }
-    },
-    [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str'
-  };
+  // Custom mediaSpecs array (each spec has its own urn)
+  const mediaSpecs = [
+    { urn: 'media:custom-json', media_type: 'application/json', title: 'Custom JSON', profile_uri: 'https://example.com/schema/custom' },
+    { urn: 'media:rich-xml', media_type: 'application/xml', title: 'Rich XML', profile_uri: 'https://example.com/schema/rich', schema: { type: 'object' } },
+    { urn: MEDIA_STRING, media_type: 'text/plain', title: 'String', profile_uri: 'https://capns.org/schema/str' }
+  ];
 
-  // Should resolve custom string form
+  // Should resolve custom media spec
   const customSpec = resolveMediaUrn('media:custom-json', mediaSpecs);
   assertEqual(customSpec.contentType, 'application/json', 'Should resolve custom spec');
   assertEqual(customSpec.profile, 'https://example.com/schema/custom', 'Should have custom profile');
 
-  // Should resolve custom object form with schema
+  // Should resolve custom media spec with schema
   const richSpec = resolveMediaUrn('media:rich-xml', mediaSpecs);
   assertEqual(richSpec.contentType, 'application/xml', 'Should resolve rich spec');
   assertEqual(richSpec.profile, 'https://example.com/schema/rich', 'Should have rich profile');
-  assert(richSpec.schema !== null, 'Should have schema from object form');
+  assert(richSpec.schema !== null, 'Should have schema');
 
-  // Should resolve MEDIA_STRING from mediaSpecs table
+  // Should resolve MEDIA_STRING from mediaSpecs array
   const strSpec = resolveMediaUrn(MEDIA_STRING, mediaSpecs);
   assertEqual(strSpec.contentType, 'text/plain', 'Should resolve string spec from mediaSpecs');
 
@@ -646,7 +619,7 @@ function testMediaUrnResolutionFailHard() {
   // Should FAIL HARD on unresolvable media URN
   let caught = false;
   try {
-    resolveMediaUrn('media:nonexistent', {});
+    resolveMediaUrn('media:nonexistent', []);
   } catch (e) {
     if (e instanceof MediaSpecError && e.code === MediaSpecErrorCodes.UNRESOLVABLE_MEDIA_URN) {
       caught = true;
@@ -659,16 +632,17 @@ function testMediaUrnResolutionFailHard() {
   console.log('  ✓ Media URN resolution fail hard');
 }
 
-// TEST063: Test metadata is propagated from object form media spec definition
+// TEST063: Test metadata is propagated from media spec definition
 function testMetadataPropagation() {
   console.log('Testing metadata propagation...');
 
   // Create a media spec definition with metadata
-  const mediaSpecs = {
-    'media:custom-setting;setting': {
+  const mediaSpecs = [
+    {
+      urn: 'media:custom-setting;setting',
       media_type: 'text/plain',
-      profile_uri: 'https://example.com/schema',
       title: 'Custom Setting',
+      profile_uri: 'https://example.com/schema',
       description: 'A custom setting',
       metadata: {
         category_key: 'interface',
@@ -677,7 +651,7 @@ function testMetadataPropagation() {
         display_index: 5
       }
     }
-  };
+  ];
 
   // Resolve and verify metadata is propagated
   const resolved = resolveMediaUrn('media:custom-setting;setting', mediaSpecs);
@@ -690,46 +664,21 @@ function testMetadataPropagation() {
   console.log('  ✓ Metadata propagation from object definition');
 }
 
-// TEST064: Test string form media spec definition has no metadata
-function testMetadataForStringDef() {
-  console.log('Testing metadata for string definition...');
+// TEST064: (Removed - string form is no longer supported)
 
-  // String form definitions should have no metadata
-  const mediaSpecs = {
-    'media:simple;textable': 'text/plain; profile=https://example.com'
-  };
-
-  const resolved = resolveMediaUrn('media:simple;textable', mediaSpecs);
-  assert(resolved.metadata === null, 'String form should have no metadata');
-
-  console.log('  ✓ String form has no metadata');
-}
-
-// TEST065: Test string form definitions have no metadata
-function testMetadataForSimpleStringDef() {
-  console.log('Testing metadata for simple string definition...');
-
-  // String form definitions should have no metadata
-  const mediaSpecs = {
-    [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str'
-  };
-
-  const resolved = resolveMediaUrn(MEDIA_STRING, mediaSpecs);
-  assert(resolved.metadata === null, 'String form definition should have no metadata');
-
-  console.log('  ✓ String form definition has no metadata');
-}
+// TEST065: (Removed - string form is no longer supported)
 
 // TEST066: Test metadata and validation coexist in media spec definition
 function testMetadataWithValidation() {
   console.log('Testing metadata with validation...');
 
   // Ensure metadata and validation can coexist
-  const mediaSpecs = {
-    'media:bounded-number;numeric;setting': {
+  const mediaSpecs = [
+    {
+      urn: 'media:bounded-number;numeric;setting',
       media_type: 'text/plain',
-      profile_uri: 'https://example.com/schema',
       title: 'Bounded Number',
+      profile_uri: 'https://example.com/schema',
       validation: {
         min: 0,
         max: 100
@@ -739,7 +688,7 @@ function testMetadataWithValidation() {
         ui_type: 'SETTING_UI_TYPE_SLIDER'
       }
     }
-  };
+  ];
 
   const resolved = resolveMediaUrn('media:bounded-number;numeric;setting', mediaSpecs);
 
@@ -756,53 +705,42 @@ function testMetadataWithValidation() {
   console.log('  ✓ Metadata coexists with validation');
 }
 
-// TEST067: Test extension field is propagated from object form media spec definition
+// TEST067: Test extension field is propagated from media spec definition
 function testExtensionPropagation() {
   console.log('Testing extension propagation...');
 
   // Create a media spec definition with extension
-  const mediaSpecs = {
-    'media:pdf;bytes': {
+  const mediaSpecs = [
+    {
+      urn: 'media:pdf;bytes',
       media_type: 'application/pdf',
-      profile_uri: 'https://capns.org/schema/pdf',
       title: 'PDF Document',
+      profile_uri: 'https://capns.org/schema/pdf',
       description: 'A PDF document',
       extension: 'pdf'
     }
-  };
+  ];
 
   // Resolve and verify extension is propagated
   const resolved = resolveMediaUrn('media:pdf;bytes', mediaSpecs);
   assertEqual(resolved.extension, 'pdf', 'Should have extension');
 
-  console.log('  ✓ Extension propagation from object definition');
+  console.log('  ✓ Extension propagation from definition');
 }
 
-// TEST068: Test string form media spec definition has no extension
-function testExtensionForStringDef() {
-  console.log('Testing extension for string definition...');
-
-  // String form definitions should have no extension
-  const mediaSpecs = {
-    'media:text;textable': 'text/plain; profile=https://example.com'
-  };
-
-  const resolved = resolveMediaUrn('media:text;textable', mediaSpecs);
-  assert(resolved.extension === null, 'String form should have no extension');
-
-  console.log('  ✓ String form has no extension');
-}
+// TEST068: (Removed - string form is no longer supported)
 
 // TEST069: Test extension can coexist with metadata and validation
 function testExtensionWithMetadataAndValidation() {
   console.log('Testing extension with metadata and validation...');
 
   // Ensure extension, metadata, and validation can coexist
-  const mediaSpecs = {
-    'media:custom-output': {
+  const mediaSpecs = [
+    {
+      urn: 'media:custom-output',
       media_type: 'application/json',
-      profile_uri: 'https://example.com/schema',
       title: 'Custom Output',
+      profile_uri: 'https://example.com/schema',
       validation: {
         min_length: 1,
         max_length: 1000
@@ -812,7 +750,7 @@ function testExtensionWithMetadataAndValidation() {
       },
       extension: 'json'
     }
-  };
+  ];
 
   const resolved = resolveMediaUrn('media:custom-output', mediaSpecs);
 
@@ -835,18 +773,20 @@ function testCapWithMediaSpecs() {
 
   const cap = new Cap(urn, 'Test Cap', 'test_command');
 
-  // Set custom mediaSpecs - must include MEDIA_STRING for resolution to work
-  cap.mediaSpecs = {
-    [MEDIA_STRING]: 'text/plain; profile=https://capns.org/schema/str',
-    'media:custom': {
+  // Set custom mediaSpecs array - must include MEDIA_STRING for resolution to work
+  cap.mediaSpecs = [
+    { urn: MEDIA_STRING, media_type: 'text/plain', title: 'String', profile_uri: 'https://capns.org/schema/str' },
+    {
+      urn: 'media:custom',
       media_type: 'application/json',
+      title: 'Custom Output',
       profile_uri: 'https://example.com/schema/output',
       schema: {
         type: 'object',
         properties: { result: { type: 'string' } }
       }
     }
-  };
+  ];
 
   // Should resolve MEDIA_STRING from mediaSpecs via cap.resolveMediaUrn
   const strSpec = cap.resolveMediaUrn(MEDIA_STRING);
@@ -866,9 +806,9 @@ function testCapJSONSerialization() {
 
   const urn = CapUrn.fromString(testUrn('op=test'));
   const cap = new Cap(urn, 'Test Cap', 'test_command');
-  cap.mediaSpecs = {
-    'media:custom': 'text/plain; profile=https://example.com'
-  };
+  cap.mediaSpecs = [
+    { urn: 'media:custom', media_type: 'text/plain', title: 'Custom', profile_uri: 'https://example.com' }
+  ];
   cap.arguments = {
     required: [{ name: 'input', media_urn: MEDIA_STRING }],
     optional: []
@@ -878,7 +818,9 @@ function testCapJSONSerialization() {
   // Serialize to JSON
   const json = cap.toJSON();
   assert(json.media_specs !== undefined, 'Should have media_specs in JSON');
-  assertEqual(json.media_specs['media:custom'], 'text/plain; profile=https://example.com', 'Should serialize mediaSpecs');
+  assert(Array.isArray(json.media_specs), 'media_specs should be an array');
+  assertEqual(json.media_specs.length, 1, 'Should have one media spec');
+  assertEqual(json.media_specs[0].urn, 'media:custom', 'Should serialize mediaSpec urn');
   // URN tags should include in and out
   assertEqual(json.urn.tags['in'], 'media:void', 'Should serialize inSpec in tags');
   assertEqual(json.urn.tags['out'], 'media:form=map', 'Should serialize outSpec in tags');
@@ -886,7 +828,9 @@ function testCapJSONSerialization() {
   // Deserialize from JSON
   const restored = Cap.fromJSON(json);
   assert(restored.mediaSpecs !== undefined, 'Should restore mediaSpecs');
-  assertEqual(restored.mediaSpecs['media:custom'], 'text/plain; profile=https://example.com', 'Should restore mediaSpecs content');
+  assert(Array.isArray(restored.mediaSpecs), 'Restored mediaSpecs should be an array');
+  assertEqual(restored.mediaSpecs.length, 1, 'Should restore one media spec');
+  assertEqual(restored.mediaSpecs[0].urn, 'media:custom', 'Should restore mediaSpec urn');
   assertEqual(restored.urn.getInSpec(), 'media:void', 'Should restore inSpec');
   assertEqual(restored.urn.getOutSpec(), 'media:form=map', 'Should restore outSpec');
 
@@ -1810,14 +1754,15 @@ function testXV5InlineSpecRedefinitionDetected() {
   // Mock registry lookup that reports MEDIA_STRING as existing in registry
   const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
 
-  // Try to redefine MEDIA_STRING which is in the registry
-  const mediaSpecs = {
-    [MEDIA_STRING]: {
+  // Try to redefine MEDIA_STRING which is in the registry (array format with urn field)
+  const mediaSpecs = [
+    {
+      urn: MEDIA_STRING,
       media_type: 'text/plain',
       title: 'My Custom String',
       description: 'Trying to redefine string'
     }
-  };
+  ];
 
   const result = validateNoMediaSpecRedefinitionSync(mediaSpecs, registryLookup);
 
@@ -1835,14 +1780,15 @@ function testXV5NewInlineSpecAllowed() {
   // Mock registry lookup that reports MEDIA_STRING as existing, but not custom specs
   const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
 
-  // Define a completely new media spec that doesn't exist in registry
-  const mediaSpecs = {
-    'media:my-unique-custom-type-xyz123': {
+  // Define a completely new media spec that doesn't exist in registry (array format)
+  const mediaSpecs = [
+    {
+      urn: 'media:my-unique-custom-type-xyz123',
       media_type: 'application/json',
       title: 'My Custom Output',
       description: 'A custom output type'
     }
-  };
+  ];
 
   const result = validateNoMediaSpecRedefinitionSync(mediaSpecs, registryLookup);
 
@@ -1896,20 +1842,16 @@ async function runTests() {
   testDuplicateKeyRejection();
   testNumericKeyRestriction();
 
-  // New format tests
-  testMediaSpecCanonicalFormat();
-  testMediaSpecLegacyFormatRejection();
+  // New format tests (MediaSpec is now array, no string form parsing)
+  testMediaSpecConstruction();
   testMediaUrnResolutionRequiresMediaSpecs();
   testMediaUrnResolutionWithMediaSpecs();
   testMediaUrnResolutionFailHard();
   testMetadataPropagation();
-  testMetadataForStringDef();
-  testMetadataForSimpleStringDef();
   testMetadataWithValidation();
 
   // Extension field tests
   testExtensionPropagation();
-  testExtensionForStringDef();
   testExtensionWithMetadataAndValidation();
   testCapWithMediaSpecs();
   testCapJSONSerialization();
