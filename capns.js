@@ -891,8 +891,9 @@ class MediaSpec {
    * @param {string|null} mediaUrn - Source media URN for tag-based checks
    * @param {Object|null} validation - Optional validation rules (min, max, min_length, max_length, pattern, allowed_values)
    * @param {Object|null} metadata - Optional metadata (arbitrary key-value pairs for display/categorization)
+   * @param {string|null} extension - Optional file extension for storing this media type (e.g., 'pdf', 'json', 'txt')
    */
-  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null, validation = null, metadata = null) {
+  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null, validation = null, metadata = null, extension = null) {
     this.contentType = contentType;
     this.profile = profile;
     this.schema = schema;
@@ -901,6 +902,7 @@ class MediaSpec {
     this.mediaUrn = mediaUrn;
     this.validation = validation;
     this.metadata = metadata;
+    this.extension = extension;
   }
 
   /**
@@ -1121,7 +1123,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
       spec.mediaUrn = mediaUrn; // Attach source URN for tag-based checks
       return spec;
     } else if (typeof def === 'object') {
-      // Object form: { media_type, profile_uri, schema?, title?, description?, validation?, metadata? }
+      // Object form: { media_type, profile_uri, schema?, title?, description?, validation?, metadata?, extension? }
       const mediaType = def.media_type || def.mediaType;
       const profileUri = def.profile_uri || def.profileUri;
       const schema = def.schema || null;
@@ -1129,6 +1131,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
       const description = def.description || null;
       const validation = def.validation || null;
       const metadata = def.metadata || null;
+      const extension = def.extension || null;
 
       if (!mediaType) {
         throw new MediaSpecError(
@@ -1137,7 +1140,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = {}) {
         );
       }
 
-      return new MediaSpec(mediaType, profileUri, schema, title, description, mediaUrn, validation, metadata);
+      return new MediaSpec(mediaType, profileUri, schema, title, description, mediaUrn, validation, metadata, extension);
     }
   }
 

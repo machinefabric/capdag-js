@@ -756,6 +756,74 @@ function testMetadataWithValidation() {
   console.log('  ✓ Metadata coexists with validation');
 }
 
+// TEST067: Test extension field is propagated from object form media spec definition
+function testExtensionPropagation() {
+  console.log('Testing extension propagation...');
+
+  // Create a media spec definition with extension
+  const mediaSpecs = {
+    'media:pdf;bytes': {
+      media_type: 'application/pdf',
+      profile_uri: 'https://capns.org/schema/pdf',
+      title: 'PDF Document',
+      description: 'A PDF document',
+      extension: 'pdf'
+    }
+  };
+
+  // Resolve and verify extension is propagated
+  const resolved = resolveMediaUrn('media:pdf;bytes', mediaSpecs);
+  assertEqual(resolved.extension, 'pdf', 'Should have extension');
+
+  console.log('  ✓ Extension propagation from object definition');
+}
+
+// TEST068: Test string form media spec definition has no extension
+function testExtensionForStringDef() {
+  console.log('Testing extension for string definition...');
+
+  // String form definitions should have no extension
+  const mediaSpecs = {
+    'media:text;textable': 'text/plain; profile=https://example.com'
+  };
+
+  const resolved = resolveMediaUrn('media:text;textable', mediaSpecs);
+  assert(resolved.extension === null, 'String form should have no extension');
+
+  console.log('  ✓ String form has no extension');
+}
+
+// TEST069: Test extension can coexist with metadata and validation
+function testExtensionWithMetadataAndValidation() {
+  console.log('Testing extension with metadata and validation...');
+
+  // Ensure extension, metadata, and validation can coexist
+  const mediaSpecs = {
+    'media:custom-output': {
+      media_type: 'application/json',
+      profile_uri: 'https://example.com/schema',
+      title: 'Custom Output',
+      validation: {
+        min_length: 1,
+        max_length: 1000
+      },
+      metadata: {
+        category: 'output'
+      },
+      extension: 'json'
+    }
+  };
+
+  const resolved = resolveMediaUrn('media:custom-output', mediaSpecs);
+
+  // Verify all fields are present
+  assert(resolved.validation !== null, 'Should have validation');
+  assert(resolved.metadata !== null, 'Should have metadata');
+  assertEqual(resolved.extension, 'json', 'Should have extension');
+
+  console.log('  ✓ Extension coexists with metadata and validation');
+}
+
 // TEST108: Test Cap with mediaSpecs resolves custom media URNs
 function testCapWithMediaSpecs() {
   console.log('Testing Cap with mediaSpecs...');
@@ -1838,6 +1906,11 @@ async function runTests() {
   testMetadataForStringDef();
   testMetadataForSimpleStringDef();
   testMetadataWithValidation();
+
+  // Extension field tests
+  testExtensionPropagation();
+  testExtensionForStringDef();
+  testExtensionWithMetadataAndValidation();
   testCapWithMediaSpecs();
   testCapJSONSerialization();
   testOpTagRename();
