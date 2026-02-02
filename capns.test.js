@@ -939,9 +939,10 @@ function testCapJSONSerialization() {
   assert(Array.isArray(json.media_specs), 'media_specs should be an array');
   assertEqual(json.media_specs.length, 1, 'Should have one media spec');
   assertEqual(json.media_specs[0].urn, 'media:custom', 'Should serialize mediaSpec urn');
-  // URN tags should include in and out
-  assertEqual(json.urn.tags['in'], 'media:void', 'Should serialize inSpec in tags');
-  assertEqual(json.urn.tags['out'], 'media:form=map', 'Should serialize outSpec in tags');
+  // URN should be a string in canonical format
+  assertEqual(typeof json.urn, 'string', 'URN should be serialized as string');
+  assert(json.urn.includes('in="media:void"'), 'Should contain inSpec in URN string');
+  assert(json.urn.includes('out="media:form=map"'), 'Should contain outSpec in URN string');
 
   // Deserialize from JSON
   const restored = Cap.fromJSON(json);

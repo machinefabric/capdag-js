@@ -1826,17 +1826,8 @@ class Cap {
    * @returns {Object} JSON representation
    */
   toJSON() {
-    // Build complete tags map including in and out
-    const allTags = {
-      ...this.urn.tags,
-      'in': this.urn.inSpec,
-      'out': this.urn.outSpec
-    };
-
     const result = {
-      urn: {
-        tags: allTags
-      },
+      urn: this.urn.toString(),
       title: this.title,
       command: this.command,
       cap_description: this.cap_description,
@@ -1859,16 +1850,11 @@ class Cap {
    * @returns {Cap} The capability instance
    */
   static fromJSON(json) {
-    // Handle both string and object URN formats
-    let urn;
-    if (typeof json.urn === 'string') {
-      urn = CapUrn.fromString(json.urn);
-    } else if (json.urn && json.urn.tags) {
-      // Use fromTags to extract in/out from the tags object
-      urn = CapUrn.fromTags(json.urn.tags);
-    } else {
-      throw new Error('Invalid URN format in JSON');
+    // URN must be a string in canonical format
+    if (typeof json.urn !== 'string') {
+      throw new Error("URN must be a string in canonical format (e.g., 'cap:in=\"media:...\";op=...;out=\"media:...\"')");
     }
+    const urn = CapUrn.fromString(json.urn);
 
     const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.metadata_json);
     cap.mediaSpecs = json.media_specs || json.mediaSpecs || [];
