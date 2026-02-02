@@ -895,9 +895,9 @@ class MediaSpec {
    * @param {string|null} mediaUrn - Source media URN for tag-based checks
    * @param {Object|null} validation - Optional validation rules (min, max, min_length, max_length, pattern, allowed_values)
    * @param {Object|null} metadata - Optional metadata (arbitrary key-value pairs for display/categorization)
-   * @param {string|null} extension - Optional file extension for storing this media type (e.g., 'pdf', 'json', 'txt')
+   * @param {string[]} extensions - File extensions for storing this media type (e.g., ['pdf'], ['jpg', 'jpeg'])
    */
-  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null, validation = null, metadata = null, extension = null) {
+  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null, validation = null, metadata = null, extensions = []) {
     this.contentType = contentType;
     this.profile = profile;
     this.schema = schema;
@@ -906,7 +906,7 @@ class MediaSpec {
     this.mediaUrn = mediaUrn;
     this.validation = validation;
     this.metadata = metadata;
-    this.extension = extension;
+    this.extensions = extensions;
   }
 
   /**
@@ -1092,7 +1092,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = []) {
     const def = mediaSpecs.find(spec => spec.urn === mediaUrn);
 
     if (def) {
-      // Object form: { urn, media_type, title, profile_uri?, schema?, description?, validation?, metadata?, extension? }
+      // Object form: { urn, media_type, title, profile_uri?, schema?, description?, validation?, metadata?, extensions? }
       const mediaType = def.media_type || def.mediaType;
       const profileUri = def.profile_uri || def.profileUri || null;
       const schema = def.schema || null;
@@ -1100,7 +1100,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = []) {
       const description = def.description || null;
       const validation = def.validation || null;
       const metadata = def.metadata || null;
-      const extension = def.extension || null;
+      const extensions = Array.isArray(def.extensions) ? def.extensions : [];
 
       if (!mediaType) {
         throw new MediaSpecError(
@@ -1109,7 +1109,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = []) {
         );
       }
 
-      return new MediaSpec(mediaType, profileUri, schema, title, description, mediaUrn, validation, metadata, extension);
+      return new MediaSpec(mediaType, profileUri, schema, title, description, mediaUrn, validation, metadata, extensions);
     }
   }
 
@@ -1118,6 +1118,82 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = []) {
     MediaSpecErrorCodes.UNRESOLVABLE_MEDIA_URN,
     `Cannot resolve media URN: '${mediaUrn}'. Not found in mediaSpecs array.`
   );
+}
+
+/**
+ * Build an extension index from a mediaSpecs array.
+ * Maps lowercase extension strings to arrays of media URNs that use that extension.
+ *
+ * @param {Array} mediaSpecs - The mediaSpecs array
+ * @returns {Map<string, string[]>} Map from extension to list of URNs
+ */
+function buildExtensionIndex(mediaSpecs) {
+  const index = new Map();
+  if (!mediaSpecs || !Array.isArray(mediaSpecs)) {
+    return index;
+  }
+
+  for (const spec of mediaSpecs) {
+    if (!spec.urn || !Array.isArray(spec.extensions)) continue;
+    for (const ext of spec.extensions) {
+      const extLower = ext.toLowerCase();
+      if (!index.has(extLower)) {
+        index.set(extLower, []);
+      }
+      const urns = index.get(extLower);
+      if (!urns.includes(spec.urn)) {
+        urns.push(spec.urn);
+      }
+    }
+  }
+  return index;
+}
+
+/**
+ * Look up all media URNs that match a file extension (synchronous, no network).
+ *
+ * Returns all media URNs registered for the given file extension.
+ * Multiple URNs may match the same extension (e.g., with different form= parameters).
+ *
+ * The extension should NOT include the leading dot (e.g., "pdf" not ".pdf").
+ * Lookup is case-insensitive.
+ *
+ * @param {string} extension - The file extension to look up (without leading dot)
+ * @param {Array} mediaSpecs - The mediaSpecs array
+ * @returns {string[]} Array of media URNs for the extension
+ * @throws {MediaSpecError} If no media spec is registered for the given extension
+ *
+ * @example
+ * const urns = mediaUrnsForExtension('pdf', mediaSpecs);
+ * // May return ['media:pdf;bytes']
+ */
+function mediaUrnsForExtension(extension, mediaSpecs) {
+  const index = buildExtensionIndex(mediaSpecs);
+  const extLower = extension.toLowerCase();
+  const urns = index.get(extLower);
+
+  if (!urns || urns.length === 0) {
+    throw new MediaSpecError(
+      MediaSpecErrorCodes.UNRESOLVABLE_MEDIA_URN,
+      `No media spec registered for extension '${extension}'. ` +
+      `Ensure the media spec is defined with an 'extensions' array containing '${extension}'.`
+    );
+  }
+
+  return urns;
+}
+
+/**
+ * Get all registered extensions and their corresponding media URNs.
+ *
+ * Returns an array of [extension, urns] pairs for debugging and introspection.
+ *
+ * @param {Array} mediaSpecs - The mediaSpecs array
+ * @returns {Array<[string, string[]]>} Array of [extension, urns] pairs
+ */
+function getExtensionMappings(mediaSpecs) {
+  const index = buildExtensionIndex(mediaSpecs);
+  return Array.from(index.entries());
 }
 
 /**
@@ -3471,6 +3547,9 @@ module.exports = {
   isJSONCapUrn,
   isStructuredCapUrn,
   resolveMediaUrn,
+  buildExtensionIndex,
+  mediaUrnsForExtension,
+  getExtensionMappings,
   validateNoMediaSpecRedefinition,
   validateNoMediaSpecRedefinitionSync,
   validateNoMediaSpecDuplicates,

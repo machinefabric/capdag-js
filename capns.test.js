@@ -12,6 +12,9 @@ const {
   MediaSpecError,
   MediaSpecErrorCodes,
   resolveMediaUrn,
+  buildExtensionIndex,
+  mediaUrnsForExtension,
+  getExtensionMappings,
   // CapMatrix and CapCube
   CapMatrixError,
   CapMatrix,
@@ -705,11 +708,11 @@ function testMetadataWithValidation() {
   console.log('  ✓ Metadata coexists with validation');
 }
 
-// TEST067: Test extension field is propagated from media spec definition
-function testExtensionPropagation() {
-  console.log('Testing extension propagation...');
+// TEST067: Test extensions field is propagated from media spec definition
+function testExtensionsPropagation() {
+  console.log('Testing extensions propagation...');
 
-  // Create a media spec definition with extension
+  // Create a media spec definition with extensions array
   const mediaSpecs = [
     {
       urn: 'media:pdf;bytes',
@@ -717,24 +720,26 @@ function testExtensionPropagation() {
       title: 'PDF Document',
       profile_uri: 'https://capns.org/schema/pdf',
       description: 'A PDF document',
-      extension: 'pdf'
+      extensions: ['pdf']
     }
   ];
 
-  // Resolve and verify extension is propagated
+  // Resolve and verify extensions is propagated
   const resolved = resolveMediaUrn('media:pdf;bytes', mediaSpecs);
-  assertEqual(resolved.extension, 'pdf', 'Should have extension');
+  assert(Array.isArray(resolved.extensions), 'Extensions should be an array');
+  assertEqual(resolved.extensions.length, 1, 'Should have one extension');
+  assertEqual(resolved.extensions[0], 'pdf', 'Should have pdf extension');
 
-  console.log('  ✓ Extension propagation from definition');
+  console.log('  ✓ Extensions propagation from definition');
 }
 
 // TEST068: (Removed - string form is no longer supported)
 
-// TEST069: Test extension can coexist with metadata and validation
-function testExtensionWithMetadataAndValidation() {
-  console.log('Testing extension with metadata and validation...');
+// TEST069: Test extensions can coexist with metadata and validation
+function testExtensionsWithMetadataAndValidation() {
+  console.log('Testing extensions with metadata and validation...');
 
-  // Ensure extension, metadata, and validation can coexist
+  // Ensure extensions, metadata, and validation can coexist
   const mediaSpecs = [
     {
       urn: 'media:custom-output',
@@ -748,7 +753,7 @@ function testExtensionWithMetadataAndValidation() {
       metadata: {
         category: 'output'
       },
-      extension: 'json'
+      extensions: ['json']
     }
   ];
 
@@ -757,9 +762,122 @@ function testExtensionWithMetadataAndValidation() {
   // Verify all fields are present
   assert(resolved.validation !== null, 'Should have validation');
   assert(resolved.metadata !== null, 'Should have metadata');
-  assertEqual(resolved.extension, 'json', 'Should have extension');
+  assert(Array.isArray(resolved.extensions), 'Extensions should be an array');
+  assertEqual(resolved.extensions[0], 'json', 'Should have json extension');
 
-  console.log('  ✓ Extension coexists with metadata and validation');
+  console.log('  ✓ Extensions coexists with metadata and validation');
+}
+
+// TEST070: Test multiple extensions in a media spec
+function testMultipleExtensions() {
+  console.log('Testing multiple extensions...');
+
+  // Create a media spec definition with multiple extensions
+  const mediaSpecs = [
+    {
+      urn: 'media:image;jpeg;bytes',
+      media_type: 'image/jpeg',
+      title: 'JPEG Image',
+      profile_uri: 'https://capns.org/schema/jpeg',
+      description: 'JPEG image data',
+      extensions: ['jpg', 'jpeg']
+    }
+  ];
+
+  // Resolve and verify multiple extensions are propagated
+  const resolved = resolveMediaUrn('media:image;jpeg;bytes', mediaSpecs);
+  assert(Array.isArray(resolved.extensions), 'Extensions should be an array');
+  assertEqual(resolved.extensions.length, 2, 'Should have two extensions');
+  assertEqual(resolved.extensions[0], 'jpg', 'Should have jpg extension first');
+  assertEqual(resolved.extensions[1], 'jpeg', 'Should have jpeg extension second');
+
+  console.log('  ✓ Multiple extensions propagation');
+}
+
+// TEST071: Test buildExtensionIndex creates correct mappings
+function testBuildExtensionIndex() {
+  console.log('Testing buildExtensionIndex...');
+
+  const mediaSpecs = [
+    { urn: 'media:pdf;bytes', media_type: 'application/pdf', extensions: ['pdf'] },
+    { urn: 'media:image;jpeg;bytes', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] },
+    { urn: 'media:json;textable', media_type: 'application/json', extensions: ['json'] }
+  ];
+
+  const index = buildExtensionIndex(mediaSpecs);
+
+  assert(index instanceof Map, 'Should return a Map');
+  assertEqual(index.size, 4, 'Should have 4 extensions (pdf, jpg, jpeg, json)');
+  assert(index.has('pdf'), 'Should have pdf');
+  assert(index.has('jpg'), 'Should have jpg');
+  assert(index.has('jpeg'), 'Should have jpeg');
+  assert(index.has('json'), 'Should have json');
+
+  assertEqual(index.get('pdf').length, 1, 'pdf should have 1 URN');
+  assertEqual(index.get('pdf')[0], 'media:pdf;bytes', 'pdf should map to media:pdf;bytes');
+
+  assertEqual(index.get('jpg').length, 1, 'jpg should have 1 URN');
+  assertEqual(index.get('jpg')[0], 'media:image;jpeg;bytes', 'jpg should map to jpeg URN');
+
+  console.log('  ✓ buildExtensionIndex creates correct mappings');
+}
+
+// TEST072: Test mediaUrnsForExtension finds URNs by extension
+function testMediaUrnsForExtension() {
+  console.log('Testing mediaUrnsForExtension...');
+
+  const mediaSpecs = [
+    { urn: 'media:pdf;bytes', media_type: 'application/pdf', extensions: ['pdf'] },
+    { urn: 'media:image;jpeg;bytes', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] },
+    { urn: 'media:json;textable;form=map', media_type: 'application/json', extensions: ['json'] },
+    { urn: 'media:json;textable;form=list', media_type: 'application/json', extensions: ['json'] }
+  ];
+
+  // Test single extension
+  const pdfUrns = mediaUrnsForExtension('pdf', mediaSpecs);
+  assertEqual(pdfUrns.length, 1, 'Should find 1 URN for pdf');
+  assertEqual(pdfUrns[0], 'media:pdf;bytes', 'Should find pdf URN');
+
+  // Test case insensitivity
+  const pdfUrnsUpper = mediaUrnsForExtension('PDF', mediaSpecs);
+  assertEqual(pdfUrnsUpper.length, 1, 'Should find URN with uppercase extension');
+
+  // Test extension with multiple URNs
+  const jsonUrns = mediaUrnsForExtension('json', mediaSpecs);
+  assertEqual(jsonUrns.length, 2, 'Should find 2 URNs for json');
+
+  // Test unknown extension throws
+  let thrownError = null;
+  try {
+    mediaUrnsForExtension('unknown', mediaSpecs);
+  } catch (e) {
+    thrownError = e;
+  }
+  assert(thrownError !== null, 'Should throw for unknown extension');
+  assert(thrownError instanceof MediaSpecError, 'Should throw MediaSpecError');
+
+  console.log('  ✓ mediaUrnsForExtension finds URNs by extension');
+}
+
+// TEST073: Test getExtensionMappings returns all mappings
+function testGetExtensionMappings() {
+  console.log('Testing getExtensionMappings...');
+
+  const mediaSpecs = [
+    { urn: 'media:pdf;bytes', media_type: 'application/pdf', extensions: ['pdf'] },
+    { urn: 'media:image;jpeg;bytes', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] }
+  ];
+
+  const mappings = getExtensionMappings(mediaSpecs);
+  assert(Array.isArray(mappings), 'Should return an array');
+  assertEqual(mappings.length, 3, 'Should have 3 mappings (pdf, jpg, jpeg)');
+
+  // Find pdf mapping
+  const pdfMapping = mappings.find(m => m[0] === 'pdf');
+  assert(pdfMapping !== undefined, 'Should have pdf mapping');
+  assertEqual(pdfMapping[1].length, 1, 'pdf should have 1 URN');
+
+  console.log('  ✓ getExtensionMappings returns all mappings');
 }
 
 // TEST108: Test Cap with mediaSpecs resolves custom media URNs
@@ -1850,9 +1968,13 @@ async function runTests() {
   testMetadataPropagation();
   testMetadataWithValidation();
 
-  // Extension field tests
-  testExtensionPropagation();
-  testExtensionWithMetadataAndValidation();
+  // Extensions field tests
+  testExtensionsPropagation();
+  testExtensionsWithMetadataAndValidation();
+  testMultipleExtensions();
+  testBuildExtensionIndex();
+  testMediaUrnsForExtension();
+  testGetExtensionMappings();
   testCapWithMediaSpecs();
   testCapJSONSerialization();
   testOpTagRename();
