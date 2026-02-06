@@ -332,14 +332,13 @@ class CapUrn {
   /**
    * Check if this cap matches another based on tag compatibility
    *
-   * Direction matching (in/out) is checked FIRST:
-   * - Both in and out must match (with wildcard support)
-   * - Wildcards (*) match any value
-   *
-   * Then for other tags:
+   * Direction (in/out) uses TaggedUrn.matches() (via MediaUrn matching):
+   * - Input: request_input.matches(cap_input) — does request's data satisfy cap's requirement?
+   * - Output: cap_output.matches(request_output) — does cap's output satisfy what request expects?
+   * For other tags:
    * - For each tag in the request: cap has same value, wildcard (*), or missing tag
    * - For each tag in the cap: if request is missing that tag, that's fine (cap is more specific)
-   * Missing tags are treated as wildcards (less specific, can handle any value).
+   * Missing tags (except in/out) are treated as wildcards (less specific, can handle any value).
    *
    * @param {CapUrn} request - The request cap to match against
    * @returns {boolean} Whether this cap matches the request
@@ -349,15 +348,31 @@ class CapUrn {
       return true;
     }
 
-    // Check direction compatibility first
-    // inSpec must match (with wildcard support)
-    if (this.inSpec !== '*' && request.inSpec !== '*' && this.inSpec !== request.inSpec) {
-      return false;
+    // Direction specs: TaggedUrn semantic matching via MediaUrn
+    // Check in_urn: request's input must satisfy cap's input requirement
+    if (this.inSpec !== '*' && request.inSpec !== '*') {
+      try {
+        const capIn = TaggedUrn.fromString(this.inSpec);
+        const requestIn = TaggedUrn.fromString(request.inSpec);
+        if (!requestIn.matches(capIn)) {
+          return false;
+        }
+      } catch (e) {
+        return false;
+      }
     }
 
-    // outSpec must match (with wildcard support)
-    if (this.outSpec !== '*' && request.outSpec !== '*' && this.outSpec !== request.outSpec) {
-      return false;
+    // Check out_urn: cap's output must satisfy what the request expects
+    if (this.outSpec !== '*' && request.outSpec !== '*') {
+      try {
+        const capOut = TaggedUrn.fromString(this.outSpec);
+        const requestOut = TaggedUrn.fromString(request.outSpec);
+        if (!capOut.matches(requestOut)) {
+          return false;
+        }
+      } catch (e) {
+        return false;
+      }
     }
 
     // Check all other tags that the request specifies
@@ -402,19 +417,31 @@ class CapUrn {
 
   /**
    * Calculate specificity score for cap matching
-   * More specific caps have higher scores and are preferred
-   * Includes inSpec and outSpec in the count (if not wildcards)
    *
-   * @returns {number} The number of non-wildcard tags plus direction specs
+   * More specific caps have higher scores and are preferred.
+   * Direction specs contribute their MediaUrn tag count (more tags = more specific).
+   * Other tags contribute 1 per non-wildcard value.
+   *
+   * @returns {number} The specificity score
    */
   specificity() {
     let count = 0;
-    // Count non-wildcard direction specs
+    // Direction specs contribute their MediaUrn tag count
     if (this.inSpec !== '*') {
-      count++;
+      try {
+        const inMedia = TaggedUrn.fromString(this.inSpec);
+        count += Object.keys(inMedia.tags).length;
+      } catch (e) {
+        count += 1; // fallback
+      }
     }
     if (this.outSpec !== '*') {
-      count++;
+      try {
+        const outMedia = TaggedUrn.fromString(this.outSpec);
+        count += Object.keys(outMedia.tags).length;
+      } catch (e) {
+        count += 1; // fallback
+      }
     }
     // Count non-wildcard tags
     count += Object.values(this.tags).filter(value => value !== '*').length;
@@ -445,7 +472,7 @@ class CapUrn {
    *
    * Two caps are compatible if they can potentially match
    * the same types of requests (considering wildcards and missing tags as wildcards)
-   * Direction specs (in/out) must be compatible.
+   * Direction specs are compatible if either is a subtype of the other via TaggedUrn matching
    *
    * @param {CapUrn} other - The other cap to check compatibility with
    * @returns {boolean} Whether the caps are compatible
@@ -455,12 +482,33 @@ class CapUrn {
       return true;
     }
 
-    // Check direction spec compatibility
-    if (this.inSpec !== '*' && other.inSpec !== '*' && this.inSpec !== other.inSpec) {
-      return false;
+    // Check in_urn compatibility: either direction of matches succeeds
+    if (this.inSpec !== '*' && other.inSpec !== '*') {
+      try {
+        const selfIn = TaggedUrn.fromString(this.inSpec);
+        const otherIn = TaggedUrn.fromString(other.inSpec);
+        const fwd = selfIn.matches(otherIn);
+        const rev = otherIn.matches(selfIn);
+        if (!fwd && !rev) {
+          return false;
+        }
+      } catch (e) {
+        return false;
+      }
     }
-    if (this.outSpec !== '*' && other.outSpec !== '*' && this.outSpec !== other.outSpec) {
-      return false;
+    // Check out_urn compatibility
+    if (this.outSpec !== '*' && other.outSpec !== '*') {
+      try {
+        const selfOut = TaggedUrn.fromString(this.outSpec);
+        const otherOut = TaggedUrn.fromString(other.outSpec);
+        const fwd = selfOut.matches(otherOut);
+        const rev = otherOut.matches(selfOut);
+        if (!fwd && !rev) {
+          return false;
+        }
+      } catch (e) {
+        return false;
+      }
     }
 
     // Get all unique tag keys from both caps
@@ -792,6 +840,59 @@ const MEDIA_MODEL_REPO = 'media:model-repo;textable;form=map';
 const MEDIA_MODEL_DIM = 'media:model-dim;integer;textable;numeric;form=scalar';
 const MEDIA_DECISION = 'media:decision;bool;textable;form=scalar';
 const MEDIA_DECISION_ARRAY = 'media:decision;bool;textable;form=list';
+// Semantic output types - model management
+const MEDIA_DOWNLOAD_OUTPUT = 'media:download-result;textable;form=map';
+const MEDIA_LIST_OUTPUT = 'media:model-list;textable;form=map';
+const MEDIA_STATUS_OUTPUT = 'media:model-status;textable;form=map';
+const MEDIA_CONTENTS_OUTPUT = 'media:model-contents;textable;form=map';
+const MEDIA_AVAILABILITY_OUTPUT = 'media:model-availability;textable;form=map';
+const MEDIA_PATH_OUTPUT = 'media:model-path;textable;form=map';
+// Semantic output types - inference
+const MEDIA_EMBEDDING_VECTOR = 'media:embedding-vector;textable;form=map';
+const MEDIA_LLM_INFERENCE_OUTPUT = 'media:generated-text;textable;form=map';
+
+// =============================================================================
+// STANDARD CAP URN BUILDERS
+// =============================================================================
+
+/**
+ * Build URN for LLM conversation capability
+ * @param {string} langCode - Language code (e.g., "en", "fr")
+ * @returns {CapUrn}
+ */
+function llmConversationUrn(langCode) {
+  return new CapUrnBuilder()
+    .tag('op', 'conversation')
+    .tag('unconstrained', '*')
+    .tag('language', langCode)
+    .inSpec(MEDIA_STRING)
+    .outSpec(MEDIA_LLM_INFERENCE_OUTPUT)
+    .build();
+}
+
+/**
+ * Build URN for model-availability capability
+ * @returns {CapUrn}
+ */
+function modelAvailabilityUrn() {
+  return new CapUrnBuilder()
+    .tag('op', 'model-availability')
+    .inSpec(MEDIA_MODEL_SPEC)
+    .outSpec(MEDIA_AVAILABILITY_OUTPUT)
+    .build();
+}
+
+/**
+ * Build URN for model-path capability
+ * @returns {CapUrn}
+ */
+function modelPathUrn() {
+  return new CapUrnBuilder()
+    .tag('op', 'model-path')
+    .inSpec(MEDIA_MODEL_SPEC)
+    .outSpec(MEDIA_PATH_OUTPUT)
+    .build();
+}
 
 // =============================================================================
 // SCHEMA URL CONFIGURATION
@@ -2599,6 +2700,46 @@ class CapValidator {
 }
 
 // ============================================================================
+// CAP ARGUMENT VALUE - Unified argument type
+// ============================================================================
+
+/**
+ * Unified argument type - arguments are identified by media_urn.
+ * The cap definition's sources specify how to extract values (stdin, position, cli_flag).
+ */
+class CapArgumentValue {
+  /**
+   * Create a new CapArgumentValue
+   * @param {string} mediaUrn - Semantic identifier, e.g., "media:model-spec;textable;form=scalar"
+   * @param {Uint8Array|Buffer} value - Value bytes (UTF-8 for text, raw for binary)
+   */
+  constructor(mediaUrn, value) {
+    this.mediaUrn = mediaUrn;
+    this.value = value instanceof Uint8Array ? value : new Uint8Array(value || []);
+  }
+
+  /**
+   * Create a new CapArgumentValue from a string value
+   * @param {string} mediaUrn - Semantic identifier
+   * @param {string} value - String value (will be converted to UTF-8 bytes)
+   * @returns {CapArgumentValue}
+   */
+  static fromStr(mediaUrn, value) {
+    const encoder = new TextEncoder();
+    return new CapArgumentValue(mediaUrn, encoder.encode(value));
+  }
+
+  /**
+   * Get the value as a UTF-8 string
+   * @returns {string} The value decoded as UTF-8
+   */
+  valueAsStr() {
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    return decoder.decode(this.value);
+  }
+}
+
+// ============================================================================
 // CAP MATRIX - Registry for Capability Hosts
 // ============================================================================
 
@@ -2631,7 +2772,7 @@ class CapMatrixError extends Error {
 class CapSetEntry {
   constructor(name, host, capabilities) {
     this.name = name;
-    this.host = host;          // Object implementing executeCap(capUrn, positionalArgs, namedArgs, stdinSource) -> Promise
+    this.host = host;          // Object implementing executeCap(capUrn, arguments) -> Promise
     this.capabilities = capabilities;  // Array<Cap>
   }
 }
@@ -2814,12 +2955,10 @@ class CompositeCapSet {
   /**
    * Execute a capability by finding the best match and delegating
    * @param {string} capUrn - The capability URN to execute
-   * @param {string[]} positionalArgs - Positional arguments
-   * @param {object} namedArgs - Named arguments as key-value pairs
-   * @param {StdinSource|null} stdinSource - Optional stdin source (data or file reference)
+   * @param {CapArgumentValue[]} args - Unified arguments identified by media_urn
    * @returns {Promise<{binaryOutput: Uint8Array|null, textOutput: string|null}>}
    */
-  async executeCap(capUrn, positionalArgs, namedArgs, stdinSource) {
+  async executeCap(capUrn, args) {
     let request;
     try {
       request = CapUrn.fromString(capUrn);
@@ -2851,7 +2990,7 @@ class CompositeCapSet {
     }
 
     // Delegate execution to the best matching host
-    return bestHost.executeCap(capUrn, positionalArgs, namedArgs, stdinSource);
+    return bestHost.executeCap(capUrn, args);
   }
 
   /**
@@ -3576,6 +3715,22 @@ module.exports = {
   MEDIA_MODEL_DIM,
   MEDIA_DECISION,
   MEDIA_DECISION_ARRAY,
+  // Semantic output types - model management
+  MEDIA_DOWNLOAD_OUTPUT,
+  MEDIA_LIST_OUTPUT,
+  MEDIA_STATUS_OUTPUT,
+  MEDIA_CONTENTS_OUTPUT,
+  MEDIA_AVAILABILITY_OUTPUT,
+  MEDIA_PATH_OUTPUT,
+  // Semantic output types - inference
+  MEDIA_EMBEDDING_VECTOR,
+  MEDIA_LLM_INFERENCE_OUTPUT,
+  // Unified argument type
+  CapArgumentValue,
+  // Standard cap URN builders
+  llmConversationUrn,
+  modelAvailabilityUrn,
+  modelPathUrn,
   CapMatrixError,
   CapMatrix,
   BestCapSetMatch,

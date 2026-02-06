@@ -29,7 +29,21 @@ const {
   StdinSource,
   StdinSourceKind,
   // XV5 validation
-  validateNoMediaSpecRedefinitionSync
+  validateNoMediaSpecRedefinitionSync,
+  // Unified argument type
+  CapArgumentValue,
+  // Standard cap URN builders
+  llmConversationUrn,
+  modelAvailabilityUrn,
+  modelPathUrn,
+  // Media URN constants (from capns.js)
+  MEDIA_STRING: CAPNS_MEDIA_STRING,
+  MEDIA_VOID: CAPNS_MEDIA_VOID,
+  MEDIA_OBJECT: CAPNS_MEDIA_OBJECT,
+  MEDIA_MODEL_SPEC: CAPNS_MEDIA_MODEL_SPEC,
+  MEDIA_AVAILABILITY_OUTPUT,
+  MEDIA_PATH_OUTPUT,
+  MEDIA_LLM_INFERENCE_OUTPUT
 } = require('./capns.js');
 
 // Media URN constants (previously exported from capns.js as built-ins)
@@ -76,14 +90,16 @@ function assertThrows(fn, expectedErrorCode, message) {
 
 /**
  * Helper function to build test URNs with required in/out media URNs
+ * Uses media:void (1 tag) for in and media:form=map;textable (2 tags) for out
+ * to match the Rust reference test_urn helper.
  * @param {string} tags - Additional tags to add (empty string for minimal URN)
  * @returns {string} A valid cap URN string with in/out
  */
 function testUrn(tags) {
   if (!tags || tags === '') {
-    return 'cap:in="media:void";out="media:form=map"';
+    return 'cap:in="media:void";out="media:form=map;textable"';
   }
-  return 'cap:in="media:void";out="media:form=map";' + tags;
+  return 'cap:in="media:void";out="media:form=map;textable";' + tags;
 }
 
 // Test suite - defined at the end of file
@@ -97,7 +113,7 @@ function testCapUrnCreation() {
   assertEqual(cap.getTag('target'), 'thumbnail', 'Should get target tag');
   assertEqual(cap.getTag('ext'), 'pdf', 'Should get ext tag');
   assertEqual(cap.getInSpec(), 'media:void', 'Should get inSpec');
-  assertEqual(cap.getOutSpec(), 'media:form=map', 'Should get outSpec');
+  assertEqual(cap.getOutSpec(), 'media:form=map;textable', 'Should get outSpec');
 
   console.log('  ✓ Cap URN creation');
 }
@@ -107,7 +123,7 @@ function testCaseInsensitive() {
   console.log('Testing case insensitive behavior...');
 
   // Test that different casing produces the same URN
-  const cap1 = CapUrn.fromString('cap:IN="media:void";OUT="media:form=map";OP=Generate;EXT=PDF;Target=Thumbnail');
+  const cap1 = CapUrn.fromString('cap:IN="media:void";OUT="media:form=map;textable";OP=Generate;EXT=PDF;Target=Thumbnail');
   const cap2 = CapUrn.fromString(testUrn('op=generate;ext=pdf;target=thumbnail'));
 
   // Both should be normalized to lowercase
@@ -129,7 +145,7 @@ function testCaseInsensitive() {
 
   // Case-insensitive in/out lookup
   assertEqual(cap1.getTag('IN'), 'media:void', 'Should lookup in with case-insensitive key');
-  assertEqual(cap1.getTag('OUT'), 'media:form=map', 'Should lookup out with case-insensitive key');
+  assertEqual(cap1.getTag('OUT'), 'media:form=map;textable', 'Should lookup out with case-insensitive key');
 
   // Matching should work case-insensitively
   assert(cap1.matches(cap2), 'Should match case-insensitively');
@@ -185,7 +201,7 @@ function testCanonicalStringFormat() {
   // Should be sorted alphabetically and have no trailing semicolon in canonical form
   // in/out are included in alphabetical order: 'ext' < 'in' < 'op' < 'out' < 'target'
   // Values with '=' need quoting - media:form=map requires quotes
-  assertEqual(cap.toString(), 'cap:ext=pdf;in=media:void;op=generate;out="media:form=map";target=thumbnail', 'Should be alphabetically sorted');
+  assertEqual(cap.toString(), 'cap:ext=pdf;in=media:void;op=generate;out="media:form=map;textable";target=thumbnail', 'Should be alphabetically sorted');
 
   console.log('  ✓ Canonical string format');
 }
@@ -238,22 +254,24 @@ function testMissingTagHandling() {
 }
 
 // TEST008: Test that specificity counts non-wildcard tags including in and out
+// TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count)
 function testSpecificity() {
   console.log('Testing specificity...');
 
-  // Specificity now includes in/out (2) plus other tags
+  // Direction specs contribute their MediaUrn tag count:
+  // media:void = 1 tag (void)
+  // media:form=map;textable = 2 tags (form, textable)
   const cap1 = CapUrn.fromString(testUrn('type=general'));
   const cap2 = CapUrn.fromString(testUrn('op=generate'));
   const cap3 = CapUrn.fromString(testUrn('op=*;ext=pdf'));
 
-  // Base: in=media:void (1) + out=media:object (1) = 2
-  assertEqual(cap1.specificity(), 3, 'Should have specificity 3 (2 for in/out + 1 for type)');
-  assertEqual(cap2.specificity(), 3, 'Should have specificity 3 (2 for in/out + 1 for op)');
-  assertEqual(cap3.specificity(), 3, 'Should have specificity 3 (2 for in/out + 1 for ext, op=* does not count)');
+  assertEqual(cap1.specificity(), 4, 'void(1) + textable+form(2) + type(1) = 4');
+  assertEqual(cap2.specificity(), 4, 'void(1) + textable+form(2) + op(1) = 4');
+  assertEqual(cap3.specificity(), 4, 'void(1) + textable+form(2) + ext(1) = 4 (wildcard op does not count)');
 
-  // Test with wildcard in/out
-  const cap4 = CapUrn.fromString('cap:in=*;out=*;op=generate');
-  assertEqual(cap4.specificity(), 1, 'Should have specificity 1 (wildcards for in/out do not count)');
+  // Wildcard in direction doesn't count
+  const cap4 = CapUrn.fromString('cap:in=*;out="media:form=map;textable";op=test');
+  assertEqual(cap4.specificity(), 3, 'textable+form(2) + op(1) = 3 (in wildcard does not count)');
 
   assert(!cap2.isMoreSpecificThan(cap1), 'Different tags should not be more specific');
 
@@ -329,7 +347,7 @@ function testConvenienceMethods() {
   assertEqual(modified.getTag('op'), 'generate', 'Should preserve original tag');
   assertEqual(modified.getTag('ext'), 'pdf', 'Should add new tag');
   assertEqual(modified.getInSpec(), 'media:void', 'Should preserve inSpec');
-  assertEqual(modified.getOutSpec(), 'media:form=map', 'Should preserve outSpec');
+  assertEqual(modified.getOutSpec(), 'media:form=map;textable', 'Should preserve outSpec');
 
   // Test withTag silently ignores in/out
   const modified2 = original.withTag('in', 'media:string');
@@ -397,7 +415,7 @@ function testCapMatcher() {
   // Most specific cap that can handle the request (ext=pdf is more specific)
   // Canonical order is alphabetical: ext, in, op, out
   // Note: media:form=map needs quotes because it contains '='
-  assertEqual(best.toString(), 'cap:ext=pdf;in=media:void;op=generate;out="media:form=map"', 'Should find most specific match');
+  assertEqual(best.toString(), 'cap:ext=pdf;in=media:void;op=generate;out="media:form=map;textable"', 'Should find most specific match');
 
   // Test findAllMatches - now only 2 match because first has wildcard in/out
   const matches = CapMatcher.findAllMatches(caps, request);
@@ -419,7 +437,7 @@ function testJSONSerialization() {
 
   assert(original.equals(restored), 'Should serialize/deserialize correctly');
   assertEqual(restored.getInSpec(), 'media:void', 'Should preserve inSpec');
-  assertEqual(restored.getOutSpec(), 'media:form=map', 'Should preserve outSpec');
+  assertEqual(restored.getOutSpec(), 'media:form=map;textable', 'Should preserve outSpec');
 
   console.log('  ✓ JSON serialization');
 }
@@ -446,7 +464,7 @@ function testEmptyCapUrn() {
   const minimal = CapUrn.fromString(testUrn(''));
   assertEqual(Object.keys(minimal.tags).length, 0, 'Should have no other tags');
   assertEqual(minimal.getInSpec(), 'media:void', 'Should have inSpec');
-  assertEqual(minimal.getOutSpec(), 'media:form=map', 'Should have outSpec');
+  assertEqual(minimal.getOutSpec(), 'media:form=map;textable', 'Should have outSpec');
 
   // For "match anything" behavior, use wildcards
   const wildcard = CapUrn.fromString('cap:in=*;out=*');
@@ -941,8 +959,8 @@ function testCapJSONSerialization() {
   assertEqual(json.media_specs[0].urn, 'media:custom', 'Should serialize mediaSpec urn');
   // URN should be a string in canonical format
   assertEqual(typeof json.urn, 'string', 'URN should be serialized as string');
-  assert(json.urn.includes('in="media:void"'), 'Should contain inSpec in URN string');
-  assert(json.urn.includes('out="media:form=map"'), 'Should contain outSpec in URN string');
+  assert(json.urn.includes('in=media:void'), 'Should contain inSpec in URN string');
+  assert(json.urn.includes('out="media:form=map;textable"'), 'Should contain outSpec in URN string');
 
   // Deserialize from JSON
   const restored = Cap.fromJSON(json);
@@ -951,7 +969,7 @@ function testCapJSONSerialization() {
   assertEqual(restored.mediaSpecs.length, 1, 'Should restore one media spec');
   assertEqual(restored.mediaSpecs[0].urn, 'media:custom', 'Should restore mediaSpec urn');
   assertEqual(restored.urn.getInSpec(), 'media:void', 'Should restore inSpec');
-  assertEqual(restored.urn.getOutSpec(), 'media:form=map', 'Should restore outSpec');
+  assertEqual(restored.urn.getOutSpec(), 'media:form=map;textable', 'Should restore outSpec');
 
   console.log('  ✓ Cap JSON serialization with mediaSpecs');
 }
@@ -1103,12 +1121,15 @@ function testMatchingSemantics_Test9_CrossDimensionIndependence() {
 // TEST029: Test matching semantics - direction mismatch in/out does not match
 function testMatchingSemantics_Test10_DirectionMismatch() {
   console.log('Testing Matching Semantics Test 10: Direction mismatch...');
-  // Test 10: Direction mismatch (in/out must match)
-  // Cap:     cap:in="media:void";out="media:object";op=generate
-  // Request: cap:in="media:string";out="media:object";op=generate
-  // Result:  NO MATCH (different inSpec)
-  const cap = CapUrn.fromString(testUrn('op=generate'));
-  const request = CapUrn.fromString('cap:in="media:string";out="media:object";op=generate');
+  // Test 10: Direction mismatch prevents matching
+  // media:string has tags {textable:*, form:scalar}, media:bytes has tags {bytes:*}
+  // Neither can provide input for the other (completely different marker tags)
+  const cap = CapUrn.fromString(
+    'cap:in="media:string";op=generate;out="media:form=map;textable"'
+  );
+  const request = CapUrn.fromString(
+    'cap:in="media:bytes";op=generate;out="media:form=map;textable"'
+  );
   assert(!cap.matches(request), 'Test 10: Direction mismatch should not match');
   console.log('  ✓ Test 10: Direction mismatch');
 }
@@ -1131,7 +1152,7 @@ class MockCapSet {
     this.name = name;
   }
 
-  async executeCap(capUrn, positionalArgs, namedArgs, stdinData) {
+  async executeCap(capUrn, args) {
     return {
       binaryOutput: null,
       textOutput: `Mock response from ${this.name}`
@@ -1763,15 +1784,15 @@ function testStdinSourceKindConstants() {
   console.log('  ✓ Kind constants');
 }
 
-// TEST032: Test StdinSource Data is passed correctly to executeCap
+// TEST032: Test unified arguments are passed correctly to executeCap via CompositeCapSet
 function testStdinSourcePassedToExecuteCap() {
-  console.log('Testing StdinSource: Passed to executeCap...');
+  console.log('Testing unified arguments: Passed to executeCap...');
 
-  // Create a mock host that verifies stdinSource is passed correctly
-  let receivedSource = null;
+  // Create a mock host that captures arguments
+  let receivedArgs = null;
   const mockHost = {
-    executeCap: async (capUrn, positionalArgs, namedArgs, stdinSource) => {
-      receivedSource = stdinSource;
+    executeCap: async (capUrn, args) => {
+      receivedArgs = args;
       return { textOutput: 'ok' };
     }
   };
@@ -1790,33 +1811,33 @@ function testStdinSourcePassedToExecuteCap() {
   const cube = new CapCube();
   cube.addRegistry('test', registry);
 
-  // Test with Data source
-  const dataSource = StdinSource.fromData(new Uint8Array([1, 2, 3]));
+  // Test with CapArgumentValue
+  const args = [new CapArgumentValue('media:void', new Uint8Array([1, 2, 3]))];
   const { compositeHost } = cube.can('cap:in="media:void";op=test;out="media:string"');
 
   // Execute and verify
   return compositeHost.executeCap(
     'cap:in="media:void";op=test;out="media:string"',
-    [],
-    {},
-    dataSource
+    args
   ).then(() => {
-    assert(receivedSource !== null, 'Should receive stdinSource');
-    assert(receivedSource.isData(), 'Should receive data source');
-    assertEqual(receivedSource.data.length, 3, 'Should have correct data length');
+    assert(receivedArgs !== null, 'Should receive arguments');
+    assert(Array.isArray(receivedArgs), 'Should receive array of arguments');
+    assertEqual(receivedArgs.length, 1, 'Should have one argument');
+    assertEqual(receivedArgs[0].mediaUrn, 'media:void', 'Should have correct mediaUrn');
+    assertEqual(receivedArgs[0].value.length, 3, 'Should have correct data length');
     console.log('  ✓ Passed to executeCap');
   });
 }
 
-// TEST033: Test StdinSource FileReference is passed correctly to executeCap
+// TEST033: Test binary CapArgumentValue is passed correctly through executeCap
 function testStdinSourceFileReferencePassedToExecuteCap() {
-  console.log('Testing StdinSource: File reference passed to executeCap...');
+  console.log('Testing unified arguments: Binary argument passed to executeCap...');
 
-  // Create a mock host that verifies stdinSource is passed correctly
-  let receivedSource = null;
+  // Create a mock host that captures arguments
+  let receivedArgs = null;
   const mockHost = {
-    executeCap: async (capUrn, positionalArgs, namedArgs, stdinSource) => {
-      receivedSource = stdinSource;
+    executeCap: async (capUrn, args) => {
+      receivedArgs = args;
       return { textOutput: 'ok' };
     }
   };
@@ -1835,29 +1856,23 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
   const cube = new CapCube();
   cube.addRegistry('test', registry);
 
-  // Test with FileReference source
-  const fileSource = StdinSource.fromFileReference(
-    'tracked-123',
-    '/path/to/file.pdf',
-    new Uint8Array([0x42, 0x4f, 0x4f, 0x4b]),
-    'media:pdf;bytes'
-  );
+  // Test with binary CapArgumentValue
+  const binaryArg = new CapArgumentValue('media:pdf;bytes', new Uint8Array([0x89, 0x50, 0x4E, 0x47]));
+  const args = [binaryArg];
 
   const { compositeHost } = cube.can('cap:in="media:void";op=test;out="media:string"');
 
   // Execute and verify
   return compositeHost.executeCap(
     'cap:in="media:void";op=test;out="media:string"',
-    [],
-    {},
-    fileSource
+    args
   ).then(() => {
-    assert(receivedSource !== null, 'Should receive stdinSource');
-    assert(receivedSource.isFileReference(), 'Should receive file reference source');
-    assertEqual(receivedSource.trackedFileId, 'tracked-123', 'Should have correct trackedFileId');
-    assertEqual(receivedSource.originalPath, '/path/to/file.pdf', 'Should have correct originalPath');
-    assertEqual(receivedSource.mediaUrn, 'media:pdf;bytes', 'Should have correct mediaUrn');
-    console.log('  ✓ File reference passed to executeCap');
+    assert(receivedArgs !== null, 'Should receive arguments');
+    assertEqual(receivedArgs.length, 1, 'Should have one argument');
+    assertEqual(receivedArgs[0].mediaUrn, 'media:pdf;bytes', 'Should have correct mediaUrn');
+    assertEqual(receivedArgs[0].value[0], 0x89, 'First byte should be 0x89');
+    assertEqual(receivedArgs[0].value.length, 4, 'Should have correct data length');
+    console.log('  ✓ Binary argument passed to executeCap');
   });
 }
 
@@ -1935,6 +1950,328 @@ function testXV5EmptyMediaSpecsAllowed() {
   assert(result.valid, 'Undefined should pass validation');
 
   console.log('  ✓ Empty media_specs allowed');
+}
+
+// ============================================================================
+// TEST051-052: Semantic direction matching
+// ============================================================================
+
+// TEST051: Semantic direction matching - generic provider matches specific request
+function testDirectionSemanticMatching() {
+  console.log('Testing direction semantic matching...');
+
+  // A cap accepting media:bytes (generic) should match a request with media:pdf;bytes (specific)
+  // because media:pdf;bytes has all marker tags that media:bytes requires (bytes=*)
+  const genericCap = CapUrn.fromString(
+    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+  const pdfRequest = CapUrn.fromString(
+    'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+  assert(genericCap.matches(pdfRequest),
+    'Generic bytes provider must match specific pdf;bytes request');
+
+  // Generic cap also matches epub;bytes (any bytes subtype)
+  const epubRequest = CapUrn.fromString(
+    'cap:in="media:epub;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+  assert(genericCap.matches(epubRequest),
+    'Generic bytes provider must match epub;bytes request');
+
+  // Reverse: specific cap does NOT match generic request
+  const pdfCap = CapUrn.fromString(
+    'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+  const genericRequest = CapUrn.fromString(
+    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+  assert(!pdfCap.matches(genericRequest),
+    'Specific pdf;bytes cap must NOT match generic bytes request');
+
+  // Incompatible types: pdf cap does NOT match epub request
+  assert(!pdfCap.matches(epubRequest),
+    'PDF-specific cap must NOT match epub request (epub lacks pdf marker)');
+
+  // Output direction: cap producing more specific output matches less specific request
+  const specificOutCap = CapUrn.fromString(
+    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+  const genericOutRequest = CapUrn.fromString(
+    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;bytes"'
+  );
+  assert(specificOutCap.matches(genericOutRequest),
+    'Cap producing image;png;bytes;thumbnail must satisfy request for image;bytes');
+
+  // Reverse output: generic output cap does NOT match specific output request
+  const genericOutCap = CapUrn.fromString(
+    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;bytes"'
+  );
+  const specificOutRequest = CapUrn.fromString(
+    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+  assert(!genericOutCap.matches(specificOutRequest),
+    'Cap producing generic image;bytes must NOT satisfy request requiring image;png;bytes;thumbnail');
+
+  console.log('  ✓ Direction semantic matching');
+}
+
+// TEST052: Semantic direction specificity - more media URN tags = higher specificity
+function testDirectionSemanticSpecificity() {
+  console.log('Testing direction semantic specificity...');
+
+  // media:bytes has 1 tag, media:pdf;bytes has 2 tags
+  // media:image;png;bytes;thumbnail has 4 tags
+  const genericCap = CapUrn.fromString(
+    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+  const specificCap = CapUrn.fromString(
+    'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+
+  // generic: bytes(1) + image;png;bytes;thumbnail(4) + op(1) = 6
+  assertEqual(genericCap.specificity(), 6, 'generic cap specificity must be 6');
+  // specific: pdf;bytes(2) + image;png;bytes;thumbnail(4) + op(1) = 7
+  assertEqual(specificCap.specificity(), 7, 'specific cap specificity must be 7');
+
+  assert(specificCap.specificity() > genericCap.specificity(),
+    'pdf;bytes cap must be more specific than bytes cap');
+
+  // CapMatcher should prefer the more specific cap when both match
+  const pdfRequest = CapUrn.fromString(
+    'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+  );
+  const best = CapMatcher.findBestMatch([genericCap, specificCap], pdfRequest);
+  assert(best !== null, 'CapMatcher must find a match');
+  assertEqual(best.getInSpec(), 'media:pdf;bytes',
+    'CapMatcher must prefer the more specific pdf;bytes provider');
+
+  console.log('  ✓ Direction semantic specificity');
+}
+
+// ============================================================================
+// TEST274-283: CapArgumentValue tests
+// ============================================================================
+
+// TEST274: Test CapArgumentValue constructor stores media_urn and raw byte value
+function testCapArgumentValueNew() {
+  console.log('Testing CapArgumentValue: new...');
+  const arg = new CapArgumentValue('media:model-spec;textable;form=scalar', new Uint8Array([103, 112, 116, 45, 52])); // "gpt-4"
+  assertEqual(arg.mediaUrn, 'media:model-spec;textable;form=scalar', 'mediaUrn must match');
+  assertEqual(arg.value.length, 5, 'value must have 5 bytes');
+  console.log('  ✓ CapArgumentValue new');
+}
+
+// TEST275: Test CapArgumentValue.fromStr converts string to UTF-8 bytes
+function testCapArgumentValueFromStr() {
+  console.log('Testing CapArgumentValue: fromStr...');
+  const arg = CapArgumentValue.fromStr('media:string;textable', 'hello world');
+  assertEqual(arg.mediaUrn, 'media:string;textable', 'mediaUrn must match');
+  const decoded = new TextDecoder().decode(arg.value);
+  assertEqual(decoded, 'hello world', 'value must decode to hello world');
+  console.log('  ✓ CapArgumentValue fromStr');
+}
+
+// TEST276: Test CapArgumentValue.valueAsStr succeeds for UTF-8 data
+function testCapArgumentValueAsStrValid() {
+  console.log('Testing CapArgumentValue: valueAsStr valid...');
+  const arg = CapArgumentValue.fromStr('media:string', 'test');
+  assertEqual(arg.valueAsStr(), 'test', 'valueAsStr must return test');
+  console.log('  ✓ CapArgumentValue valueAsStr valid');
+}
+
+// TEST277: Test CapArgumentValue.valueAsStr fails for non-UTF-8 binary data
+function testCapArgumentValueAsStrInvalidUtf8() {
+  console.log('Testing CapArgumentValue: valueAsStr invalid UTF-8...');
+  const arg = new CapArgumentValue('media:pdf;bytes', new Uint8Array([0xFF, 0xFE, 0x80]));
+  let threw = false;
+  try {
+    arg.valueAsStr();
+  } catch (e) {
+    threw = true;
+  }
+  assert(threw, 'non-UTF-8 data must fail on valueAsStr with fatal decoder');
+  console.log('  ✓ CapArgumentValue valueAsStr invalid UTF-8');
+}
+
+// TEST278: Test CapArgumentValue with empty value stores empty Uint8Array
+function testCapArgumentValueEmpty() {
+  console.log('Testing CapArgumentValue: empty value...');
+  const arg = new CapArgumentValue('media:void', new Uint8Array([]));
+  assertEqual(arg.value.length, 0, 'empty value must have 0 bytes');
+  assertEqual(arg.valueAsStr(), '', 'empty value as string must be empty string');
+  console.log('  ✓ CapArgumentValue empty');
+}
+
+// TEST282: Test CapArgumentValue.fromStr with Unicode string preserves all characters
+function testCapArgumentValueUnicode() {
+  console.log('Testing CapArgumentValue: Unicode...');
+  const arg = CapArgumentValue.fromStr('media:string', 'hello 世界 🌍');
+  assertEqual(arg.valueAsStr(), 'hello 世界 🌍', 'Unicode must roundtrip');
+  console.log('  ✓ CapArgumentValue Unicode');
+}
+
+// TEST283: Test CapArgumentValue with large binary payload preserves all bytes
+function testCapArgumentValueLargeBinary() {
+  console.log('Testing CapArgumentValue: large binary...');
+  const data = new Uint8Array(10000);
+  for (let i = 0; i < 10000; i++) {
+    data[i] = i % 256;
+  }
+  const arg = new CapArgumentValue('media:pdf;bytes', data);
+  assertEqual(arg.value.length, 10000, 'large binary must preserve all bytes');
+  assertEqual(arg.value[0], 0, 'first byte check');
+  assertEqual(arg.value[255], 255, 'byte 255 check');
+  assertEqual(arg.value[256], 0, 'byte 256 wraps check');
+  console.log('  ✓ CapArgumentValue large binary');
+}
+
+// ============================================================================
+// TEST304-306: MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT tests
+// ============================================================================
+
+// TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags
+function testMediaAvailabilityOutputConstant() {
+  console.log('Testing MEDIA_AVAILABILITY_OUTPUT constant...');
+  const { TaggedUrn } = require('tagged-urn');
+  const urn = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
+  assert(urn.getTag('textable') !== undefined, 'model-availability must be textable');
+  assertEqual(urn.getTag('form'), 'map', 'model-availability must be form=map');
+  assert(urn.getTag('bytes') === undefined, 'model-availability must not be binary');
+  // Roundtrip
+  const reparsed = TaggedUrn.fromString(urn.toString());
+  assert(urn.matches(reparsed), 'roundtrip must match original');
+  console.log('  ✓ MEDIA_AVAILABILITY_OUTPUT');
+}
+
+// TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags
+function testMediaPathOutputConstant() {
+  console.log('Testing MEDIA_PATH_OUTPUT constant...');
+  const { TaggedUrn } = require('tagged-urn');
+  const urn = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
+  assert(urn.getTag('textable') !== undefined, 'model-path must be textable');
+  assertEqual(urn.getTag('form'), 'map', 'model-path must be form=map');
+  assert(urn.getTag('bytes') === undefined, 'model-path must not be binary');
+  // Roundtrip
+  const reparsed = TaggedUrn.fromString(urn.toString());
+  assert(urn.matches(reparsed), 'roundtrip must match original');
+  console.log('  ✓ MEDIA_PATH_OUTPUT');
+}
+
+// TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs
+function testAvailabilityAndPathOutputDistinct() {
+  console.log('Testing MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT distinct...');
+  const { TaggedUrn } = require('tagged-urn');
+  assert(MEDIA_AVAILABILITY_OUTPUT !== MEDIA_PATH_OUTPUT,
+    'availability and path output must be distinct media URNs');
+  const avail = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
+  const path = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
+  // They must NOT match each other (different types)
+  let matchResult;
+  try {
+    matchResult = avail.matches(path);
+  } catch (e) {
+    matchResult = false;
+  }
+  assert(!matchResult, 'availability must not match path');
+  console.log('  ✓ Availability and path output distinct');
+}
+
+// ============================================================================
+// TEST307-312: Standard cap URN builder tests
+// ============================================================================
+
+// TEST307: Test model_availability_urn builds valid cap URN with correct op and media specs
+function testModelAvailabilityUrn() {
+  console.log('Testing modelAvailabilityUrn...');
+  const urn = modelAvailabilityUrn();
+  assert(urn.hasTag('op', 'model-availability'), 'URN must have op=model-availability');
+  // Compare in_spec semantically
+  const { TaggedUrn } = require('tagged-urn');
+  const inSpec = TaggedUrn.fromString(urn.getInSpec());
+  const expectedIn = TaggedUrn.fromString(CAPNS_MEDIA_MODEL_SPEC);
+  assert(inSpec.matches(expectedIn), 'input must match MEDIA_MODEL_SPEC');
+  const outSpec = TaggedUrn.fromString(urn.getOutSpec());
+  const expectedOut = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
+  assert(outSpec.matches(expectedOut), 'output must match MEDIA_AVAILABILITY_OUTPUT');
+  console.log('  ✓ modelAvailabilityUrn');
+}
+
+// TEST308: Test model_path_urn builds valid cap URN with correct op and media specs
+function testModelPathUrn() {
+  console.log('Testing modelPathUrn...');
+  const urn = modelPathUrn();
+  assert(urn.hasTag('op', 'model-path'), 'URN must have op=model-path');
+  const { TaggedUrn } = require('tagged-urn');
+  const inSpec = TaggedUrn.fromString(urn.getInSpec());
+  const expectedIn = TaggedUrn.fromString(CAPNS_MEDIA_MODEL_SPEC);
+  assert(inSpec.matches(expectedIn), 'input must match MEDIA_MODEL_SPEC');
+  const outSpec = TaggedUrn.fromString(urn.getOutSpec());
+  const expectedOut = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
+  assert(outSpec.matches(expectedOut), 'output must match MEDIA_PATH_OUTPUT');
+  console.log('  ✓ modelPathUrn');
+}
+
+// TEST309: Test model_availability_urn and model_path_urn produce distinct URNs
+function testModelAvailabilityAndPathAreDistinct() {
+  console.log('Testing modelAvailabilityUrn and modelPathUrn distinct...');
+  const avail = modelAvailabilityUrn();
+  const path = modelPathUrn();
+  assert(avail.toString() !== path.toString(),
+    'availability and path must be distinct cap URNs');
+  console.log('  ✓ modelAvailabilityUrn and modelPathUrn distinct');
+}
+
+// TEST310: Test llm_conversation_urn uses unconstrained tag (not constrained)
+function testLlmConversationUrnUnconstrained() {
+  console.log('Testing llmConversationUrn unconstrained...');
+  const urn = llmConversationUrn('en');
+  assert(urn.getTag('unconstrained') !== undefined, 'LLM conversation URN must have unconstrained tag');
+  assert(urn.hasTag('op', 'conversation'), 'must have op=conversation');
+  assert(urn.hasTag('language', 'en'), 'must have language=en');
+  console.log('  ✓ llmConversationUrn unconstrained');
+}
+
+// TEST311: Test llm_conversation_urn in/out specs match the expected media URNs semantically
+function testLlmConversationUrnSpecs() {
+  console.log('Testing llmConversationUrn specs...');
+  const { TaggedUrn } = require('tagged-urn');
+  const urn = llmConversationUrn('fr');
+
+  // Compare semantically via TaggedUrn matching (tag order may differ)
+  const inSpec = TaggedUrn.fromString(urn.getInSpec());
+  const expectedIn = TaggedUrn.fromString(CAPNS_MEDIA_STRING);
+  assert(inSpec.matches(expectedIn),
+    `in_spec '${urn.getInSpec()}' must match MEDIA_STRING '${CAPNS_MEDIA_STRING}'`);
+
+  const outSpec = TaggedUrn.fromString(urn.getOutSpec());
+  const expectedOut = TaggedUrn.fromString(MEDIA_LLM_INFERENCE_OUTPUT);
+  assert(outSpec.matches(expectedOut),
+    `out_spec '${urn.getOutSpec()}' must match '${MEDIA_LLM_INFERENCE_OUTPUT}'`);
+  console.log('  ✓ llmConversationUrn specs');
+}
+
+// TEST312: Test all URN builders produce parseable cap URNs
+function testAllUrnBuildersProduceValidUrns() {
+  console.log('Testing all URN builders produce valid URNs...');
+  // Each of these must not throw
+  const avail = modelAvailabilityUrn();
+  const path = modelPathUrn();
+  const conv = llmConversationUrn('en');
+
+  // Verify they roundtrip through CapUrn parsing
+  const availStr = avail.toString();
+  const parsedAvail = CapUrn.fromString(availStr);
+  assert(parsedAvail !== null, 'modelAvailabilityUrn must be parseable');
+
+  const pathStr = path.toString();
+  const parsedPath = CapUrn.fromString(pathStr);
+  assert(parsedPath !== null, 'modelPathUrn must be parseable');
+
+  const convStr = conv.toString();
+  const parsedConv = CapUrn.fromString(convStr);
+  assert(parsedConv !== null, 'llmConversationUrn must be parseable');
+
+  console.log('  ✓ All URN builders produce valid URNs');
 }
 
 // Update runTests to include new tests
@@ -2025,6 +2362,32 @@ async function runTests() {
   testXV5InlineSpecRedefinitionDetected();
   testXV5NewInlineSpecAllowed();
   testXV5EmptyMediaSpecsAllowed();
+
+  // Semantic direction matching tests
+  testDirectionSemanticMatching();
+  testDirectionSemanticSpecificity();
+
+  // CapArgumentValue tests
+  testCapArgumentValueNew();
+  testCapArgumentValueFromStr();
+  testCapArgumentValueAsStrValid();
+  testCapArgumentValueAsStrInvalidUtf8();
+  testCapArgumentValueEmpty();
+  testCapArgumentValueUnicode();
+  testCapArgumentValueLargeBinary();
+
+  // Media output constant tests
+  testMediaAvailabilityOutputConstant();
+  testMediaPathOutputConstant();
+  testAvailabilityAndPathOutputDistinct();
+
+  // Standard cap URN builder tests
+  testModelAvailabilityUrn();
+  testModelPathUrn();
+  testModelAvailabilityAndPathAreDistinct();
+  testLlmConversationUrnUnconstrained();
+  testLlmConversationUrnSpecs();
+  testAllUrnBuildersProduceValidUrns();
 
   console.log('OK All tests passed!');
 }
