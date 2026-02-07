@@ -351,26 +351,18 @@ class CapUrn {
     // Direction specs: TaggedUrn semantic matching via MediaUrn
     // Check in_urn: cap's input spec (pattern) accepts request's input (instance)
     if (this.inSpec !== '*' && request.inSpec !== '*') {
-      try {
-        const capIn = TaggedUrn.fromString(this.inSpec);
-        const requestIn = TaggedUrn.fromString(request.inSpec);
-        if (!capIn.accepts(requestIn)) {
-          return false;
-        }
-      } catch (e) {
+      const capIn = TaggedUrn.fromString(this.inSpec);
+      const requestIn = TaggedUrn.fromString(request.inSpec);
+      if (!capIn.accepts(requestIn)) {
         return false;
       }
     }
 
     // Check out_urn: cap's output (instance) conforms to request's output (pattern)
     if (this.outSpec !== '*' && request.outSpec !== '*') {
-      try {
-        const capOut = TaggedUrn.fromString(this.outSpec);
-        const requestOut = TaggedUrn.fromString(request.outSpec);
-        if (!capOut.conformsTo(requestOut)) {
-          return false;
-        }
-      } catch (e) {
+      const capOut = TaggedUrn.fromString(this.outSpec);
+      const requestOut = TaggedUrn.fromString(request.outSpec);
+      if (!capOut.conformsTo(requestOut)) {
         return false;
       }
     }
@@ -429,20 +421,12 @@ class CapUrn {
     let count = 0;
     // Direction specs contribute their MediaUrn tag count
     if (this.inSpec !== '*') {
-      try {
-        const inMedia = TaggedUrn.fromString(this.inSpec);
-        count += Object.keys(inMedia.tags).length;
-      } catch (e) {
-        count += 1; // fallback
-      }
+      const inMedia = TaggedUrn.fromString(this.inSpec);
+      count += Object.keys(inMedia.tags).length;
     }
     if (this.outSpec !== '*') {
-      try {
-        const outMedia = TaggedUrn.fromString(this.outSpec);
-        count += Object.keys(outMedia.tags).length;
-      } catch (e) {
-        count += 1; // fallback
-      }
+      const outMedia = TaggedUrn.fromString(this.outSpec);
+      count += Object.keys(outMedia.tags).length;
     }
     // Count non-wildcard tags
     count += Object.values(this.tags).filter(value => value !== '*').length;
@@ -485,29 +469,21 @@ class CapUrn {
 
     // Check in_urn compatibility: either direction of conformsTo succeeds
     if (this.inSpec !== '*' && other.inSpec !== '*') {
-      try {
-        const selfIn = TaggedUrn.fromString(this.inSpec);
-        const otherIn = TaggedUrn.fromString(other.inSpec);
-        const fwd = selfIn.conformsTo(otherIn);
-        const rev = otherIn.conformsTo(selfIn);
-        if (!fwd && !rev) {
-          return false;
-        }
-      } catch (e) {
+      const selfIn = TaggedUrn.fromString(this.inSpec);
+      const otherIn = TaggedUrn.fromString(other.inSpec);
+      const fwd = selfIn.conformsTo(otherIn);
+      const rev = otherIn.conformsTo(selfIn);
+      if (!fwd && !rev) {
         return false;
       }
     }
     // Check out_urn compatibility
     if (this.outSpec !== '*' && other.outSpec !== '*') {
-      try {
-        const selfOut = TaggedUrn.fromString(this.outSpec);
-        const otherOut = TaggedUrn.fromString(other.outSpec);
-        const fwd = selfOut.conformsTo(otherOut);
-        const rev = otherOut.conformsTo(selfOut);
-        if (!fwd && !rev) {
-          return false;
-        }
-      } catch (e) {
+      const selfOut = TaggedUrn.fromString(this.outSpec);
+      const otherOut = TaggedUrn.fromString(other.outSpec);
+      const fwd = selfOut.conformsTo(otherOut);
+      const rev = otherOut.conformsTo(selfOut);
+      if (!fwd && !rev) {
         return false;
       }
     }
@@ -853,6 +829,132 @@ const MEDIA_EMBEDDING_VECTOR = 'media:embedding-vector;textable;form=map';
 const MEDIA_LLM_INFERENCE_OUTPUT = 'media:generated-text;textable;form=map';
 
 // =============================================================================
+// MEDIA URN CLASS
+// =============================================================================
+
+/**
+ * Error types for MediaUrn operations
+ */
+class MediaUrnError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'MediaUrnError';
+    this.code = code;
+  }
+}
+
+const MediaUrnErrorCodes = {
+  INVALID_PREFIX: 'INVALID_PREFIX',
+};
+
+/**
+ * MediaUrn wraps a TaggedUrn with prefix validation and media-specific convenience methods.
+ * Mirrors the Rust MediaUrn type.
+ */
+class MediaUrn {
+  /**
+   * @param {TaggedUrn} taggedUrn - A parsed TaggedUrn with prefix 'media'
+   */
+  constructor(taggedUrn) {
+    if (taggedUrn.getPrefix() !== 'media') {
+      throw new MediaUrnError(
+        MediaUrnErrorCodes.INVALID_PREFIX,
+        `Expected prefix 'media', got '${taggedUrn.getPrefix()}'`
+      );
+    }
+    this._urn = taggedUrn;
+  }
+
+  /**
+   * Parse a media URN string. Validates the prefix is 'media'.
+   * @param {string} str - The media URN string (e.g., "media:bytes")
+   * @returns {MediaUrn}
+   * @throws {MediaUrnError} If prefix is not 'media'
+   */
+  static fromString(str) {
+    const urn = TaggedUrn.fromString(str);
+    return new MediaUrn(urn);
+  }
+
+  /** @returns {boolean} True if the "bytes" marker tag is present */
+  isBinary() { return this._urn.getTag('bytes') !== undefined; }
+
+  /** @returns {boolean} True if form=map tag is present */
+  isMap() { return this._urn.hasTag('form', 'map'); }
+
+  /** @returns {boolean} True if form=scalar tag is present */
+  isScalar() { return this._urn.hasTag('form', 'scalar'); }
+
+  /** @returns {boolean} True if form=list tag is present */
+  isList() { return this._urn.hasTag('form', 'list'); }
+
+  /** @returns {boolean} True if form=map or form=list */
+  isStructured() { return this.isMap() || this.isList(); }
+
+  /** @returns {boolean} True if the "json" marker tag is present */
+  isJson() { return this._urn.getTag('json') !== undefined; }
+
+  /** @returns {boolean} True if the "textable" marker tag is present */
+  isText() { return this._urn.getTag('textable') !== undefined; }
+
+  /** @returns {boolean} True if the "void" marker tag is present */
+  isVoid() { return this._urn.getTag('void') !== undefined; }
+
+  /**
+   * Check if this media URN conforms to another (pattern).
+   * @param {MediaUrn} pattern
+   * @returns {boolean}
+   */
+  conformsTo(pattern) { return this._urn.conformsTo(pattern._urn); }
+
+  /**
+   * Check if this media URN (as pattern) accepts an instance.
+   * @param {MediaUrn} instance
+   * @returns {boolean}
+   */
+  accepts(instance) { return this._urn.accepts(instance._urn); }
+
+  /** @returns {number} Specificity score (tag count based) */
+  specificity() { return this._urn.specificity(); }
+
+  /**
+   * Get the file extension from the ext tag, if present.
+   * @returns {string|null}
+   */
+  extension() {
+    const ext = this._urn.getTag('ext');
+    return ext !== undefined ? ext : null;
+  }
+
+  /**
+   * @param {string} key
+   * @param {string} [value]
+   * @returns {boolean}
+   */
+  hasTag(key, value) {
+    if (value !== undefined) {
+      return this._urn.hasTag(key, value);
+    }
+    return this._urn.getTag(key) !== undefined;
+  }
+
+  /**
+   * @param {string} key
+   * @returns {string|undefined}
+   */
+  getTag(key) { return this._urn.getTag(key); }
+
+  /** @returns {string} Canonical string representation */
+  toString() { return this._urn.toString(); }
+
+  /**
+   * @param {MediaUrn} other
+   * @returns {boolean}
+   */
+  equals(other) { return this._urn.equals(other._urn); }
+}
+
+// =============================================================================
 // STANDARD CAP URN BUILDERS
 // =============================================================================
 
@@ -1012,123 +1114,86 @@ class MediaSpec {
   }
 
   /**
-   * Check if this media spec represents binary data.
-   * Returns true if the "bytes" marker tag is present in the source media URN.
-   * @returns {boolean} True if binary
+   * Get the parsed MediaUrn object for this spec. Lazily created and cached.
+   * @returns {MediaUrn|null} The parsed MediaUrn, or null if no mediaUrn string
    */
+  parsedMediaUrn() {
+    if (!this.mediaUrn) return null;
+    if (!this._parsedMediaUrn) {
+      this._parsedMediaUrn = MediaUrn.fromString(this.mediaUrn);
+    }
+    return this._parsedMediaUrn;
+  }
+
+  /** @returns {boolean} True if binary (bytes marker tag present) */
   isBinary() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'bytes');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.isBinary() : false;
   }
 
-  /**
-   * Check if this media spec represents a map/object structure (form=map).
-   * This indicates a key-value structure, regardless of representation format.
-   * @returns {boolean} True if map
-   */
+  /** @returns {boolean} True if map structure (form=map) */
   isMap() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTagValue(this.mediaUrn, 'form', 'map');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.isMap() : false;
   }
 
-  /**
-   * Check if this media spec represents a scalar value (form=scalar).
-   * @returns {boolean} True if scalar
-   */
+  /** @returns {boolean} True if scalar value (form=scalar) */
   isScalar() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTagValue(this.mediaUrn, 'form', 'scalar');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.isScalar() : false;
   }
 
-  /**
-   * Check if this media spec represents a list/array structure (form=list).
-   * @returns {boolean} True if list
-   */
+  /** @returns {boolean} True if list/array (form=list) */
   isList() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTagValue(this.mediaUrn, 'form', 'list');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.isList() : false;
   }
 
-  /**
-   * Check if this media spec represents structured data (map or list).
-   * Structured data can be serialized as JSON when transmitted as text.
-   * Note: This does NOT check for the explicit `json` tag - use isJSON() for that.
-   * @returns {boolean} True if structured (map or list)
-   */
+  /** @returns {boolean} True if structured (map or list) */
   isStructured() {
     return this.isMap() || this.isList();
   }
 
-  /**
-   * Check if this media spec represents JSON representation specifically.
-   * Returns true if the "json" marker tag is present in the source media URN.
-   * Note: This only checks for explicit JSON format marker.
-   * For checking if data is structured (map/list), use isStructured().
-   * @returns {boolean} True if JSON representation
-   */
+  /** @returns {boolean} True if JSON representation (json tag present) */
   isJSON() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'json');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.isJson() : false;
   }
 
-  /**
-   * Check if this media spec represents text output.
-   * Returns true if the "textable" marker tag is present in the source media URN.
-   * @returns {boolean} True if text
-   */
+  /** @returns {boolean} True if text (textable tag present) */
   isText() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'textable');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.isText() : false;
   }
 
-  /**
-   * Check if this media spec represents image data.
-   * Returns true if the "image" marker tag is present in the source media URN.
-   * @returns {boolean} True if image
-   */
+  /** @returns {boolean} True if image (image tag present) */
   isImage() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'image');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.hasTag('image') : false;
   }
 
-  /**
-   * Check if this media spec represents audio data.
-   * Returns true if the "audio" marker tag is present in the source media URN.
-   * @returns {boolean} True if audio
-   */
+  /** @returns {boolean} True if audio (audio tag present) */
   isAudio() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'audio');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.hasTag('audio') : false;
   }
 
-  /**
-   * Check if this media spec represents video data.
-   * Returns true if the "video" marker tag is present in the source media URN.
-   * @returns {boolean} True if video
-   */
+  /** @returns {boolean} True if video (video tag present) */
   isVideo() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'video');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.hasTag('video') : false;
   }
 
-  /**
-   * Check if this media spec represents numeric data.
-   * Returns true if the "numeric" marker tag is present in the source media URN.
-   * @returns {boolean} True if numeric
-   */
+  /** @returns {boolean} True if numeric (numeric tag present) */
   isNumeric() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'numeric');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.hasTag('numeric') : false;
   }
 
-  /**
-   * Check if this media spec represents boolean data.
-   * Returns true if the "bool" marker tag is present in the source media URN.
-   * @returns {boolean} True if boolean
-   */
+  /** @returns {boolean} True if boolean (bool tag present) */
   isBool() {
-    if (!this.mediaUrn) return false;
-    return hasMediaUrnTag(this.mediaUrn, 'bool');
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.hasTag('bool') : false;
   }
 
   /**
@@ -1771,12 +1836,8 @@ class Cap {
    * @returns {boolean} Whether this capability accepts the request
    */
   acceptsRequest(request) {
-    try {
-      const requestUrn = CapUrn.fromString(request);
-      return this.urn.accepts(requestUrn);
-    } catch (error) {
-      return false;
-    }
+    const requestUrn = CapUrn.fromString(request);
+    return this.urn.accepts(requestUrn);
   }
 
   /**
@@ -2891,7 +2952,10 @@ class CapMatrix {
       this.findCapSets(requestUrn);
       return true;
     } catch (e) {
-      return false;
+      if (e instanceof CapMatrixError) {
+        return false;
+      }
+      throw e;
     }
   }
 
@@ -2947,7 +3011,7 @@ class CompositeCapSet {
   /**
    * Execute a capability by finding the best match and delegating
    * @param {string} capUrn - The capability URN to execute
-   * @param {CapArgumentValue[]} args - Unified arguments identified by media_urn
+   * @param {CapArgumentValue[]} args - Arguments identified by media_urn
    * @returns {Promise<{binaryOutput: Uint8Array|null, textOutput: string|null}>}
    */
   async executeCap(capUrn, args) {
@@ -3122,7 +3186,10 @@ class CapBlock {
       this.findBestCapSet(requestUrn);
       return true;
     } catch (e) {
-      return false;
+      if (e instanceof CapMatrixError) {
+        return false;
+      }
+      throw e;
     }
   }
 
@@ -3298,20 +3365,11 @@ class CapGraph {
   getOutgoing(urn) {
     // Use TaggedUrn matching: find all edges where the provided URN (instance)
     // conforms to the edge's input requirement (pattern/fromUrn)
-    let providedUrn;
-    try {
-      providedUrn = TaggedUrn.fromString(urn);
-    } catch (e) {
-      return []; // Invalid URN, return empty
-    }
+    const providedUrn = TaggedUrn.fromString(urn);
 
     const edges = this.edges.filter(edge => {
-      try {
-        const requirementUrn = TaggedUrn.fromString(edge.fromUrn);
-        return providedUrn.conformsTo(requirementUrn);
-      } catch (e) {
-        return false; // Invalid requirement URN, skip
-      }
+      const requirementUrn = TaggedUrn.fromString(edge.fromUrn);
+      return providedUrn.conformsTo(requirementUrn);
     });
 
     // Sort by specificity (highest first) for consistent ordering
@@ -3643,6 +3701,9 @@ module.exports = {
   CapMatcher,
   CapUrnError,
   ErrorCodes,
+  MediaUrn,
+  MediaUrnError,
+  MediaUrnErrorCodes,
   Cap,
   CapArg,
   ArgSource,
