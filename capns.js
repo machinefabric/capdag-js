@@ -1043,43 +1043,6 @@ function getProfileURL(profileName) {
 // there is NO built-in resolution.
 
 /**
- * Check if a media URN has a marker tag (e.g., bytes, json, textable).
- * Uses TaggedUrn parsing for proper tag detection.
- * Requires a valid, non-empty media URN - fails hard otherwise.
- * Whitespace validation is handled by TaggedUrn.fromString.
- * @param {string} mediaUrn - The media URN (must be non-empty)
- * @param {string} tagName - The marker tag name to check
- * @returns {boolean} True if the marker tag is present
- * @throws {Error} If mediaUrn is null/undefined/empty or invalid
- */
-function hasMediaUrnTag(mediaUrn, tagName) {
-  if (!mediaUrn) {
-    throw new Error('hasMediaUrnTag called with empty mediaUrn - this indicates the MediaSpec was not resolved via resolveMediaUrn');
-  }
-  const parsed = TaggedUrn.fromString(mediaUrn);
-  return parsed.getTag(tagName) !== undefined;
-}
-
-/**
- * Check if a media URN has a tag with a specific value (e.g., form=map).
- * Uses TaggedUrn parsing for proper tag detection.
- * Requires a valid, non-empty media URN - fails hard otherwise.
- * Whitespace validation is handled by TaggedUrn.fromString.
- * @param {string} mediaUrn - The media URN (must be non-empty)
- * @param {string} tagName - The tag key to check
- * @param {string} tagValue - The expected tag value
- * @returns {boolean} True if the tag has the expected value
- * @throws {Error} If mediaUrn is null/undefined/empty or invalid
- */
-function hasMediaUrnTagValue(mediaUrn, tagName, tagValue) {
-  if (!mediaUrn) {
-    throw new Error('hasMediaUrnTagValue called with empty mediaUrn - this indicates the MediaSpec was not resolved via resolveMediaUrn');
-  }
-  const parsed = TaggedUrn.fromString(mediaUrn);
-  return parsed.getTag(tagName) === tagValue;
-}
-
-/**
  * Resolved MediaSpec structure
  *
  * A MediaSpec is a resolved media specification containing information about
