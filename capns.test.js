@@ -15,12 +15,12 @@ const {
   buildExtensionIndex,
   mediaUrnsForExtension,
   getExtensionMappings,
-  // CapMatrix and CapCube
+  // CapMatrix and CapBlock
   CapMatrixError,
   CapMatrix,
   BestCapSetMatch,
   CompositeCapSet,
-  CapCube,
+  CapBlock,
   // CapGraph
   CapGraphEdge,
   CapGraphStats,
@@ -1135,7 +1135,7 @@ function testMatchingSemantics_Test10_DirectionMismatch() {
 }
 
 // ============================================================================
-// CapMatrix and CapCube Tests
+// CapMatrix and CapBlock Tests
 // ============================================================================
 
 // Helper to create a test URN
@@ -1166,9 +1166,9 @@ function makeCap(urnString, title) {
   return new Cap(capUrn, title, 'test', title);
 }
 
-// TEST117: Test CapCube finds more specific cap across registries
-function testCapCubeMoreSpecificWins() {
-  console.log('Testing CapCube: More specific wins...');
+// TEST117: Test CapBlock finds more specific cap across registries
+function testCapBlockMoreSpecificWins() {
+  console.log('Testing CapBlock: More specific wins...');
 
   const providerRegistry = new CapMatrix();
   const pluginRegistry = new CapMatrix();
@@ -1190,7 +1190,7 @@ function testCapCubeMoreSpecificWins() {
   pluginRegistry.registerCapSet('plugin', pluginHost, [pluginCap]);
 
   // Create composite with provider first
-  const composite = new CapCube();
+  const composite = new CapBlock();
   composite.addRegistry('providers', providerRegistry);
   composite.addRegistry('plugins', pluginRegistry);
 
@@ -1205,9 +1205,9 @@ function testCapCubeMoreSpecificWins() {
   console.log('  ✓ More specific wins');
 }
 
-// TEST118: Test CapCube tie-breaking prefers first registry in order
-function testCapCubeTieGoesToFirst() {
-  console.log('Testing CapCube: Tie goes to first...');
+// TEST118: Test CapBlock tie-breaking prefers first registry in order
+function testCapBlockTieGoesToFirst() {
+  console.log('Testing CapBlock: Tie goes to first...');
 
   const registry1 = new CapMatrix();
   const registry2 = new CapMatrix();
@@ -1221,7 +1221,7 @@ function testCapCubeTieGoesToFirst() {
   const cap2 = makeCap(matrixTestUrn('ext=pdf;op=generate'), 'Registry 2 Cap');
   registry2.registerCapSet('host2', host2, [cap2]);
 
-  const composite = new CapCube();
+  const composite = new CapBlock();
   composite.addRegistry('first', registry1);
   composite.addRegistry('second', registry2);
 
@@ -1233,9 +1233,9 @@ function testCapCubeTieGoesToFirst() {
   console.log('  ✓ Tie goes to first');
 }
 
-// TEST119: Test CapCube polls all registries to find best match
-function testCapCubePollsAll() {
-  console.log('Testing CapCube: Polls all registries...');
+// TEST119: Test CapBlock polls all registries to find best match
+function testCapBlockPollsAll() {
+  console.log('Testing CapBlock: Polls all registries...');
 
   const registry1 = new CapMatrix();
   const registry2 = new CapMatrix();
@@ -1256,7 +1256,7 @@ function testCapCubePollsAll() {
   const cap3 = makeCap(matrixTestUrn('ext=pdf;format=thumbnail;op=generate'), 'Registry 3');
   registry3.registerCapSet('host3', host3, [cap3]);
 
-  const composite = new CapCube();
+  const composite = new CapBlock();
   composite.addRegistry('r1', registry1);
   composite.addRegistry('r2', registry2);
   composite.addRegistry('r3', registry3);
@@ -1268,12 +1268,12 @@ function testCapCubePollsAll() {
   console.log('  ✓ Polls all registries');
 }
 
-// TEST120: Test CapCube returns error when no cap matches request
-function testCapCubeNoMatch() {
-  console.log('Testing CapCube: No match error...');
+// TEST120: Test CapBlock returns error when no cap matches request
+function testCapBlockNoMatch() {
+  console.log('Testing CapBlock: No match error...');
 
   const registry = new CapMatrix();
-  const composite = new CapCube();
+  const composite = new CapBlock();
   composite.addRegistry('empty', registry);
 
   try {
@@ -1287,9 +1287,9 @@ function testCapCubeNoMatch() {
   console.log('  ✓ No match error');
 }
 
-// TEST121: Test CapCube fallback scenario where generic cap handles unknown file types
-function testCapCubeFallbackScenario() {
-  console.log('Testing CapCube: Fallback scenario...');
+// TEST121: Test CapBlock fallback scenario where generic cap handles unknown file types
+function testCapBlockFallbackScenario() {
+  console.log('Testing CapBlock: Fallback scenario...');
 
   const providerRegistry = new CapMatrix();
   const pluginRegistry = new CapMatrix();
@@ -1310,7 +1310,7 @@ function testCapCubeFallbackScenario() {
   );
   pluginRegistry.registerCapSet('pdf_plugin', pluginHost, [pluginCap]);
 
-  const composite = new CapCube();
+  const composite = new CapBlock();
   composite.addRegistry('providers', providerRegistry);
   composite.addRegistry('plugins', pluginRegistry);
 
@@ -1332,9 +1332,9 @@ function testCapCubeFallbackScenario() {
   console.log('  ✓ Fallback scenario');
 }
 
-// TEST122: Test CapCube can method returns execution info and acceptsRequest checks capability
-function testCapCubeCanMethod() {
-  console.log('Testing CapCube: can() method...');
+// TEST122: Test CapBlock can method returns execution info and acceptsRequest checks capability
+function testCapBlockCanMethod() {
+  console.log('Testing CapBlock: can() method...');
 
   const providerRegistry = new CapMatrix();
 
@@ -1342,7 +1342,7 @@ function testCapCubeCanMethod() {
   const providerCap = makeCap(matrixTestUrn('ext=pdf;op=generate'), 'Test Provider');
   providerRegistry.registerCapSet('test_provider', providerHost, [providerCap]);
 
-  const composite = new CapCube();
+  const composite = new CapBlock();
   composite.addRegistry('providers', providerRegistry);
 
   // Test can() returns execution info
@@ -1357,11 +1357,11 @@ function testCapCubeCanMethod() {
   console.log('  ✓ can() method');
 }
 
-// TEST123: Test CapCube registry management add, get, remove operations
-function testCapCubeRegistryManagement() {
-  console.log('Testing CapCube: Registry management...');
+// TEST123: Test CapBlock registry management add, get, remove operations
+function testCapBlockRegistryManagement() {
+  console.log('Testing CapBlock: Registry management...');
 
-  const composite = new CapCube();
+  const composite = new CapBlock();
   const registry1 = new CapMatrix();
   const registry2 = new CapMatrix();
 
@@ -1412,7 +1412,7 @@ function testCapGraphBasicConstruction() {
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('converters', registry);
 
   const graph = cube.graph();
@@ -1446,7 +1446,7 @@ function testCapGraphOutgoingIncoming() {
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('converters', registry);
 
   const graph = cube.graph();
@@ -1479,7 +1479,7 @@ function testCapGraphCanConvert() {
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('converters', registry);
 
   const graph = cube.graph();
@@ -1514,7 +1514,7 @@ function testCapGraphFindPath() {
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('converters', registry);
 
   const graph = cube.graph();
@@ -1558,7 +1558,7 @@ function testCapGraphFindAllPaths() {
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2, cap3]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('converters', registry);
 
   const graph = cube.graph();
@@ -1594,7 +1594,7 @@ function testCapGraphGetDirectEdges() {
   registry1.registerCapSet('converter1', mockHost1, [cap1]);
   registry2.registerCapSet('converter2', mockHost2, [cap2]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('reg1', registry1);
   cube.addRegistry('reg2', registry2);
 
@@ -1627,7 +1627,7 @@ function testCapGraphStats() {
 
   registry.registerCapSet('converter', mockHost, [cap1, cap2, cap3]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('converters', registry);
 
   const graph = cube.graph();
@@ -1648,11 +1648,11 @@ function testCapGraphStats() {
   console.log('  ✓ Stats');
 }
 
-// TEST131: Test CapGraph with CapCube builds graph from multiple registries
-function testCapGraphWithCapCube() {
-  console.log('Testing CapGraph: With CapCube...');
+// TEST131: Test CapGraph with CapBlock builds graph from multiple registries
+function testCapGraphWithCapBlock() {
+  console.log('Testing CapGraph: With CapBlock...');
 
-  // Integration test: build graph from CapCube
+  // Integration test: build graph from CapBlock
   const providerRegistry = new CapMatrix();
   const pluginRegistry = new CapMatrix();
   const providerHost = { executeCap: async () => ({ textOutput: 'provider' }) };
@@ -1666,7 +1666,7 @@ function testCapGraphWithCapCube() {
   const pluginCap = makeGraphCap('media:string', 'media:object', 'Plugin String to Object');
   pluginRegistry.registerCapSet('plugin', pluginHost, [pluginCap]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('providers', providerRegistry);
   cube.addRegistry('plugins', pluginRegistry);
 
@@ -1683,7 +1683,7 @@ function testCapGraphWithCapCube() {
   assertEqual(path[0].registryName, 'providers', 'First edge from providers');
   assertEqual(path[1].registryName, 'plugins', 'Second edge from plugins');
 
-  console.log('  ✓ With CapCube');
+  console.log('  ✓ With CapBlock');
 }
 
 // ============================================================================
@@ -1808,7 +1808,7 @@ function testStdinSourcePassedToExecuteCap() {
   const registry = new CapMatrix();
   registry.registerCapSet('test', mockHost, [cap]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('test', registry);
 
   // Test with CapArgumentValue
@@ -1853,7 +1853,7 @@ function testStdinSourceFileReferencePassedToExecuteCap() {
   const registry = new CapMatrix();
   registry.registerCapSet('test', mockHost, [cap]);
 
-  const cube = new CapCube();
+  const cube = new CapBlock();
   cube.addRegistry('test', registry);
 
   // Test with binary CapArgumentValue
@@ -2329,14 +2329,14 @@ async function runTests() {
   testMatchingSemantics_Test9_CrossDimensionIndependence();
   testMatchingSemantics_Test10_DirectionMismatch();
 
-  // CapMatrix and CapCube tests
-  testCapCubeMoreSpecificWins();
-  testCapCubeTieGoesToFirst();
-  testCapCubePollsAll();
-  testCapCubeNoMatch();
-  testCapCubeFallbackScenario();
-  testCapCubeCanMethod();
-  testCapCubeRegistryManagement();
+  // CapMatrix and CapBlock tests
+  testCapBlockMoreSpecificWins();
+  testCapBlockTieGoesToFirst();
+  testCapBlockPollsAll();
+  testCapBlockNoMatch();
+  testCapBlockFallbackScenario();
+  testCapBlockCanMethod();
+  testCapBlockRegistryManagement();
 
   // CapGraph tests
   testCapGraphBasicConstruction();
@@ -2346,7 +2346,7 @@ async function runTests() {
   testCapGraphFindAllPaths();
   testCapGraphGetDirectEdges();
   testCapGraphStats();
-  testCapGraphWithCapCube();
+  testCapGraphWithCapBlock();
 
   // StdinSource tests
   testStdinSourceFromData();

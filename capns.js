@@ -2913,7 +2913,7 @@ class CapMatrix {
 }
 
 // ============================================================================
-// CAP CUBE - Composite Registry
+// CAP BLOCK - Composite Registry
 // ============================================================================
 
 /**
@@ -3002,7 +3002,7 @@ class CompositeCapSet {
  * specificity scores and returns the most specific match.
  * On tie, defaults to the first registry that was added (priority order).
  */
-class CapCube {
+class CapBlock {
   constructor() {
     this.registries = [];  // Array of {name: string, registry: CapMatrix}
   }
@@ -3727,7 +3727,7 @@ module.exports = {
   CapMatrix,
   BestCapSetMatch,
   CompositeCapSet,
-  CapCube,
+  CapBlock,
   CapGraphEdge,
   CapGraphStats,
   CapGraph,
