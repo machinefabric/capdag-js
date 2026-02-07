@@ -32,5 +32,5 @@
   "scripts": {
     "test": "node capns.test.js"
   },
-  "version": "0.76.17552"
+  "version": "0.77.17595"
 }

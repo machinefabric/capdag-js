@@ -3657,6 +3657,440 @@ class StdinSource {
   }
 }
 
+// =============================================================================
+// Plugin Repository System
+// =============================================================================
+
+/**
+ * Plugin capability summary from registry
+ */
+class PluginCapSummary {
+  constructor(urn, title, description = '') {
+    this.urn = urn;
+    this.title = title;
+    this.description = description;
+  }
+}
+
+/**
+ * Plugin information from registry
+ */
+class PluginInfo {
+  constructor(data) {
+    this.id = data.id;
+    this.name = data.name;
+    this.version = data.version || '';
+    this.description = data.description || '';
+    this.author = data.author || '';
+    this.pageUrl = data.pageUrl || '';
+    this.teamId = data.teamId || '';
+    this.signedAt = data.signedAt || '';
+    this.minAppVersion = data.minAppVersion || '';
+    this.caps = (data.caps || []).map(c => new PluginCapSummary(c.urn, c.title, c.description || ''));
+    this.categories = data.categories || [];
+    this.tags = data.tags || [];
+    this.changelog = data.changelog || {};
+    // Distribution fields
+    this.platform = data.platform || '';
+    this.packageName = data.packageName || '';
+    this.packageSha256 = data.packageSha256 || '';
+    this.packageSize = data.packageSize || 0;
+    this.binaryName = data.binaryName || '';
+    this.binarySha256 = data.binarySha256 || '';
+    this.binarySize = data.binarySize || 0;
+    this.availableVersions = data.availableVersions || [];
+  }
+
+  /**
+   * Check if plugin is signed (has team_id and signed_at)
+   */
+  isSigned() {
+    return this.teamId.length > 0 && this.signedAt.length > 0;
+  }
+
+  /**
+   * Check if binary download info is available
+   */
+  hasBinary() {
+    return this.binaryName.length > 0 && this.binarySha256.length > 0;
+  }
+}
+
+/**
+ * Plugin suggestion for a missing cap
+ */
+class PluginSuggestion {
+  constructor(data) {
+    this.pluginId = data.pluginId;
+    this.pluginName = data.pluginName;
+    this.pluginDescription = data.pluginDescription;
+    this.capUrn = data.capUrn;
+    this.capTitle = data.capTitle;
+    this.latestVersion = data.latestVersion;
+    this.repoUrl = data.repoUrl;
+    this.pageUrl = data.pageUrl;
+  }
+}
+
+/**
+ * Plugin registry cache entry
+ */
+class PluginRepoCache {
+  constructor(repoUrl) {
+    this.plugins = new Map(); // plugin_id -> PluginInfo
+    this.capToPlugins = new Map(); // cap_urn -> [plugin_ids]
+    this.lastUpdated = Date.now();
+    this.repoUrl = repoUrl;
+  }
+}
+
+/**
+ * Plugin repository client - fetches and caches plugin registry
+ */
+class PluginRepoClient {
+  constructor(cacheTtlSeconds = 3600) {
+    this.caches = new Map(); // repo_url -> PluginRepoCache
+    this.cacheTtl = cacheTtlSeconds * 1000; // Convert to milliseconds
+  }
+
+  /**
+   * Fetch registry from a URL
+   */
+  async fetchRegistry(repoUrl) {
+    const response = await fetch(repoUrl);
+
+    if (!response.ok) {
+      throw new Error(`Plugin registry request failed: HTTP ${response.status} from ${repoUrl}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.plugins || !Array.isArray(data.plugins)) {
+      throw new Error(`Invalid plugin registry response from ${repoUrl}: missing plugins array`);
+    }
+
+    return data.plugins.map(p => new PluginInfo(p));
+  }
+
+  /**
+   * Update cache from registry data
+   */
+  updateCache(repoUrl, plugins) {
+    const cache = new PluginRepoCache(repoUrl);
+
+    for (const plugin of plugins) {
+      cache.plugins.set(plugin.id, plugin);
+
+      for (const cap of plugin.caps) {
+        if (!cache.capToPlugins.has(cap.urn)) {
+          cache.capToPlugins.set(cap.urn, []);
+        }
+        cache.capToPlugins.get(cap.urn).push(plugin.id);
+      }
+    }
+
+    this.caches.set(repoUrl, cache);
+  }
+
+  /**
+   * Check if cache is stale
+   */
+  isCacheStale(cache) {
+    return (Date.now() - cache.lastUpdated) > this.cacheTtl;
+  }
+
+  /**
+   * Sync plugin data from repository URLs
+   */
+  async syncRepos(repoUrls) {
+    for (const repoUrl of repoUrls) {
+      try {
+        const plugins = await this.fetchRegistry(repoUrl);
+        this.updateCache(repoUrl, plugins);
+      } catch (e) {
+        console.warn(`Failed to sync plugin repo ${repoUrl}: ${e.message}`);
+        // Continue with other repos
+      }
+    }
+  }
+
+  /**
+   * Check if any repo needs syncing
+   */
+  needsSync(repoUrls) {
+    for (const repoUrl of repoUrls) {
+      const cache = this.caches.get(repoUrl);
+      if (!cache || this.isCacheStale(cache)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get plugin suggestions for a cap URN
+   */
+  getSuggestionsForCap(capUrn) {
+    const suggestions = [];
+
+    for (const cache of this.caches.values()) {
+      const pluginIds = cache.capToPlugins.get(capUrn);
+      if (!pluginIds) continue;
+
+      for (const pluginId of pluginIds) {
+        const plugin = cache.plugins.get(pluginId);
+        if (!plugin) continue;
+
+        const capInfo = plugin.caps.find(c => c.urn === capUrn);
+        if (!capInfo) continue;
+
+        const pageUrl = plugin.pageUrl || cache.repoUrl;
+
+        suggestions.push(new PluginSuggestion({
+          pluginId: plugin.id,
+          pluginName: plugin.name,
+          pluginDescription: plugin.description,
+          capUrn: capUrn,
+          capTitle: capInfo.title,
+          latestVersion: plugin.version,
+          repoUrl: cache.repoUrl,
+          pageUrl: pageUrl
+        }));
+      }
+    }
+
+    return suggestions;
+  }
+
+  /**
+   * Get all available plugins from all repos
+   */
+  getAllPlugins() {
+    const plugins = [];
+    for (const cache of this.caches.values()) {
+      for (const [pluginId, pluginInfo] of cache.plugins) {
+        plugins.push([pluginId, pluginInfo]);
+      }
+    }
+    return plugins;
+  }
+
+  /**
+   * Get all available cap URNs from plugins
+   */
+  getAllAvailableCaps() {
+    const caps = new Set();
+    for (const cache of this.caches.values()) {
+      for (const capUrn of cache.capToPlugins.keys()) {
+        caps.add(capUrn);
+      }
+    }
+    return Array.from(caps).sort();
+  }
+
+  /**
+   * Get plugin info by ID
+   */
+  getPlugin(pluginId) {
+    for (const cache of this.caches.values()) {
+      const plugin = cache.plugins.get(pluginId);
+      if (plugin) {
+        return plugin;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get suggestions for missing caps
+   */
+  getSuggestionsForMissingCaps(availableCaps, requestedCaps) {
+    const availableSet = new Set(availableCaps);
+    const suggestions = [];
+
+    for (const capUrn of requestedCaps) {
+      if (!availableSet.has(capUrn)) {
+        suggestions.push(...this.getSuggestionsForCap(capUrn));
+      }
+    }
+
+    return suggestions;
+  }
+}
+
+/**
+ * Plugin repository server - serves registry data with queries
+ */
+class PluginRepoServer {
+  constructor(registry) {
+    this.registry = registry;
+    this.validateRegistry();
+  }
+
+  /**
+   * Validate registry schema
+   */
+  validateRegistry() {
+    if (!this.registry) {
+      throw new Error('Registry is required');
+    }
+    if (this.registry.schemaVersion !== '3.0') {
+      throw new Error(`Unsupported registry schema version: ${this.registry.schemaVersion}. Required: 3.0`);
+    }
+    if (!this.registry.plugins || typeof this.registry.plugins !== 'object') {
+      throw new Error('Registry must have plugins object');
+    }
+  }
+
+  /**
+   * Validate version data has all required fields
+   */
+  validateVersionData(id, version, versionData) {
+    if (!versionData.platform) {
+      throw new Error(`Plugin ${id} v${version}: missing required field 'platform'`);
+    }
+    if (!versionData.package || !versionData.package.name) {
+      throw new Error(`Plugin ${id} v${version}: missing required field 'package'`);
+    }
+    if (!versionData.binary || !versionData.binary.name) {
+      throw new Error(`Plugin ${id} v${version}: missing required field 'binary'`);
+    }
+  }
+
+  /**
+   * Compare version strings
+   */
+  compareVersions(a, b) {
+    const partsA = a.split('.').map(x => parseInt(x) || 0);
+    const partsB = b.split('.').map(x => parseInt(x) || 0);
+
+    for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+      const numA = partsA[i] || 0;
+      const numB = partsB[i] || 0;
+      if (numA !== numB) {
+        return numA - numB;
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * Build changelog map from versions
+   */
+  buildChangelogMap(versions) {
+    const changelog = {};
+    for (const [version, versionData] of Object.entries(versions)) {
+      if (versionData.changelog && Array.isArray(versionData.changelog)) {
+        changelog[version] = versionData.changelog;
+      }
+    }
+    return changelog;
+  }
+
+  /**
+   * Transform registry to flat plugin array
+   */
+  transformToPluginArray() {
+    const pluginsObject = this.registry.plugins || {};
+    const plugins = [];
+
+    for (const [id, plugin] of Object.entries(pluginsObject)) {
+      const latestVersion = plugin.latestVersion;
+      const versionData = plugin.versions[latestVersion];
+
+      if (!versionData) {
+        throw new Error(`Plugin ${id}: latest version ${latestVersion} not found in versions`);
+      }
+
+      // Validate required fields - fail hard
+      this.validateVersionData(id, latestVersion, versionData);
+
+      // Get all version numbers sorted descending
+      const availableVersions = Object.keys(plugin.versions).sort((a, b) => {
+        return this.compareVersions(b, a);
+      });
+
+      // Build flat plugin object with latest version data
+      const packageUrl = `https://filegrind.com/plugins/packages/${versionData.package.name}`;
+      plugins.push({
+        id,
+        name: plugin.name,
+        version: latestVersion,
+        description: plugin.description,
+        author: plugin.author,
+        pageUrl: plugin.pageUrl || packageUrl,
+        teamId: plugin.teamId,
+        signedAt: versionData.releaseDate,
+        minAppVersion: versionData.minAppVersion || plugin.minAppVersion,
+        caps: plugin.caps || [],
+        categories: plugin.categories,
+        tags: plugin.tags,
+        changelog: this.buildChangelogMap(plugin.versions),
+        // Distribution fields - ALL REQUIRED
+        platform: versionData.platform,
+        packageName: versionData.package.name,
+        packageSha256: versionData.package.sha256,
+        packageSize: versionData.package.size,
+        binaryName: versionData.binary.name,
+        binarySha256: versionData.binary.sha256,
+        binarySize: versionData.binary.size,
+        // All available versions
+        availableVersions
+      });
+    }
+
+    return plugins;
+  }
+
+  /**
+   * Get all plugins (API response format)
+   */
+  getPlugins() {
+    return {
+      plugins: this.transformToPluginArray()
+    };
+  }
+
+  /**
+   * Get plugin by ID
+   */
+  getPluginById(id) {
+    const plugins = this.transformToPluginArray();
+    return plugins.find(p => p.id === id);
+  }
+
+  /**
+   * Search plugins by query
+   */
+  searchPlugins(query) {
+    const plugins = this.transformToPluginArray();
+    const lowerQuery = query.toLowerCase();
+
+    return plugins.filter(p =>
+      p.name.toLowerCase().includes(lowerQuery) ||
+      p.description.toLowerCase().includes(lowerQuery) ||
+      p.tags.some(t => t.toLowerCase().includes(lowerQuery)) ||
+      p.caps.some(c => c.urn.toLowerCase().includes(lowerQuery) || c.title.toLowerCase().includes(lowerQuery))
+    );
+  }
+
+  /**
+   * Get plugins by category
+   */
+  getPluginsByCategory(category) {
+    const plugins = this.transformToPluginArray();
+    return plugins.filter(p => p.categories.includes(category));
+  }
+
+  /**
+   * Get plugins that provide a specific cap
+   */
+  getPluginsByCap(capUrn) {
+    const plugins = this.transformToPluginArray();
+    return plugins.filter(p => p.caps.some(c => c.urn === capUrn));
+  }
+}
+
 // Export for CommonJS
 module.exports = {
   CapUrn,
@@ -3756,5 +4190,12 @@ module.exports = {
   CapGraphStats,
   CapGraph,
   StdinSource,
-  StdinSourceKind
+  StdinSourceKind,
+  // Plugin Repository
+  PluginCapSummary,
+  PluginInfo,
+  PluginSuggestion,
+  PluginRepoCache,
+  PluginRepoClient,
+  PluginRepoServer
 };

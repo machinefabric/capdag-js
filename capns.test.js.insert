@@ -1,0 +1,355 @@
+// =============================================================================
+// Plugin Repository Tests (TEST320-TEST335)
+// =============================================================================
+
+// Sample registry for testing
+const sampleRegistry = {
+  schemaVersion: '3.0',
+  lastUpdated: '2026-02-07T16:48:28Z',
+  plugins: {
+    pdfcartridge: {
+      name: 'pdfcartridge',
+      description: 'PDF document processor',
+      author: 'test-author',
+      pageUrl: 'https://example.com/pdf',
+      teamId: 'P336JK947M',
+      minAppVersion: '1.0.0',
+      categories: ['document'],
+      tags: ['pdf', 'extractor'],
+      caps: [
+        {
+          urn: 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"',
+          title: 'Disbind PDF',
+          description: 'Extract pages'
+        },
+        {
+          urn: 'cap:in="media:pdf;bytes";op=extract_metadata;out="media:file-metadata;textable;form=map"',
+          title: 'Extract Metadata',
+          description: 'Get PDF metadata'
+        }
+      ],
+      latestVersion: '0.81.5325',
+      versions: {
+        '0.81.5325': {
+          releaseDate: '2026-02-07T16:40:28Z',
+          changelog: ['Initial release'],
+          minAppVersion: '1.0.0',
+          platform: 'darwin-arm64',
+          package: {
+            name: 'pdfcartridge-0.81.5325.pkg',
+            sha256: '9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0',
+            size: 5187485
+          },
+          binary: {
+            name: 'pdfcartridge-0.81.5325-darwin-arm64',
+            sha256: '908187ec35632758f1a00452ff4755ba01020ea288619098b6998d5d33851d19',
+            size: 12980288
+          }
+        }
+      }
+    },
+    txtcartridge: {
+      name: 'txtcartridge',
+      description: 'Text file processor',
+      author: 'test-author',
+      pageUrl: 'https://example.com/txt',
+      teamId: 'P336JK947M',
+      minAppVersion: '1.0.0',
+      categories: ['text'],
+      tags: ['txt', 'text'],
+      caps: [
+        {
+          urn: 'cap:in="media:txt;textable";op=disbind;out="media:disbound-page;textable;form=list"',
+          title: 'Disbind Text',
+          description: 'Extract text pages'
+        }
+      ],
+      latestVersion: '0.54.6408',
+      versions: {
+        '0.54.6408': {
+          releaseDate: '2026-02-07T17:44:00Z',
+          changelog: ['First version'],
+          minAppVersion: '1.0.0',
+          platform: 'darwin-arm64',
+          package: {
+            name: 'txtcartridge-0.54.6408.pkg',
+            sha256: 'abc123',
+            size: 821000
+          },
+          binary: {
+            name: 'txtcartridge-0.54.6408-darwin-arm64',
+            sha256: 'def456',
+            size: 1700000
+          }
+        }
+      }
+    }
+  }
+};
+
+// TEST320: Plugin info construction
+function test320_pluginInfoConstruction() {
+  const data = {
+    id: 'testplugin',
+    name: 'Test Plugin',
+    version: '1.0.0',
+    description: 'A test',
+    teamId: 'TEAM123',
+    signedAt: '2026-01-01',
+    binaryName: 'test-binary',
+    binarySha256: 'abc123',
+    caps: [{urn: 'cap:in="media:void";op=test;out="media:void"', title: 'Test', description: ''}]
+  };
+  const plugin = new PluginInfo(data);
+  assert(plugin.id === 'testplugin', 'ID should match');
+  assert(plugin.teamId === 'TEAM123', 'Team ID should match');
+  assert(plugin.caps.length === 1, 'Should have 1 cap');
+  assert(plugin.caps[0].urn === 'cap:in="media:void";op=test;out="media:void"', 'Cap URN should match');
+}
+
+// TEST321: Plugin info is signed check
+function test321_pluginInfoIsSigned() {
+  const signed = new PluginInfo({id: 'test', teamId: 'TEAM', signedAt: '2026-01-01', caps: []});
+  assert(signed.isSigned() === true, 'Plugin with teamId and signedAt should be signed');
+
+  const unsigned1 = new PluginInfo({id: 'test', teamId: '', signedAt: '2026-01-01', caps: []});
+  assert(unsigned1.isSigned() === false, 'Plugin without teamId should not be signed');
+
+  const unsigned2 = new PluginInfo({id: 'test', teamId: 'TEAM', signedAt: '', caps: []});
+  assert(unsigned2.isSigned() === false, 'Plugin without signedAt should not be signed');
+}
+
+// TEST322: Plugin info has binary check
+function test322_pluginInfoHasBinary() {
+  const withBinary = new PluginInfo({id: 'test', binaryName: 'test-bin', binarySha256: 'abc', caps: []});
+  assert(withBinary.hasBinary() === true, 'Plugin with binary info should return true');
+
+  const noBinary1 = new PluginInfo({id: 'test', binaryName: '', binarySha256: 'abc', caps: []});
+  assert(noBinary1.hasBinary() === false, 'Plugin without binaryName should return false');
+
+  const noBinary2 = new PluginInfo({id: 'test', binaryName: 'test', binarySha256: '', caps: []});
+  assert(noBinary2.hasBinary() === false, 'Plugin without binarySha256 should return false');
+}
+
+// TEST323: PluginRepoServer validate registry
+function test323_pluginRepoServerValidateRegistry() {
+  // Valid registry
+  const server = new PluginRepoServer(sampleRegistry);
+  assert(server.registry.schemaVersion === '3.0', 'Should accept valid registry');
+
+  // Invalid schema version
+  let threw = false;
+  try {
+    new PluginRepoServer({schemaVersion: '2.0', plugins: {}});
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('schema version'), 'Should reject wrong schema version');
+  }
+  assert(threw, 'Should throw for invalid schema');
+
+  // Missing plugins
+  threw = false;
+  try {
+    new PluginRepoServer({schemaVersion: '3.0'});
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('plugins'), 'Should reject missing plugins');
+  }
+  assert(threw, 'Should throw for missing plugins');
+}
+
+// TEST324: PluginRepoServer transform to array
+function test324_pluginRepoServerTransformToArray() {
+  const server = new PluginRepoServer(sampleRegistry);
+  const plugins = server.transformToPluginArray();
+
+  assert(Array.isArray(plugins), 'Should return array');
+  assert(plugins.length === 2, 'Should have 2 plugins');
+  
+  const pdf = plugins.find(p => p.id === 'pdfcartridge');
+  assert(pdf !== undefined, 'Should include pdfcartridge');
+  assert(pdf.version === '0.81.5325', 'Should have latest version');
+  assert(pdf.teamId === 'P336JK947M', 'Should have teamId');
+  assert(pdf.signedAt === '2026-02-07T16:40:28Z', 'Should have signedAt from releaseDate');
+  assert(pdf.binaryName === 'pdfcartridge-0.81.5325-darwin-arm64', 'Should have binary name');
+  assert(pdf.binarySha256 === '908187ec35632758f1a00452ff4755ba01020ea288619098b6998d5d33851d19', 'Should have SHA256');
+  assert(Array.isArray(pdf.caps), 'Should have caps array');
+  assert(pdf.caps.length === 2, 'Should have 2 caps');
+}
+
+// TEST325: PluginRepoServer get plugins
+function test325_pluginRepoServerGetPlugins() {
+  const server = new PluginRepoServer(sampleRegistry);
+  const response = server.getPlugins();
+
+  assert(response.plugins !== undefined, 'Should have plugins field');
+  assert(Array.isArray(response.plugins), 'Plugins should be array');
+  assert(response.plugins.length === 2, 'Should have 2 plugins');
+}
+
+// TEST326: PluginRepoServer get plugin by ID
+function test326_pluginRepoServerGetPluginById() {
+  const server = new PluginRepoServer(sampleRegistry);
+
+  const pdf = server.getPluginById('pdfcartridge');
+  assert(pdf !== undefined, 'Should find pdfcartridge');
+  assert(pdf.id === 'pdfcartridge', 'Should have correct ID');
+
+  const notFound = server.getPluginById('nonexistent');
+  assert(notFound === undefined, 'Should return undefined for missing plugin');
+}
+
+// TEST327: PluginRepoServer search plugins
+function test327_pluginRepoServerSearchPlugins() {
+  const server = new PluginRepoServer(sampleRegistry);
+
+  const pdfResults = server.searchPlugins('pdf');
+  assert(pdfResults.length === 1, 'Should find 1 PDF plugin');
+  assert(pdfResults[0].id === 'pdfcartridge', 'Should find pdfcartridge');
+
+  const metadataResults = server.searchPlugins('metadata');
+  assert(metadataResults.length === 1, 'Should find plugin by cap title');
+
+  const noResults = server.searchPlugins('nonexistent');
+  assert(noResults.length === 0, 'Should return empty for no matches');
+}
+
+// TEST328: PluginRepoServer get by category
+function test328_pluginRepoServerGetByCategory() {
+  const server = new PluginRepoServer(sampleRegistry);
+
+  const docPlugins = server.getPluginsByCategory('document');
+  assert(docPlugins.length === 1, 'Should find 1 document plugin');
+  assert(docPlugins[0].id === 'pdfcartridge', 'Should be pdfcartridge');
+
+  const textPlugins = server.getPluginsByCategory('text');
+  assert(textPlugins.length === 1, 'Should find 1 text plugin');
+  assert(textPlugins[0].id === 'txtcartridge', 'Should be txtcartridge');
+}
+
+// TEST329: PluginRepoServer get by cap
+function test329_pluginRepoServerGetByCap() {
+  const server = new PluginRepoServer(sampleRegistry);
+
+  const disbindCap = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"';
+  const plugins = server.getPluginsByCap(disbindCap);
+
+  assert(plugins.length === 1, 'Should find 1 plugin with this cap');
+  assert(plugins[0].id === 'pdfcartridge', 'Should be pdfcartridge');
+
+  const metadataCap = 'cap:in="media:pdf;bytes";op=extract_metadata;out="media:file-metadata;textable;form=map"';
+  const metadataPlugins = server.getPluginsByCap(metadataCap);
+  assert(metadataPlugins.length === 1, 'Should find metadata cap');
+}
+
+// TEST330: PluginRepoClient update cache
+function test330_pluginRepoClientUpdateCache() {
+  const client = new PluginRepoClient(3600);
+  const server = new PluginRepoServer(sampleRegistry);
+  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+
+  client.updateCache('https://example.com/api/plugins', plugins);
+
+  const cache = client.caches.get('https://example.com/api/plugins');
+  assert(cache !== undefined, 'Cache should exist');
+  assert(cache.plugins.size === 2, 'Should have 2 plugins in cache');
+  assert(cache.capToPlugins.size > 0, 'Should have cap mappings');
+}
+
+// TEST331: PluginRepoClient get suggestions
+function test331_pluginRepoClientGetSuggestions() {
+  const client = new PluginRepoClient(3600);
+  const server = new PluginRepoServer(sampleRegistry);
+  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+
+  client.updateCache('https://example.com/api/plugins', plugins);
+
+  const disbindCap = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"';
+  const suggestions = client.getSuggestionsForCap(disbindCap);
+
+  assert(suggestions.length === 1, 'Should find 1 suggestion');
+  assert(suggestions[0].pluginId === 'pdfcartridge', 'Should suggest pdfcartridge');
+  assert(suggestions[0].capUrn === disbindCap, 'Should have correct cap URN');
+  assert(suggestions[0].capTitle === 'Disbind PDF', 'Should have cap title');
+}
+
+// TEST332: PluginRepoClient get plugin
+function test332_pluginRepoClientGetPlugin() {
+  const client = new PluginRepoClient(3600);
+  const server = new PluginRepoServer(sampleRegistry);
+  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+
+  client.updateCache('https://example.com/api/plugins', plugins);
+
+  const plugin = client.getPlugin('pdfcartridge');
+  assert(plugin !== null, 'Should find plugin');
+  assert(plugin.id === 'pdfcartridge', 'Should have correct ID');
+
+  const notFound = client.getPlugin('nonexistent');
+  assert(notFound === null, 'Should return null for missing plugin');
+}
+
+// TEST333: PluginRepoClient get all caps
+function test333_pluginRepoClientGetAllCaps() {
+  const client = new PluginRepoClient(3600);
+  const server = new PluginRepoServer(sampleRegistry);
+  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+
+  client.updateCache('https://example.com/api/plugins', plugins);
+
+  const caps = client.getAllAvailableCaps();
+  assert(Array.isArray(caps), 'Should return array');
+  assert(caps.length === 3, 'Should have 3 unique caps');
+  assert(caps.every(c => typeof c === 'string'), 'All caps should be strings');
+}
+
+// TEST334: PluginRepoClient needs sync
+function test334_pluginRepoClientNeedsSync() {
+  const client = new PluginRepoClient(1); // 1 second TTL
+  const server = new PluginRepoServer(sampleRegistry);
+  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+
+  const urls = ['https://example.com/api/plugins'];
+
+  // Should need sync initially
+  assert(client.needsSync(urls) === true, 'Should need sync with empty cache');
+
+  // Update cache
+  client.updateCache(urls[0], plugins);
+
+  // Should not need sync immediately
+  assert(client.needsSync(urls) === false, 'Should not need sync right after update');
+
+  // Wait for cache to expire (1 second)
+  // Note: Can't test this synchronously, would need async test
+}
+
+// TEST335: PluginRepoServer and Client integration
+function test335_pluginRepoServerClientIntegration() {
+  // Server creates API response
+  const server = new PluginRepoServer(sampleRegistry);
+  const apiResponse = server.getPlugins();
+
+  // Client consumes API response
+  const client = new PluginRepoClient(3600);
+  const plugins = apiResponse.plugins.map(p => new PluginInfo(p));
+  client.updateCache('https://example.com/api/plugins', plugins);
+
+  // Client can find plugin
+  const plugin = client.getPlugin('pdfcartridge');
+  assert(plugin !== null, 'Client should find plugin from server data');
+  assert(plugin.isSigned(), 'Plugin should be signed');
+  assert(plugin.hasBinary(), 'Plugin should have binary');
+
+  // Client can get suggestions
+  const capUrn = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"';
+  const suggestions = client.getSuggestionsForCap(capUrn);
+  assert(suggestions.length === 1, 'Should get suggestions');
+  assert(suggestions[0].pluginId === 'pdfcartridge', 'Should suggest correct plugin');
+
+  // Server can search
+  const searchResults = server.searchPlugins('pdf');
+  assert(searchResults.length === 1, 'Server search should work');
+  assert(searchResults[0].id === plugin.id, 'Search and client should agree');
+}
+
