@@ -330,31 +330,31 @@ class CapUrn {
   }
 
   /**
-   * Check if this cap matches another based on tag compatibility
+   * Check if this cap (pattern/handler) accepts a request (instance).
    *
-   * Direction (in/out) uses TaggedUrn.matches() (via MediaUrn matching):
-   * - Input: request_input.matches(cap_input) — does request's data satisfy cap's requirement?
-   * - Output: cap_output.matches(request_output) — does cap's output satisfy what request expects?
+   * Direction (in/out) uses TaggedUrn.accepts()/conformsTo() (via MediaUrn matching):
+   * - Input: capIn.accepts(requestIn) — cap's input spec is pattern, request's input is instance
+   * - Output: capOut.conformsTo(requestOut) — cap's output is instance, request's output is pattern
    * For other tags:
    * - For each tag in the request: cap has same value, wildcard (*), or missing tag
    * - For each tag in the cap: if request is missing that tag, that's fine (cap is more specific)
    * Missing tags (except in/out) are treated as wildcards (less specific, can handle any value).
    *
-   * @param {CapUrn} request - The request cap to match against
-   * @returns {boolean} Whether this cap matches the request
+   * @param {CapUrn} request - The request cap to check
+   * @returns {boolean} Whether this cap accepts the request
    */
-  matches(request) {
+  accepts(request) {
     if (!request) {
       return true;
     }
 
     // Direction specs: TaggedUrn semantic matching via MediaUrn
-    // Check in_urn: request's input must satisfy cap's input requirement
+    // Check in_urn: cap's input spec (pattern) accepts request's input (instance)
     if (this.inSpec !== '*' && request.inSpec !== '*') {
       try {
         const capIn = TaggedUrn.fromString(this.inSpec);
         const requestIn = TaggedUrn.fromString(request.inSpec);
-        if (!requestIn.matches(capIn)) {
+        if (!capIn.accepts(requestIn)) {
           return false;
         }
       } catch (e) {
@@ -362,12 +362,12 @@ class CapUrn {
       }
     }
 
-    // Check out_urn: cap's output must satisfy what the request expects
+    // Check out_urn: cap's output (instance) conforms to request's output (pattern)
     if (this.outSpec !== '*' && request.outSpec !== '*') {
       try {
         const capOut = TaggedUrn.fromString(this.outSpec);
         const requestOut = TaggedUrn.fromString(request.outSpec);
-        if (!capOut.matches(requestOut)) {
+        if (!capOut.conformsTo(requestOut)) {
           return false;
         }
       } catch (e) {
@@ -406,13 +406,14 @@ class CapUrn {
   }
 
   /**
-   * Check if this cap can handle a request
+   * Check if this cap (instance) conforms to another cap (pattern).
+   * Equivalent to cap.accepts(this).
    *
-   * @param {CapUrn} request - The requested cap
-   * @returns {boolean} Whether this cap can handle the request
+   * @param {CapUrn} cap - The cap to check conformance against
+   * @returns {boolean} Whether this cap conforms to the given cap
    */
-  canHandle(request) {
-    return this.matches(request);
+  conformsTo(cap) {
+    return cap.accepts(this);
   }
 
   /**
@@ -482,13 +483,13 @@ class CapUrn {
       return true;
     }
 
-    // Check in_urn compatibility: either direction of matches succeeds
+    // Check in_urn compatibility: either direction of conformsTo succeeds
     if (this.inSpec !== '*' && other.inSpec !== '*') {
       try {
         const selfIn = TaggedUrn.fromString(this.inSpec);
         const otherIn = TaggedUrn.fromString(other.inSpec);
-        const fwd = selfIn.matches(otherIn);
-        const rev = otherIn.matches(selfIn);
+        const fwd = selfIn.conformsTo(otherIn);
+        const rev = otherIn.conformsTo(selfIn);
         if (!fwd && !rev) {
           return false;
         }
@@ -501,8 +502,8 @@ class CapUrn {
       try {
         const selfOut = TaggedUrn.fromString(this.outSpec);
         const otherOut = TaggedUrn.fromString(other.outSpec);
-        const fwd = selfOut.matches(otherOut);
-        const rev = otherOut.matches(selfOut);
+        const fwd = selfOut.conformsTo(otherOut);
+        const rev = otherOut.conformsTo(selfOut);
         if (!fwd && !rev) {
           return false;
         }
@@ -715,7 +716,7 @@ class CapUrnBuilder {
  */
 class CapMatcher {
   /**
-   * Find the most specific cap that can handle a request
+   * Find the most specific cap that accepts a request
    *
    * @param {CapUrn[]} caps - Array of available caps
    * @param {CapUrn} request - The request to match
@@ -726,7 +727,7 @@ class CapMatcher {
     let bestSpecificity = -1;
 
     for (const cap of caps) {
-      if (cap.canHandle(request)) {
+      if (cap.accepts(request)) {
         const specificity = cap.specificity();
         if (specificity > bestSpecificity) {
           best = cap;
@@ -739,14 +740,14 @@ class CapMatcher {
   }
 
   /**
-   * Find all caps that can handle a request, sorted by specificity
+   * Find all caps that accept a request, sorted by specificity
    *
    * @param {CapUrn[]} caps - Array of available caps
    * @param {CapUrn} request - The request to match
    * @returns {CapUrn[]} Array of matching caps sorted by specificity (most specific first)
    */
   static findAllMatches(caps, request) {
-    const matches = caps.filter(cap => cap.canHandle(request));
+    const matches = caps.filter(cap => cap.accepts(request));
 
     // Sort by specificity (most specific first)
     matches.sort((a, b) => b.specificity() - a.specificity());
@@ -1765,26 +1766,17 @@ class Cap {
   }
 
   /**
-   * Check if this capability matches a request string
+   * Check if this capability accepts a request string
    * @param {string} request - The request string
-   * @returns {boolean} Whether this capability matches the request
+   * @returns {boolean} Whether this capability accepts the request
    */
-  matchesRequest(request) {
+  acceptsRequest(request) {
     try {
       const requestUrn = CapUrn.fromString(request);
-      return this.urn.canHandle(requestUrn);
+      return this.urn.accepts(requestUrn);
     } catch (error) {
       return false;
     }
-  }
-
-  /**
-   * Check if this capability can handle a request URN
-   * @param {CapUrn} requestUrn - The request URN
-   * @returns {boolean} Whether this capability can handle the request
-   */
-  canHandleRequest(requestUrn) {
-    return this.urn.canHandle(requestUrn);
   }
 
   /**
@@ -2816,7 +2808,7 @@ class CapMatrix {
 
     for (const entry of this.sets.values()) {
       for (const cap of entry.capabilities) {
-        if (cap.urn.matches(request)) {
+        if (cap.urn.accepts(request)) {
           matchingHosts.push(entry.host);
           break;  // Found a matching capability for this host
         }
@@ -2850,7 +2842,7 @@ class CapMatrix {
 
     for (const entry of this.sets.values()) {
       for (const cap of entry.capabilities) {
-        if (cap.urn.matches(request)) {
+        if (cap.urn.accepts(request)) {
           const specificity = cap.urn.specificity();
           if (bestSpecificity === -1 || specificity > bestSpecificity) {
             bestHost = entry.host;
@@ -2890,11 +2882,11 @@ class CapMatrix {
   }
 
   /**
-   * Check if any host can handle the specified capability
+   * Check if any host accepts the specified capability request
    * @param {string} requestUrn - The capability URN to check
-   * @returns {boolean} Whether the capability can be handled
+   * @returns {boolean} Whether the capability request is accepted
    */
-  canHandle(requestUrn) {
+  acceptsRequest(requestUrn) {
     try {
       this.findCapSets(requestUrn);
       return true;
@@ -2973,7 +2965,7 @@ class CompositeCapSet {
     for (const { registry } of this.registries) {
       for (const entry of registry.sets.values()) {
         for (const cap of entry.capabilities) {
-          if (cap.urn.matches(request)) {
+          if (cap.urn.accepts(request)) {
             const specificity = cap.urn.specificity();
             if (bestSpecificity === -1 || specificity > bestSpecificity) {
               bestHost = entry.host;
@@ -3121,11 +3113,11 @@ class CapCube {
   }
 
   /**
-   * Check if any registry can handle the specified capability
+   * Check if any registry accepts the specified capability request
    * @param {string} requestUrn - The capability URN to check
-   * @returns {boolean} Whether the capability can be handled
+   * @returns {boolean} Whether the capability request is accepted
    */
-  canHandle(requestUrn) {
+  acceptsRequest(requestUrn) {
     try {
       this.findBestCapSet(requestUrn);
       return true;
@@ -3147,7 +3139,7 @@ class CapCube {
 
     for (const entry of registry.sets.values()) {
       for (const cap of entry.capabilities) {
-        if (cap.urn.matches(request)) {
+        if (cap.urn.accepts(request)) {
           const specificity = cap.urn.specificity();
           if (bestSpecificity === -1 || specificity > bestSpecificity) {
             bestCap = cap;
@@ -3299,13 +3291,13 @@ class CapGraph {
 
   /**
    * Get all edges where the provided URN satisfies the edge's input requirement.
-   * Uses satisfies-based matching instead of exact string matching.
+   * Uses conformsTo-based matching instead of exact string matching.
    * @param {string} urn - The media URN
    * @returns {CapGraphEdge[]}
    */
   getOutgoing(urn) {
-    // Use TaggedUrn matching: find all edges where the provided URN
-    // satisfies the edge's input requirement (fromUrn)
+    // Use TaggedUrn matching: find all edges where the provided URN (instance)
+    // conforms to the edge's input requirement (pattern/fromUrn)
     let providedUrn;
     try {
       providedUrn = TaggedUrn.fromString(urn);
@@ -3316,7 +3308,7 @@ class CapGraph {
     const edges = this.edges.filter(edge => {
       try {
         const requirementUrn = TaggedUrn.fromString(edge.fromUrn);
-        return providedUrn.matches(requirementUrn);
+        return providedUrn.conformsTo(requirementUrn);
       } catch (e) {
         return false; // Invalid requirement URN, skip
       }

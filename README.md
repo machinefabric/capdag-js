@@ -36,7 +36,7 @@ const built = new CapUrnBuilder()
 
 // Matching
 const request = CapUrn.fromString('cap:in="media:binary";op=extract;out="media:object"');
-console.log(cap.matches(request)); // true
+console.log(cap.accepts(request)); // true
 
 // Find best match by specificity
 const caps = [
@@ -64,7 +64,7 @@ console.log(best.toString()); // Most specific match
 - `hasTag(key, value)` - Check if tag exists with value
 - `withTag(key, value)` - Add/update tag (returns new instance)
 - `withoutTag(key)` - Remove tag (returns new instance)
-- `matches(other)` - Check if this cap matches another
+- `accepts(request)` - Check if this cap (as pattern) accepts a request
 - `canHandle(request)` - Check if this cap can handle a request
 - `specificity()` - Get specificity score for matching
 - `isMoreSpecificThan(other)` - Compare specificity

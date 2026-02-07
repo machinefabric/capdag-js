@@ -147,9 +147,9 @@ function testCaseInsensitive() {
   assertEqual(cap1.getTag('IN'), 'media:void', 'Should lookup in with case-insensitive key');
   assertEqual(cap1.getTag('OUT'), 'media:form=map;textable', 'Should lookup out with case-insensitive key');
 
-  // Matching should work case-insensitively
-  assert(cap1.matches(cap2), 'Should match case-insensitively');
-  assert(cap2.matches(cap1), 'Should match case-insensitively');
+  // Accepting should work case-insensitively
+  assert(cap1.accepts(cap2), 'Should accept case-insensitively');
+  assert(cap2.accepts(cap1), 'Should accept case-insensitively');
 
   console.log('  ✓ Case insensitive behavior');
 }
@@ -186,9 +186,9 @@ function testTrailingSemicolonEquivalence() {
   // They should have same string representation (canonical form)
   assertEqual(cap1.toString(), cap2.toString(), 'Should have same canonical form');
 
-  // They should match each other
-  assert(cap1.matches(cap2), 'Should match each other');
-  assert(cap2.matches(cap1), 'Should match each other');
+  // They should accept each other
+  assert(cap1.accepts(cap2), 'Should accept each other');
+  assert(cap2.accepts(cap1), 'Should accept each other');
 
   console.log('  ✓ Trailing semicolon equivalence');
 }
@@ -214,23 +214,23 @@ function testTagMatching() {
 
   // Exact match
   const request1 = CapUrn.fromString(testUrn('op=generate;ext=pdf;target=thumbnail'));
-  assert(cap.matches(request1), 'Should match exact request');
+  assert(cap.accepts(request1), 'Should accept exact request');
 
   // Subset match (other tags)
   const request2 = CapUrn.fromString(testUrn('op=generate'));
-  assert(cap.matches(request2), 'Should match subset request');
+  assert(cap.accepts(request2), 'Should accept subset request');
 
   // Wildcard request should match specific cap
   const request3 = CapUrn.fromString(testUrn('ext=*'));
-  assert(cap.matches(request3), 'Should match wildcard request');
+  assert(cap.accepts(request3), 'Should accept wildcard request');
 
   // No match - conflicting value
   const request4 = CapUrn.fromString(testUrn('op=extract'));
-  assert(!cap.matches(request4), 'Should not match conflicting value');
+  assert(!cap.accepts(request4), 'Should not accept conflicting value');
 
   // Direction must match
   const request5 = CapUrn.fromString('cap:in="media:string";out="media:object";op=generate');
-  assert(!cap.matches(request5), 'Should not match different inSpec');
+  assert(!cap.accepts(request5), 'Should not accept different inSpec');
 
   console.log('  ✓ Tag matching');
 }
@@ -243,12 +243,12 @@ function testMissingTagHandling() {
 
   // Request with tag should match cap without tag (treated as wildcard)
   const request1 = CapUrn.fromString(testUrn('ext=pdf'));
-  assert(cap.matches(request1), 'Should match when cap has missing tag (wildcard)');
+  assert(cap.accepts(request1), 'Should accept when cap has missing tag (wildcard)');
 
-  // But cap with extra tags can match subset requests
+  // But cap with extra tags can accept subset requests
   const cap2 = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request2 = CapUrn.fromString(testUrn('op=generate'));
-  assert(cap2.matches(request2), 'Should match subset request');
+  assert(cap2.accepts(request2), 'Should accept subset request');
 
   console.log('  ✓ Missing tag handling');
 }
@@ -469,8 +469,8 @@ function testEmptyCapUrn() {
   // For "match anything" behavior, use wildcards
   const wildcard = CapUrn.fromString('cap:in=*;out=*');
   const specific = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  assert(wildcard.matches(specific), 'Wildcard should match any cap');
-  assert(wildcard.matches(wildcard), 'Wildcard should match itself');
+  assert(wildcard.accepts(specific), 'Wildcard should accept any cap');
+  assert(wildcard.accepts(wildcard), 'Wildcard should accept itself');
 
   console.log('  ✓ Empty cap URN now fails (in/out required)');
 }
@@ -1010,7 +1010,7 @@ function testMatchingSemantics_Test1_ExactMatch() {
   // Result:  MATCH
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  assert(cap.matches(request), 'Test 1: Exact match should succeed');
+  assert(cap.accepts(request), 'Test 1: Exact match should succeed');
   console.log('  ✓ Test 1: Exact match');
 }
 
@@ -1023,7 +1023,7 @@ function testMatchingSemantics_Test2_CapMissingTag() {
   // Result:  MATCH (cap can handle any ext)
   const cap = CapUrn.fromString(testUrn('op=generate'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  assert(cap.matches(request), 'Test 2: Cap missing tag should match (implicit wildcard)');
+  assert(cap.accepts(request), 'Test 2: Cap missing tag should accept (implicit wildcard)');
   console.log('  ✓ Test 2: Cap missing tag');
 }
 
@@ -1036,7 +1036,7 @@ function testMatchingSemantics_Test3_CapHasExtraTag() {
   // Result:  MATCH (request doesn't constrain version)
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf;version=2'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  assert(cap.matches(request), 'Test 3: Cap with extra tag should match');
+  assert(cap.accepts(request), 'Test 3: Cap with extra tag should accept');
   console.log('  ✓ Test 3: Cap has extra tag');
 }
 
@@ -1049,7 +1049,7 @@ function testMatchingSemantics_Test4_RequestHasWildcard() {
   // Result:  MATCH (request accepts any ext)
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=*'));
-  assert(cap.matches(request), 'Test 4: Request wildcard should match');
+  assert(cap.accepts(request), 'Test 4: Request wildcard should accept');
   console.log('  ✓ Test 4: Request has wildcard');
 }
 
@@ -1062,7 +1062,7 @@ function testMatchingSemantics_Test5_CapHasWildcard() {
   // Result:  MATCH (cap handles any ext)
   const cap = CapUrn.fromString(testUrn('op=generate;ext=*'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  assert(cap.matches(request), 'Test 5: Cap wildcard should match');
+  assert(cap.accepts(request), 'Test 5: Cap wildcard should accept');
   console.log('  ✓ Test 5: Cap has wildcard');
 }
 
@@ -1075,7 +1075,7 @@ function testMatchingSemantics_Test6_ValueMismatch() {
   // Result:  NO MATCH
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=docx'));
-  assert(!cap.matches(request), 'Test 6: Value mismatch should not match');
+  assert(!cap.accepts(request), 'Test 6: Value mismatch should not accept');
   console.log('  ✓ Test 6: Value mismatch');
 }
 
@@ -1088,7 +1088,7 @@ function testMatchingSemantics_Test7_FallbackPattern() {
   // Result:  MATCH (cap has implicit ext=*)
   const cap = CapUrn.fromString('cap:in="media:void";out="media:binary";op=generate_thumbnail');
   const request = CapUrn.fromString('cap:in="media:void";out="media:binary";op=generate_thumbnail;ext=wav');
-  assert(cap.matches(request), 'Test 7: Fallback pattern should match (cap missing ext = implicit wildcard)');
+  assert(cap.accepts(request), 'Test 7: Fallback pattern should accept (cap missing ext = implicit wildcard)');
   console.log('  ✓ Test 7: Fallback pattern');
 }
 
@@ -1101,7 +1101,7 @@ function testMatchingSemantics_Test8_WildcardCapMatchesAnything() {
   // Result:  MATCH
   const cap = CapUrn.fromString('cap:in=*;out=*');
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  assert(cap.matches(request), 'Test 8: Wildcard cap should match anything');
+  assert(cap.accepts(request), 'Test 8: Wildcard cap should accept anything');
   console.log('  ✓ Test 8: Wildcard cap matches anything');
 }
 
@@ -1114,7 +1114,7 @@ function testMatchingSemantics_Test9_CrossDimensionIndependence() {
   // Result:  MATCH (both have implicit wildcards for missing tags)
   const cap = CapUrn.fromString(testUrn('op=generate'));
   const request = CapUrn.fromString(testUrn('ext=pdf'));
-  assert(cap.matches(request), 'Test 9: Cross-dimension independence should match');
+  assert(cap.accepts(request), 'Test 9: Cross-dimension independence should accept');
   console.log('  ✓ Test 9: Cross-dimension independence');
 }
 
@@ -1130,7 +1130,7 @@ function testMatchingSemantics_Test10_DirectionMismatch() {
   const request = CapUrn.fromString(
     'cap:in="media:bytes";op=generate;out="media:form=map;textable"'
   );
-  assert(!cap.matches(request), 'Test 10: Direction mismatch should not match');
+  assert(!cap.accepts(request), 'Test 10: Direction mismatch should not accept');
   console.log('  ✓ Test 10: Direction mismatch');
 }
 
@@ -1332,7 +1332,7 @@ function testCapCubeFallbackScenario() {
   console.log('  ✓ Fallback scenario');
 }
 
-// TEST122: Test CapCube can method returns execution info and canHandle checks capability
+// TEST122: Test CapCube can method returns execution info and acceptsRequest checks capability
 function testCapCubeCanMethod() {
   console.log('Testing CapCube: can() method...');
 
@@ -1350,9 +1350,9 @@ function testCapCubeCanMethod() {
   assert(result.cap !== null, 'Should return cap');
   assert(result.compositeHost instanceof CompositeCapSet, 'Should return CompositeCapSet');
 
-  // Verify canHandle works
-  assert(composite.canHandle(matrixTestUrn('ext=pdf;op=generate')), 'Should handle matching cap');
-  assert(!composite.canHandle(matrixTestUrn('op=nonexistent')), 'Should not handle non-matching cap');
+  // Verify acceptsRequest works
+  assert(composite.acceptsRequest(matrixTestUrn('ext=pdf;op=generate')), 'Should accept matching cap');
+  assert(!composite.acceptsRequest(matrixTestUrn('op=nonexistent')), 'Should not accept non-matching cap');
 
   console.log('  ✓ can() method');
 }
@@ -1968,48 +1968,48 @@ function testDirectionSemanticMatching() {
   const pdfRequest = CapUrn.fromString(
     'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
   );
-  assert(genericCap.matches(pdfRequest),
-    'Generic bytes provider must match specific pdf;bytes request');
+  assert(genericCap.accepts(pdfRequest),
+    'Generic bytes provider must accept specific pdf;bytes request');
 
-  // Generic cap also matches epub;bytes (any bytes subtype)
+  // Generic cap also accepts epub;bytes (any bytes subtype)
   const epubRequest = CapUrn.fromString(
     'cap:in="media:epub;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
   );
-  assert(genericCap.matches(epubRequest),
-    'Generic bytes provider must match epub;bytes request');
+  assert(genericCap.accepts(epubRequest),
+    'Generic bytes provider must accept epub;bytes request');
 
-  // Reverse: specific cap does NOT match generic request
+  // Reverse: specific cap does NOT accept generic request
   const pdfCap = CapUrn.fromString(
     'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
   );
   const genericRequest = CapUrn.fromString(
     'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
   );
-  assert(!pdfCap.matches(genericRequest),
-    'Specific pdf;bytes cap must NOT match generic bytes request');
+  assert(!pdfCap.accepts(genericRequest),
+    'Specific pdf;bytes cap must NOT accept generic bytes request');
 
-  // Incompatible types: pdf cap does NOT match epub request
-  assert(!pdfCap.matches(epubRequest),
-    'PDF-specific cap must NOT match epub request (epub lacks pdf marker)');
+  // Incompatible types: pdf cap does NOT accept epub request
+  assert(!pdfCap.accepts(epubRequest),
+    'PDF-specific cap must NOT accept epub request (epub lacks pdf marker)');
 
-  // Output direction: cap producing more specific output matches less specific request
+  // Output direction: cap producing more specific output accepts less specific request
   const specificOutCap = CapUrn.fromString(
     'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
   );
   const genericOutRequest = CapUrn.fromString(
     'cap:in="media:bytes";op=generate_thumbnail;out="media:image;bytes"'
   );
-  assert(specificOutCap.matches(genericOutRequest),
+  assert(specificOutCap.accepts(genericOutRequest),
     'Cap producing image;png;bytes;thumbnail must satisfy request for image;bytes');
 
-  // Reverse output: generic output cap does NOT match specific output request
+  // Reverse output: generic output cap does NOT accept specific output request
   const genericOutCap = CapUrn.fromString(
     'cap:in="media:bytes";op=generate_thumbnail;out="media:image;bytes"'
   );
   const specificOutRequest = CapUrn.fromString(
     'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
   );
-  assert(!genericOutCap.matches(specificOutRequest),
+  assert(!genericOutCap.accepts(specificOutRequest),
     'Cap producing generic image;bytes must NOT satisfy request requiring image;png;bytes;thumbnail');
 
   console.log('  ✓ Direction semantic matching');
@@ -2139,7 +2139,7 @@ function testMediaAvailabilityOutputConstant() {
   assert(urn.getTag('bytes') === undefined, 'model-availability must not be binary');
   // Roundtrip
   const reparsed = TaggedUrn.fromString(urn.toString());
-  assert(urn.matches(reparsed), 'roundtrip must match original');
+  assert(urn.conformsTo(reparsed), 'roundtrip must match original');
   console.log('  ✓ MEDIA_AVAILABILITY_OUTPUT');
 }
 
@@ -2153,7 +2153,7 @@ function testMediaPathOutputConstant() {
   assert(urn.getTag('bytes') === undefined, 'model-path must not be binary');
   // Roundtrip
   const reparsed = TaggedUrn.fromString(urn.toString());
-  assert(urn.matches(reparsed), 'roundtrip must match original');
+  assert(urn.conformsTo(reparsed), 'roundtrip must match original');
   console.log('  ✓ MEDIA_PATH_OUTPUT');
 }
 
@@ -2165,14 +2165,14 @@ function testAvailabilityAndPathOutputDistinct() {
     'availability and path output must be distinct media URNs');
   const avail = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
   const path = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
-  // They must NOT match each other (different types)
+  // They must NOT conform to each other (different types)
   let matchResult;
   try {
-    matchResult = avail.matches(path);
+    matchResult = avail.conformsTo(path);
   } catch (e) {
     matchResult = false;
   }
-  assert(!matchResult, 'availability must not match path');
+  assert(!matchResult, 'availability must not conform to path');
   console.log('  ✓ Availability and path output distinct');
 }
 
@@ -2189,10 +2189,10 @@ function testModelAvailabilityUrn() {
   const { TaggedUrn } = require('tagged-urn');
   const inSpec = TaggedUrn.fromString(urn.getInSpec());
   const expectedIn = TaggedUrn.fromString(CAPNS_MEDIA_MODEL_SPEC);
-  assert(inSpec.matches(expectedIn), 'input must match MEDIA_MODEL_SPEC');
+  assert(inSpec.conformsTo(expectedIn), 'input must conform to MEDIA_MODEL_SPEC');
   const outSpec = TaggedUrn.fromString(urn.getOutSpec());
   const expectedOut = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
-  assert(outSpec.matches(expectedOut), 'output must match MEDIA_AVAILABILITY_OUTPUT');
+  assert(outSpec.conformsTo(expectedOut), 'output must conform to MEDIA_AVAILABILITY_OUTPUT');
   console.log('  ✓ modelAvailabilityUrn');
 }
 
@@ -2204,10 +2204,10 @@ function testModelPathUrn() {
   const { TaggedUrn } = require('tagged-urn');
   const inSpec = TaggedUrn.fromString(urn.getInSpec());
   const expectedIn = TaggedUrn.fromString(CAPNS_MEDIA_MODEL_SPEC);
-  assert(inSpec.matches(expectedIn), 'input must match MEDIA_MODEL_SPEC');
+  assert(inSpec.conformsTo(expectedIn), 'input must conform to MEDIA_MODEL_SPEC');
   const outSpec = TaggedUrn.fromString(urn.getOutSpec());
   const expectedOut = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
-  assert(outSpec.matches(expectedOut), 'output must match MEDIA_PATH_OUTPUT');
+  assert(outSpec.conformsTo(expectedOut), 'output must conform to MEDIA_PATH_OUTPUT');
   console.log('  ✓ modelPathUrn');
 }
 
@@ -2240,13 +2240,13 @@ function testLlmConversationUrnSpecs() {
   // Compare semantically via TaggedUrn matching (tag order may differ)
   const inSpec = TaggedUrn.fromString(urn.getInSpec());
   const expectedIn = TaggedUrn.fromString(CAPNS_MEDIA_STRING);
-  assert(inSpec.matches(expectedIn),
-    `in_spec '${urn.getInSpec()}' must match MEDIA_STRING '${CAPNS_MEDIA_STRING}'`);
+  assert(inSpec.conformsTo(expectedIn),
+    `in_spec '${urn.getInSpec()}' must conform to MEDIA_STRING '${CAPNS_MEDIA_STRING}'`);
 
   const outSpec = TaggedUrn.fromString(urn.getOutSpec());
   const expectedOut = TaggedUrn.fromString(MEDIA_LLM_INFERENCE_OUTPUT);
-  assert(outSpec.matches(expectedOut),
-    `out_spec '${urn.getOutSpec()}' must match '${MEDIA_LLM_INFERENCE_OUTPUT}'`);
+  assert(outSpec.conformsTo(expectedOut),
+    `out_spec '${urn.getOutSpec()}' must conform to '${MEDIA_LLM_INFERENCE_OUTPUT}'`);
   console.log('  ✓ llmConversationUrn specs');
 }
 
