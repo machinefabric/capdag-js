@@ -27,10 +27,10 @@
   "repository": {
     "directory": "capns-js",
     "type": "git",
-    "url": "https://github.com/jowharshamshiri/capns-j.git"
+    "url": "https://github.com/filegrind/capns-js.git"
   },
   "scripts": {
     "test": "node capns.test.js"
   },
-  "version": "0.77.17595"
+  "version": "0.78.18772"
 }
