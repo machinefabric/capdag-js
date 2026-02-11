@@ -401,22 +401,24 @@ function test023_builderPreservesCase() {
   assertEqual(cap.getTag('MyKey'), 'MyValue', 'getTag should be case-insensitive for keys');
 }
 
-// TEST024: isCompatibleWith checks, missing tags = wildcards
+// TEST024: Directional accepts checks
 function test024_compatibility() {
+  // General cap accepts specific request (missing tags = wildcards)
+  const general = CapUrn.fromString(testUrn('op=generate'));
+  const specific = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
+  assert(general.accepts(specific), 'General cap should accept specific request');
+  // Specific cap also accepts general request (cap has extra tag, not blocking)
+  assert(specific.accepts(general), 'Specific cap accepts general request (extra tags ok)');
+
+  // Different op values: neither accepts the other
   const cap1 = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  const cap2 = CapUrn.fromString(testUrn('op=generate;format=*'));
   const cap3 = CapUrn.fromString(testUrn('type=image;op=extract'));
+  assert(!cap1.accepts(cap3), 'Different op should not accept');
+  assert(!cap3.accepts(cap1), 'Different op should not accept (reverse)');
 
-  assert(cap1.isCompatibleWith(cap2), 'Same op should be compatible');
-  assert(!cap1.isCompatibleWith(cap3), 'Different op should not be compatible');
-
-  // Missing tags treated as wildcards
-  const cap4 = CapUrn.fromString(testUrn('op=generate'));
-  assert(cap1.isCompatibleWith(cap4), 'Missing ext in cap4 should be wildcard');
-
-  // Different in/out should not be compatible
+  // Different in/out should not accept
   const cap5 = CapUrn.fromString('cap:in="media:textable;form=scalar";out="media:object";op=generate');
-  assert(!cap1.isCompatibleWith(cap5), 'Different inSpec should not be compatible');
+  assert(!cap1.accepts(cap5), 'Different inSpec should not accept');
 }
 
 // TEST025: CapMatcher.findBestMatch returns most specific

@@ -444,67 +444,7 @@ class CapUrn {
       return true;
     }
 
-    // First check if they're compatible
-    if (!this.isCompatibleWith(other)) {
-      return false;
-    }
-
     return this.specificity() > other.specificity();
-  }
-
-  /**
-   * Check if this cap is compatible with another
-   *
-   * Two caps are compatible if they can potentially match
-   * the same types of requests (considering wildcards and missing tags as wildcards)
-   * Direction specs are compatible if either is a subtype of the other via TaggedUrn matching
-   *
-   * @param {CapUrn} other - The other cap to check compatibility with
-   * @returns {boolean} Whether the caps are compatible
-   */
-  isCompatibleWith(other) {
-    if (!other) {
-      return true;
-    }
-
-    // Check in_urn compatibility: either direction of conformsTo succeeds
-    if (this.inSpec !== '*' && other.inSpec !== '*') {
-      const selfIn = TaggedUrn.fromString(this.inSpec);
-      const otherIn = TaggedUrn.fromString(other.inSpec);
-      const fwd = selfIn.conformsTo(otherIn);
-      const rev = otherIn.conformsTo(selfIn);
-      if (!fwd && !rev) {
-        return false;
-      }
-    }
-    // Check out_urn compatibility
-    if (this.outSpec !== '*' && other.outSpec !== '*') {
-      const selfOut = TaggedUrn.fromString(this.outSpec);
-      const otherOut = TaggedUrn.fromString(other.outSpec);
-      const fwd = selfOut.conformsTo(otherOut);
-      const rev = otherOut.conformsTo(selfOut);
-      if (!fwd && !rev) {
-        return false;
-      }
-    }
-
-    // Get all unique tag keys from both caps
-    const allKeys = new Set([...Object.keys(this.tags), ...Object.keys(other.tags)]);
-
-    for (const key of allKeys) {
-      const v1 = this.tags[key];
-      const v2 = other.tags[key];
-
-      if (v1 !== undefined && v2 !== undefined) {
-        // Both have the tag - they must match or one must be wildcard
-        if (v1 !== '*' && v2 !== '*' && v1 !== v2) {
-          return false;
-        }
-      }
-      // If only one has the tag, it's compatible (missing tag is wildcard)
-    }
-
-    return true;
   }
 
   /**
@@ -741,7 +681,7 @@ class CapMatcher {
   static areCompatible(caps1, caps2) {
     for (const c1 of caps1) {
       for (const c2 of caps2) {
-        if (c1.isCompatibleWith(c2)) {
+        if (c1.accepts(c2) || c2.accepts(c1)) {
           return true;
         }
       }

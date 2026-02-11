@@ -65,7 +65,6 @@ console.log(best.toString()); // Most specific match
 - `withTag(key, value)` - Add/update tag (returns new instance)
 - `withoutTag(key)` - Remove tag (returns new instance)
 - `accepts(request)` - Check if this cap (as pattern) accepts a request
-- `canHandle(request)` - Check if this cap can handle a request
 - `specificity()` - Get specificity score for matching
 - `isMoreSpecificThan(other)` - Compare specificity
 - `equals(other)` - Check equality
