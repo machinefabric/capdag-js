@@ -774,7 +774,7 @@ const MEDIA_LLM_INFERENCE_OUTPUT = 'media:generated-text;textable;form=map';
 
 // Standard echo capability URN
 // Accepts any media type as input and outputs any media type
-const CAP_ECHO = 'cap:in=media:;out=media:';
+const CAP_IDENTITY = 'cap:in=media:;out=media:';
 
 // =============================================================================
 // MEDIA URN CLASS
