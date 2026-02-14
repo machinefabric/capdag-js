@@ -769,6 +769,14 @@ const MEDIA_EMBEDDING_VECTOR = 'media:embedding-vector;textable;form=map';
 const MEDIA_LLM_INFERENCE_OUTPUT = 'media:generated-text;textable;form=map';
 
 // =============================================================================
+// STANDARD CAP URN CONSTANTS
+// =============================================================================
+
+// Standard echo capability URN
+// Accepts any media type as input and outputs any media type
+const CAP_ECHO = 'cap:in=media:;out=media:';
+
+// =============================================================================
 // MEDIA URN CLASS
 // =============================================================================
 
