@@ -349,8 +349,10 @@ class CapUrn {
     }
 
     // Direction specs: TaggedUrn semantic matching via MediaUrn
-    // Check in_urn: cap's input spec (pattern) accepts request's input (instance)
-    if (this.inSpec !== '*' && request.inSpec !== '*') {
+    // Check in_urn: cap's input spec (pattern) accepts request's input (instance).
+    // "media:" on the PATTERN side (this.inSpec) means "I accept any input" — skip check.
+    // "*" is also treated as wildcard. "media:" on the instance side still participates.
+    if (this.inSpec !== '*' && this.inSpec !== 'media:' && request.inSpec !== '*') {
       const capIn = TaggedUrn.fromString(this.inSpec);
       const requestIn = TaggedUrn.fromString(request.inSpec);
       if (!capIn.accepts(requestIn)) {
@@ -358,8 +360,10 @@ class CapUrn {
       }
     }
 
-    // Check out_urn: cap's output (instance) conforms to request's output (pattern)
-    if (this.outSpec !== '*' && request.outSpec !== '*') {
+    // Check out_urn: cap's output (instance) conforms to request's output (pattern).
+    // "media:" on the PATTERN side (this.outSpec) means "I accept any output" — skip check.
+    // "*" is also treated as wildcard. "media:" on the instance side still participates.
+    if (this.outSpec !== '*' && this.outSpec !== 'media:' && request.outSpec !== '*') {
       const capOut = TaggedUrn.fromString(this.outSpec);
       const requestOut = TaggedUrn.fromString(request.outSpec);
       if (!capOut.conformsTo(requestOut)) {
@@ -767,6 +771,12 @@ const MEDIA_PATH_OUTPUT = 'media:model-path;textable;form=map';
 // Semantic output types - inference
 const MEDIA_EMBEDDING_VECTOR = 'media:embedding-vector;textable;form=map';
 const MEDIA_LLM_INFERENCE_OUTPUT = 'media:generated-text;textable;form=map';
+// File path types
+const MEDIA_FILE_PATH = 'media:file-path;textable;form=scalar';
+const MEDIA_FILE_PATH_ARRAY = 'media:file-path;textable;form=list';
+// Collection types
+const MEDIA_COLLECTION = 'media:collection;form=map';
+const MEDIA_COLLECTION_LIST = 'media:collection;form=list';
 
 // =============================================================================
 // STANDARD CAP URN CONSTANTS
@@ -847,6 +857,33 @@ class MediaUrn {
 
   /** @returns {boolean} True if the "void" marker tag is present */
   isVoid() { return this._urn.getTag('void') !== undefined; }
+
+  /** @returns {boolean} True if the "image" marker tag is present */
+  isImage() { return this._urn.getTag('image') !== undefined; }
+
+  /** @returns {boolean} True if the "audio" marker tag is present */
+  isAudio() { return this._urn.getTag('audio') !== undefined; }
+
+  /** @returns {boolean} True if the "video" marker tag is present */
+  isVideo() { return this._urn.getTag('video') !== undefined; }
+
+  /** @returns {boolean} True if the "numeric" marker tag is present */
+  isNumeric() { return this._urn.getTag('numeric') !== undefined; }
+
+  /** @returns {boolean} True if the "bool" marker tag is present */
+  isBool() { return this._urn.getTag('bool') !== undefined; }
+
+  /** @returns {boolean} True if "file-path" marker tag is present AND NOT form=list */
+  isFilePath() { return this._urn.getTag('file-path') !== undefined && !this.isList(); }
+
+  /** @returns {boolean} True if "file-path" marker tag is present AND form=list */
+  isFilePathArray() { return this._urn.getTag('file-path') !== undefined && this.isList(); }
+
+  /** @returns {boolean} True if "file-path" marker tag is present (single or array) */
+  isAnyFilePath() { return this.isFilePath() || this.isFilePathArray(); }
+
+  /** @returns {boolean} True if the "collection" marker tag is present */
+  isCollection() { return this._urn.getTag('collection') !== undefined; }
 
   /**
    * Check if this media URN conforms to another (pattern).
@@ -4123,6 +4160,12 @@ module.exports = {
   // Semantic output types - inference
   MEDIA_EMBEDDING_VECTOR,
   MEDIA_LLM_INFERENCE_OUTPUT,
+  // File path types
+  MEDIA_FILE_PATH,
+  MEDIA_FILE_PATH_ARRAY,
+  // Collection types
+  MEDIA_COLLECTION,
+  MEDIA_COLLECTION_LIST,
   // Unified argument type
   CapArgumentValue,
   // Standard cap URN builders

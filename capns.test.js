@@ -21,7 +21,11 @@ const {
   MEDIA_PDF, MEDIA_EPUB, MEDIA_MD, MEDIA_TXT, MEDIA_RST, MEDIA_LOG,
   MEDIA_HTML, MEDIA_XML, MEDIA_JSON, MEDIA_YAML, MEDIA_JSON_SCHEMA,
   MEDIA_MODEL_SPEC, MEDIA_AVAILABILITY_OUTPUT, MEDIA_PATH_OUTPUT,
-  MEDIA_LLM_INFERENCE_OUTPUT
+  MEDIA_LLM_INFERENCE_OUTPUT,
+  MEDIA_FILE_PATH, MEDIA_FILE_PATH_ARRAY,
+  MEDIA_COLLECTION, MEDIA_COLLECTION_LIST,
+  MEDIA_DECISION, MEDIA_DECISION_ARRAY,
+  MEDIA_AUDIO_SPEECH, MEDIA_IMAGE_THUMBNAIL
 } = require('./capns.js');
 
 // ============================================================================
@@ -2262,6 +2266,344 @@ function test335_pluginRepoServerClientIntegration() {
 }
 
 // ============================================================================
+// media_urn.rs: TEST546-TEST558 (MediaUrn predicates)
+// ============================================================================
+
+// TEST546: isImage returns true only when image marker tag is present
+function test546_isImage() {
+  assert(MediaUrn.fromString(MEDIA_PNG).isImage(), 'MEDIA_PNG should be image');
+  assert(MediaUrn.fromString(MEDIA_IMAGE_THUMBNAIL).isImage(), 'MEDIA_IMAGE_THUMBNAIL should be image');
+  assert(MediaUrn.fromString('media:image;jpg;bytes').isImage(), 'media:image;jpg;bytes should be image');
+  // Non-image types
+  assert(!MediaUrn.fromString(MEDIA_PDF).isImage(), 'MEDIA_PDF should not be image');
+  assert(!MediaUrn.fromString(MEDIA_STRING).isImage(), 'MEDIA_STRING should not be image');
+  assert(!MediaUrn.fromString(MEDIA_AUDIO).isImage(), 'MEDIA_AUDIO should not be image');
+  assert(!MediaUrn.fromString(MEDIA_VIDEO).isImage(), 'MEDIA_VIDEO should not be image');
+}
+
+// TEST547: isAudio returns true only when audio marker tag is present
+function test547_isAudio() {
+  assert(MediaUrn.fromString(MEDIA_AUDIO).isAudio(), 'MEDIA_AUDIO should be audio');
+  assert(MediaUrn.fromString(MEDIA_AUDIO_SPEECH).isAudio(), 'MEDIA_AUDIO_SPEECH should be audio');
+  assert(MediaUrn.fromString('media:audio;mp3;bytes').isAudio(), 'media:audio;mp3;bytes should be audio');
+  // Non-audio types
+  assert(!MediaUrn.fromString(MEDIA_VIDEO).isAudio(), 'MEDIA_VIDEO should not be audio');
+  assert(!MediaUrn.fromString(MEDIA_PNG).isAudio(), 'MEDIA_PNG should not be audio');
+  assert(!MediaUrn.fromString(MEDIA_STRING).isAudio(), 'MEDIA_STRING should not be audio');
+}
+
+// TEST548: isVideo returns true only when video marker tag is present
+function test548_isVideo() {
+  assert(MediaUrn.fromString(MEDIA_VIDEO).isVideo(), 'MEDIA_VIDEO should be video');
+  assert(MediaUrn.fromString('media:video;mp4;bytes').isVideo(), 'media:video;mp4;bytes should be video');
+  // Non-video types
+  assert(!MediaUrn.fromString(MEDIA_AUDIO).isVideo(), 'MEDIA_AUDIO should not be video');
+  assert(!MediaUrn.fromString(MEDIA_PNG).isVideo(), 'MEDIA_PNG should not be video');
+  assert(!MediaUrn.fromString(MEDIA_STRING).isVideo(), 'MEDIA_STRING should not be video');
+}
+
+// TEST549: isNumeric returns true only when numeric marker tag is present
+function test549_isNumeric() {
+  assert(MediaUrn.fromString(MEDIA_INTEGER).isNumeric(), 'MEDIA_INTEGER should be numeric');
+  assert(MediaUrn.fromString(MEDIA_NUMBER).isNumeric(), 'MEDIA_NUMBER should be numeric');
+  assert(MediaUrn.fromString(MEDIA_INTEGER_ARRAY).isNumeric(), 'MEDIA_INTEGER_ARRAY should be numeric');
+  assert(MediaUrn.fromString(MEDIA_NUMBER_ARRAY).isNumeric(), 'MEDIA_NUMBER_ARRAY should be numeric');
+  // Non-numeric types
+  assert(!MediaUrn.fromString(MEDIA_STRING).isNumeric(), 'MEDIA_STRING should not be numeric');
+  assert(!MediaUrn.fromString(MEDIA_BOOLEAN).isNumeric(), 'MEDIA_BOOLEAN should not be numeric');
+  assert(!MediaUrn.fromString(MEDIA_BINARY).isNumeric(), 'MEDIA_BINARY should not be numeric');
+}
+
+// TEST550: isBool returns true only when bool marker tag is present
+function test550_isBool() {
+  assert(MediaUrn.fromString(MEDIA_BOOLEAN).isBool(), 'MEDIA_BOOLEAN should be bool');
+  assert(MediaUrn.fromString(MEDIA_BOOLEAN_ARRAY).isBool(), 'MEDIA_BOOLEAN_ARRAY should be bool');
+  assert(MediaUrn.fromString(MEDIA_DECISION).isBool(), 'MEDIA_DECISION should be bool');
+  assert(MediaUrn.fromString(MEDIA_DECISION_ARRAY).isBool(), 'MEDIA_DECISION_ARRAY should be bool');
+  // Non-bool types
+  assert(!MediaUrn.fromString(MEDIA_STRING).isBool(), 'MEDIA_STRING should not be bool');
+  assert(!MediaUrn.fromString(MEDIA_INTEGER).isBool(), 'MEDIA_INTEGER should not be bool');
+  assert(!MediaUrn.fromString(MEDIA_BINARY).isBool(), 'MEDIA_BINARY should not be bool');
+}
+
+// TEST551: isFilePath returns true for scalar file-path, false for array
+function test551_isFilePath() {
+  assert(MediaUrn.fromString(MEDIA_FILE_PATH).isFilePath(), 'MEDIA_FILE_PATH should be file-path');
+  // Array file-path is NOT isFilePath (it's isFilePathArray)
+  assert(!MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isFilePath(), 'MEDIA_FILE_PATH_ARRAY should not be isFilePath');
+  // Non-file-path types
+  assert(!MediaUrn.fromString(MEDIA_STRING).isFilePath(), 'MEDIA_STRING should not be file-path');
+  assert(!MediaUrn.fromString(MEDIA_BINARY).isFilePath(), 'MEDIA_BINARY should not be file-path');
+}
+
+// TEST552: isFilePathArray returns true for list file-path, false for scalar
+function test552_isFilePathArray() {
+  assert(MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isFilePathArray(), 'MEDIA_FILE_PATH_ARRAY should be file-path-array');
+  // Scalar file-path is NOT isFilePathArray
+  assert(!MediaUrn.fromString(MEDIA_FILE_PATH).isFilePathArray(), 'MEDIA_FILE_PATH should not be isFilePathArray');
+  // Non-file-path types
+  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isFilePathArray(), 'MEDIA_STRING_ARRAY should not be file-path-array');
+}
+
+// TEST553: isAnyFilePath returns true for both scalar and array file-path
+function test553_isAnyFilePath() {
+  assert(MediaUrn.fromString(MEDIA_FILE_PATH).isAnyFilePath(), 'MEDIA_FILE_PATH should be any-file-path');
+  assert(MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isAnyFilePath(), 'MEDIA_FILE_PATH_ARRAY should be any-file-path');
+  // Non-file-path types
+  assert(!MediaUrn.fromString(MEDIA_STRING).isAnyFilePath(), 'MEDIA_STRING should not be any-file-path');
+  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isAnyFilePath(), 'MEDIA_STRING_ARRAY should not be any-file-path');
+}
+
+// TEST554: isCollection returns true when collection marker tag is present
+function test554_isCollection() {
+  assert(MediaUrn.fromString(MEDIA_COLLECTION).isCollection(), 'MEDIA_COLLECTION should be collection');
+  assert(MediaUrn.fromString(MEDIA_COLLECTION_LIST).isCollection(), 'MEDIA_COLLECTION_LIST should be collection');
+  // Non-collection types
+  assert(!MediaUrn.fromString(MEDIA_OBJECT).isCollection(), 'MEDIA_OBJECT should not be collection');
+  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isCollection(), 'MEDIA_STRING_ARRAY should not be collection');
+}
+
+// TEST555: N/A for JS (with_tag/without_tag on MediaUrn - JS MediaUrn does not have these methods)
+
+// TEST556: N/A for JS (image_media_urn_for_ext helper not in JS)
+
+// TEST557: N/A for JS (audio_media_urn_for_ext helper not in JS)
+
+// TEST558: predicates are consistent with constants - every constant triggers exactly the expected predicates
+function test558_predicateConstantConsistency() {
+  // MEDIA_INTEGER must be numeric, text, scalar, NOT binary/bool/image/audio/video
+  const intUrn = MediaUrn.fromString(MEDIA_INTEGER);
+  assert(intUrn.isNumeric(), 'MEDIA_INTEGER must be numeric');
+  assert(intUrn.isText(), 'MEDIA_INTEGER must be text');
+  assert(intUrn.isScalar(), 'MEDIA_INTEGER must be scalar');
+  assert(!intUrn.isBinary(), 'MEDIA_INTEGER must not be binary');
+  assert(!intUrn.isBool(), 'MEDIA_INTEGER must not be bool');
+  assert(!intUrn.isImage(), 'MEDIA_INTEGER must not be image');
+  assert(!intUrn.isList(), 'MEDIA_INTEGER must not be list');
+
+  // MEDIA_BOOLEAN must be bool, text, scalar, NOT numeric
+  const boolUrn = MediaUrn.fromString(MEDIA_BOOLEAN);
+  assert(boolUrn.isBool(), 'MEDIA_BOOLEAN must be bool');
+  assert(boolUrn.isText(), 'MEDIA_BOOLEAN must be text');
+  assert(boolUrn.isScalar(), 'MEDIA_BOOLEAN must be scalar');
+  assert(!boolUrn.isNumeric(), 'MEDIA_BOOLEAN must not be numeric');
+
+  // MEDIA_JSON must be json, text, map, structured, NOT binary
+  const jsonUrn = MediaUrn.fromString(MEDIA_JSON);
+  assert(jsonUrn.isJson(), 'MEDIA_JSON must be json');
+  assert(jsonUrn.isText(), 'MEDIA_JSON must be text');
+  assert(jsonUrn.isMap(), 'MEDIA_JSON must be map');
+  assert(jsonUrn.isStructured(), 'MEDIA_JSON must be structured');
+  assert(!jsonUrn.isBinary(), 'MEDIA_JSON must not be binary');
+  assert(!jsonUrn.isList(), 'MEDIA_JSON must not be list');
+
+  // MEDIA_VOID is void, NOT anything else
+  const voidUrn = MediaUrn.fromString(MEDIA_VOID);
+  assert(voidUrn.isVoid(), 'MEDIA_VOID must be void');
+  assert(!voidUrn.isText(), 'MEDIA_VOID must not be text');
+  assert(!voidUrn.isBinary(), 'MEDIA_VOID must not be binary');
+  assert(!voidUrn.isNumeric(), 'MEDIA_VOID must not be numeric');
+}
+
+// ============================================================================
+// cap_urn.rs: TEST559-TEST567 (CapUrn tier tests)
+// ============================================================================
+
+// TEST559: withoutTag removes tag, ignores in/out, case-insensitive for keys
+function test559_withoutTag() {
+  const cap = CapUrn.fromString('cap:in="media:void";op=test;ext=pdf;out="media:void"');
+  const removed = cap.withoutTag('ext');
+  assertEqual(removed.getTag('ext'), undefined, 'withoutTag should remove ext');
+  assertEqual(removed.getTag('op'), 'test', 'withoutTag should preserve op');
+
+  // Case-insensitive removal
+  const removed2 = cap.withoutTag('EXT');
+  assertEqual(removed2.getTag('ext'), undefined, 'withoutTag should be case-insensitive');
+
+  // Removing in/out is silently ignored
+  const same = cap.withoutTag('in');
+  assertEqual(same.getInSpec(), 'media:void', 'withoutTag must not remove in');
+  const same2 = cap.withoutTag('out');
+  assertEqual(same2.getOutSpec(), 'media:void', 'withoutTag must not remove out');
+
+  // Removing non-existent tag is no-op
+  const same3 = cap.withoutTag('nonexistent');
+  assert(same3.equals(cap), 'Removing non-existent tag is no-op');
+}
+
+// TEST560: withInSpec and withOutSpec change direction specs
+function test560_withInOutSpec() {
+  const cap = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
+
+  const changedIn = cap.withInSpec('media:bytes');
+  assertEqual(changedIn.getInSpec(), 'media:bytes', 'withInSpec should change inSpec');
+  assertEqual(changedIn.getOutSpec(), 'media:void', 'withInSpec should preserve outSpec');
+  assertEqual(changedIn.getTag('op'), 'test', 'withInSpec should preserve tags');
+
+  const changedOut = cap.withOutSpec('media:string');
+  assertEqual(changedOut.getInSpec(), 'media:void', 'withOutSpec should preserve inSpec');
+  assertEqual(changedOut.getOutSpec(), 'media:string', 'withOutSpec should change outSpec');
+
+  // Chain both
+  const changedBoth = cap.withInSpec('media:pdf;bytes').withOutSpec('media:txt;textable');
+  assertEqual(changedBoth.getInSpec(), 'media:pdf;bytes', 'Chain should set inSpec');
+  assertEqual(changedBoth.getOutSpec(), 'media:txt;textable', 'Chain should set outSpec');
+}
+
+// TEST561: N/A for JS (in_media_urn/out_media_urn not in JS CapUrn)
+
+// TEST562: N/A for JS (canonical_option not in JS CapUrn)
+
+// TEST563: CapMatcher.findAllMatches returns all matching caps sorted by specificity
+function test563_findAllMatches() {
+  const caps = [
+    CapUrn.fromString('cap:in="media:void";op=test;out="media:void"'),
+    CapUrn.fromString('cap:in="media:void";op=test;ext=pdf;out="media:void"'),
+    CapUrn.fromString('cap:in="media:void";op=different;out="media:void"'),
+  ];
+
+  const request = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
+  const matches = CapMatcher.findAllMatches(caps, request);
+
+  // Should find 2 matches (op=test and op=test;ext=pdf), not op=different
+  assertEqual(matches.length, 2, 'Should find 2 matches');
+  // Sorted by specificity descending: ext=pdf first (more specific)
+  assert(matches[0].specificity() >= matches[1].specificity(), 'First match should be more specific');
+  assertEqual(matches[0].getTag('ext'), 'pdf', 'Most specific match should have ext=pdf');
+}
+
+// TEST564: CapMatcher.areCompatible detects bidirectional overlap
+function test564_areCompatible() {
+  const caps1 = [
+    CapUrn.fromString('cap:in="media:void";op=test;out="media:void"'),
+  ];
+  const caps2 = [
+    CapUrn.fromString('cap:in="media:void";op=test;ext=pdf;out="media:void"'),
+  ];
+  const caps3 = [
+    CapUrn.fromString('cap:in="media:void";op=different;out="media:void"'),
+  ];
+
+  // caps1 (op=test) accepts caps2 (op=test;ext=pdf) -> compatible
+  assert(CapMatcher.areCompatible(caps1, caps2), 'caps1 and caps2 should be compatible');
+
+  // caps1 (op=test) vs caps3 (op=different) -> not compatible
+  assert(!CapMatcher.areCompatible(caps1, caps3), 'caps1 and caps3 should not be compatible');
+
+  // Empty sets are not compatible
+  assert(!CapMatcher.areCompatible([], caps1), 'Empty vs non-empty should not be compatible');
+  assert(!CapMatcher.areCompatible(caps1, []), 'Non-empty vs empty should not be compatible');
+}
+
+// TEST565: N/A for JS (tags_to_string not in JS CapUrn)
+
+// TEST566: withTag silently ignores in/out keys
+function test566_withTagIgnoresInOut() {
+  const cap = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
+  // Attempting to set in/out via withTag is silently ignored
+  const same = cap.withTag('in', 'media:bytes');
+  assertEqual(same.getInSpec(), 'media:void', 'withTag must not change in_spec');
+
+  const same2 = cap.withTag('out', 'media:bytes');
+  assertEqual(same2.getOutSpec(), 'media:void', 'withTag must not change out_spec');
+}
+
+// TEST567: N/A for JS (conforms_to_str/accepts_str not in JS CapUrn)
+
+// ============================================================================
+// cap_urn.rs: TEST639-TEST653 (Cap URN wildcard tests)
+// ============================================================================
+
+// Note: Rust allows missing in/out to default to "media:" wildcard.
+// JS currently requires in/out (throws MISSING_IN_SPEC/MISSING_OUT_SPEC).
+// The following tests cover the wildcard behavior that IS applicable to JS.
+
+// TEST639-642: N/A for JS (JS requires in/out, does not default to media: wildcard)
+
+// TEST643: cap:in=*;out=* treated as wildcards
+function test643_explicitAsteriskIsWildcard() {
+  const cap = CapUrn.fromString('cap:in=*;out=*');
+  assertEqual(cap.getInSpec(), '*', 'in=* should be stored as wildcard');
+  assertEqual(cap.getOutSpec(), '*', 'out=* should be stored as wildcard');
+}
+
+// TEST644: cap:in=media:bytes;out=* has specific in, wildcard out
+function test644_specificInWildcardOut() {
+  const cap = CapUrn.fromString('cap:in=media:bytes;out=*');
+  assertEqual(cap.getInSpec(), 'media:bytes', 'Should have specific in');
+  assertEqual(cap.getOutSpec(), '*', 'Should have wildcard out');
+}
+
+// TEST645: cap:in=*;out=media:text has wildcard in, specific out
+function test645_wildcardInSpecificOut() {
+  const cap = CapUrn.fromString('cap:in=*;out=media:text');
+  assertEqual(cap.getInSpec(), '*', 'Should have wildcard in');
+  assertEqual(cap.getOutSpec(), 'media:text', 'Should have specific out');
+}
+
+// TEST646: N/A for JS (JS allows in=foo since it just checks for media: or *)
+// TEST647: N/A for JS (JS allows out=bar since it just checks for media: or *)
+
+// TEST648: Wildcard in/out match specific caps
+function test648_wildcardAcceptsSpecific() {
+  const wildcard = CapUrn.fromString('cap:in=*;out=*');
+  const specific = CapUrn.fromString('cap:in="media:bytes";out="media:text"');
+
+  assert(wildcard.accepts(specific), 'Wildcard should accept specific');
+  assert(specific.conformsTo(wildcard), 'Specific should conform to wildcard');
+}
+
+// TEST649: Specificity - wildcard has 0, specific has tag count
+function test649_specificityScoring() {
+  const wildcard = CapUrn.fromString('cap:in=*;out=*');
+  const specific = CapUrn.fromString('cap:in="media:bytes";out="media:text"');
+
+  assertEqual(wildcard.specificity(), 0, 'Wildcard cap should have 0 specificity');
+  assert(specific.specificity() > 0, 'Specific cap should have non-zero specificity');
+}
+
+// TEST650: N/A for JS (JS requires in/out, cap:in;out;op=test would fail parsing)
+
+// TEST651: All identity forms with explicit wildcards produce the same CapUrn
+function test651_identityFormsEquivalent() {
+  const forms = [
+    'cap:in=*;out=*',
+    'cap:in="media:";out="media:"',
+  ];
+
+  const first = CapUrn.fromString(forms[0]);
+  // All forms should produce equivalent caps (wildcard behavior)
+  for (let i = 1; i < forms.length; i++) {
+    const cap = CapUrn.fromString(forms[i]);
+    // Both should accept specific caps
+    const specific = CapUrn.fromString('cap:in="media:bytes";out="media:text"');
+    assert(first.accepts(specific), `Form 0 should accept specific`);
+    assert(cap.accepts(specific), `Form ${i} should accept specific`);
+  }
+}
+
+// TEST652: N/A for JS (CAP_IDENTITY constant not in JS)
+
+// TEST653: Identity (no extra tags) does not steal routes from specific handlers
+function test653_identityRoutingIsolation() {
+  const identity = CapUrn.fromString('cap:in=*;out=*');
+  const specificRequest = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
+
+  // Identity has specificity 0 (no tags, wildcard directions)
+  assertEqual(identity.specificity(), 0, 'Identity specificity should be 0');
+
+  // Specific request has higher specificity
+  assert(specificRequest.specificity() > identity.specificity(),
+    'Specific request should have higher specificity than identity');
+
+  // CapMatcher should prefer specific over identity
+  const specificCap = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
+  const best = CapMatcher.findBestMatch([identity, specificCap], specificRequest);
+  assert(best !== null, 'Should find a match');
+  assertEqual(best.getTag('op'), 'test', 'CapMatcher should prefer specific cap over identity');
+}
+
+// ============================================================================
 // Test runner
 // ============================================================================
 
@@ -2454,6 +2796,48 @@ async function runTests() {
   runTest('TEST333: plugin_repo_client_get_all_caps', test333_pluginRepoClientGetAllCaps);
   runTest('TEST334: plugin_repo_client_needs_sync', test334_pluginRepoClientNeedsSync);
   runTest('TEST335: plugin_repo_server_client_integration', test335_pluginRepoServerClientIntegration);
+
+  // media_urn.rs: TEST546-TEST558 (MediaUrn predicates)
+  console.log('\n--- media_urn.rs (predicates) ---');
+  runTest('TEST546: is_image', test546_isImage);
+  runTest('TEST547: is_audio', test547_isAudio);
+  runTest('TEST548: is_video', test548_isVideo);
+  runTest('TEST549: is_numeric', test549_isNumeric);
+  runTest('TEST550: is_bool', test550_isBool);
+  runTest('TEST551: is_file_path', test551_isFilePath);
+  runTest('TEST552: is_file_path_array', test552_isFilePathArray);
+  runTest('TEST553: is_any_file_path', test553_isAnyFilePath);
+  runTest('TEST554: is_collection', test554_isCollection);
+  console.log('  SKIP TEST555: N/A for JS (with_tag/without_tag on MediaUrn)');
+  console.log('  SKIP TEST556: N/A for JS (image_media_urn_for_ext helper)');
+  console.log('  SKIP TEST557: N/A for JS (audio_media_urn_for_ext helper)');
+  runTest('TEST558: predicate_constant_consistency', test558_predicateConstantConsistency);
+
+  // cap_urn.rs: TEST559-TEST567 (CapUrn tier tests)
+  console.log('\n--- cap_urn.rs (tier tests) ---');
+  runTest('TEST559: without_tag', test559_withoutTag);
+  runTest('TEST560: with_in_out_spec', test560_withInOutSpec);
+  console.log('  SKIP TEST561: N/A for JS (in_media_urn/out_media_urn)');
+  console.log('  SKIP TEST562: N/A for JS (canonical_option)');
+  runTest('TEST563: find_all_matches', test563_findAllMatches);
+  runTest('TEST564: are_compatible', test564_areCompatible);
+  console.log('  SKIP TEST565: N/A for JS (tags_to_string)');
+  runTest('TEST566: with_tag_ignores_in_out', test566_withTagIgnoresInOut);
+  console.log('  SKIP TEST567: N/A for JS (conforms_to_str/accepts_str)');
+
+  // cap_urn.rs: TEST639-TEST653 (Cap URN wildcard tests)
+  console.log('\n--- cap_urn.rs (wildcard tests) ---');
+  console.log('  SKIP TEST639-642: N/A for JS (implicit wildcard defaults)');
+  runTest('TEST643: explicit_asterisk_is_wildcard', test643_explicitAsteriskIsWildcard);
+  runTest('TEST644: specific_in_wildcard_out', test644_specificInWildcardOut);
+  runTest('TEST645: wildcard_in_specific_out', test645_wildcardInSpecificOut);
+  console.log('  SKIP TEST646-647: N/A for JS (invalid spec validation differs)');
+  runTest('TEST648: wildcard_accepts_specific', test648_wildcardAcceptsSpecific);
+  runTest('TEST649: specificity_scoring', test649_specificityScoring);
+  console.log('  SKIP TEST650: N/A for JS (requires in/out)');
+  runTest('TEST651: identity_forms_equivalent', test651_identityFormsEquivalent);
+  console.log('  SKIP TEST652: N/A for JS (CAP_IDENTITY constant)');
+  runTest('TEST653: identity_routing_isolation', test653_identityRoutingIsolation);
 
   // Summary
   console.log(`\n${passCount + failCount} tests: ${passCount} passed, ${failCount} failed`);
