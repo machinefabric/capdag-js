@@ -441,12 +441,12 @@ function test025_bestMatch() {
 // TEST026: merge combines tags, subset keeps only specified
 function test026_mergeAndSubset() {
   const cap1 = CapUrn.fromString(testUrn('op=generate'));
-  const cap2 = CapUrn.fromString('cap:in="media:textable;form=scalar";ext=pdf;format=binary;out="media:bytes"');
+  const cap2 = CapUrn.fromString('cap:in="media:textable;form=scalar";ext=pdf;format=binary;out="media:"');
 
   // Merge (other takes precedence)
   const merged = cap1.merge(cap2);
   assertEqual(merged.getInSpec(), 'media:textable;form=scalar', 'Merge should take inSpec from other');
-  assertEqual(merged.getOutSpec(), 'media:bytes', 'Merge should take outSpec from other');
+  assertEqual(merged.getOutSpec(), 'media:', 'Merge should take outSpec from other');
   assertEqual(merged.getTag('op'), 'generate', 'Merge should keep original tags');
   assertEqual(merged.getTag('ext'), 'pdf', 'Merge should add other tags');
 
@@ -647,8 +647,8 @@ function test046_matchingSemanticsFallbackPattern() {
 
 // TEST047: Thumbnail with void input matches specific ext request
 function test047_matchingSemanticsThumbnailVoidInput() {
-  const cap = CapUrn.fromString('cap:in="media:void";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"');
-  const request = CapUrn.fromString('cap:ext=pdf;in="media:void";op=generate_thumbnail;out="media:image;bytes"');
+  const cap = CapUrn.fromString('cap:in="media:void";op=generate_thumbnail;out="media:image;png;thumbnail"');
+  const request = CapUrn.fromString('cap:ext=pdf;in="media:void";op=generate_thumbnail;out="media:image"');
   assert(cap.accepts(request), 'Void input cap should accept request; cap output conforms to less-specific request output');
 }
 
@@ -666,7 +666,7 @@ function test049_matchingSemanticsCrossDimension() {
   assert(cap.accepts(request), 'Independent tags should not block matching');
 }
 
-// TEST050: media:string vs media:bytes -> no match
+// TEST050: media:string vs media: (wildcard) -> no match
 function test050_matchingSemanticsDirectionMismatch() {
   const cap = CapUrn.fromString(
     `cap:in="${MEDIA_STRING}";op=generate;out="${MEDIA_OBJECT}"`
@@ -677,79 +677,79 @@ function test050_matchingSemanticsDirectionMismatch() {
   assert(!cap.accepts(request), 'Incompatible direction types should not match');
 }
 
-// TEST051: Generic media:bytes provider accepts media:pdf;bytes request;
-//          specific pdf cap rejects generic bytes request;
+// TEST051: Generic media: (wildcard) provider accepts media:pdf request;
+//          specific pdf cap rejects generic wildcard request;
 //          output direction: more specific output satisfies less specific request
 function test051_directionSemanticMatching() {
-  // Generic bytes cap accepts specific pdf;bytes request
+  // Generic wildcard cap accepts specific pdf request
   const genericCap = CapUrn.fromString(
-    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
   const pdfRequest = CapUrn.fromString(
-    'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
-  assert(genericCap.accepts(pdfRequest), 'Generic bytes cap must accept pdf;bytes request');
+  assert(genericCap.accepts(pdfRequest), 'Generic wildcard cap must accept pdf request');
 
-  // Also accepts epub;bytes
+  // Also accepts epub
   const epubRequest = CapUrn.fromString(
-    'cap:in="media:epub;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:epub";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
-  assert(genericCap.accepts(epubRequest), 'Generic bytes cap must accept epub;bytes request');
+  assert(genericCap.accepts(epubRequest), 'Generic wildcard cap must accept epub request');
 
   // Reverse: specific pdf cap does NOT accept generic bytes request
   const pdfCap = CapUrn.fromString(
-    'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
   const genericRequest = CapUrn.fromString(
-    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
-  assert(!pdfCap.accepts(genericRequest), 'Specific pdf cap must NOT accept generic bytes request');
+  assert(!pdfCap.accepts(genericRequest), 'Specific pdf cap must NOT accept generic wildcard request');
 
   // PDF cap does NOT accept epub request
   assert(!pdfCap.accepts(epubRequest), 'PDF cap must NOT accept epub request');
 
   // Output direction: cap producing more specific output satisfies less specific request
   const specificOutCap = CapUrn.fromString(
-    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
   const genericOutRequest = CapUrn.fromString(
-    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;bytes"'
+    'cap:in="media:";op=generate_thumbnail;out="media:image"'
   );
   assert(specificOutCap.accepts(genericOutRequest),
-    'Cap producing image;png;bytes;thumbnail must satisfy request for image;bytes');
+    'Cap producing image;png;thumbnail must satisfy request for image');
 
   // Reverse output: generic output cap does NOT satisfy specific output request
   const genericOutCap = CapUrn.fromString(
-    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;bytes"'
+    'cap:in="media:";op=generate_thumbnail;out="media:image"'
   );
   const specificOutRequest = CapUrn.fromString(
-    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
   assert(!genericOutCap.accepts(specificOutRequest),
     'Generic output cap must NOT satisfy specific output request');
 }
 
-// TEST052: Specificity: media:bytes(1 tag) + image;png;bytes;thumbnail(4 tags) + op(1) = 6;
-//          pdf;bytes(2) = 7; CapMatcher prefers higher
+// TEST052: Specificity: media:(0 tags) + image;png;thumbnail(3 tags) + op(1) = 4;
+//          pdf(1) + image;png;thumbnail(3) + op(1) = 5; CapMatcher prefers higher
 function test052_directionSemanticSpecificity() {
   const genericCap = CapUrn.fromString(
-    'cap:in="media:bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
   const specificCap = CapUrn.fromString(
-    'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
 
-  assertEqual(genericCap.specificity(), 6, 'bytes(1) + image;png;bytes;thumbnail(4) + op(1) = 6');
-  assertEqual(specificCap.specificity(), 7, 'pdf;bytes(2) + image;png;bytes;thumbnail(4) + op(1) = 7');
-  assert(specificCap.specificity() > genericCap.specificity(), 'pdf;bytes should be more specific');
+  assertEqual(genericCap.specificity(), 4, 'media:(0) + image;png;thumbnail(3) + op(1) = 4');
+  assertEqual(specificCap.specificity(), 5, 'pdf(1) + image;png;thumbnail(3) + op(1) = 5');
+  assert(specificCap.specificity() > genericCap.specificity(), 'pdf should be more specific');
 
   // CapMatcher should prefer more specific
   const pdfRequest = CapUrn.fromString(
-    'cap:in="media:pdf;bytes";op=generate_thumbnail;out="media:image;png;bytes;thumbnail"'
+    'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
   const best = CapMatcher.findBestMatch([genericCap, specificCap], pdfRequest);
   assert(best !== null, 'Should find a match');
-  assertEqual(best.getInSpec(), 'media:pdf;bytes', 'Should prefer more specific pdf;bytes cap');
+  assertEqual(best.getInSpec(), 'media:pdf', 'Should prefer more specific pdf cap');
 }
 
 // ============================================================================
@@ -811,13 +811,20 @@ function test060_wrongPrefixFails() {
   );
 }
 
-// TEST061: isBinary true for media:bytes, MEDIA_PNG, MEDIA_PDF, MEDIA_BINARY; false for media:textable
+// TEST061: isBinary true when textable tag is absent (binary = not textable)
 function test061_isBinary() {
-  assert(MediaUrn.fromString('media:bytes').isBinary(), 'media:bytes should be binary');
+  // Binary types: no textable tag
+  assert(MediaUrn.fromString(MEDIA_BINARY).isBinary(), 'MEDIA_BINARY (media:) should be binary');
   assert(MediaUrn.fromString(MEDIA_PNG).isBinary(), 'MEDIA_PNG should be binary');
   assert(MediaUrn.fromString(MEDIA_PDF).isBinary(), 'MEDIA_PDF should be binary');
-  assert(MediaUrn.fromString(MEDIA_BINARY).isBinary(), 'MEDIA_BINARY should be binary');
+  assert(MediaUrn.fromString('media:video').isBinary(), 'media:video should be binary');
+  assert(MediaUrn.fromString('media:epub').isBinary(), 'media:epub should be binary');
+  // Textable types: is_binary is false
   assert(!MediaUrn.fromString('media:textable').isBinary(), 'media:textable should not be binary');
+  assert(!MediaUrn.fromString('media:textable;form=map').isBinary(), 'textable map should not be binary');
+  assert(!MediaUrn.fromString(MEDIA_STRING).isBinary(), 'MEDIA_STRING should not be binary');
+  assert(!MediaUrn.fromString(MEDIA_JSON).isBinary(), 'MEDIA_JSON should not be binary');
+  assert(!MediaUrn.fromString(MEDIA_MD).isBinary(), 'MEDIA_MD should not be binary');
 }
 
 // TEST062: isMap true for MEDIA_OBJECT (form=map); false for MEDIA_STRING (form=scalar), MEDIA_STRING_ARRAY (form=list)
@@ -911,7 +918,7 @@ function test072_constantsParse() {
 
 // TEST073: N/A for JS (Rust has binary_media_urn_for_ext/text_media_urn_for_ext)
 
-// TEST074: MEDIA_PDF (media:pdf;bytes) conformsTo media:pdf; MEDIA_MD conformsTo media:md; same URNs conform
+// TEST074: MEDIA_PDF (media:pdf) conformsTo media:pdf; MEDIA_MD conformsTo media:md; same URNs conform
 function test074_mediaUrnMatching() {
   const pdfUrn = MediaUrn.fromString(MEDIA_PDF);
   const pdfPattern = MediaUrn.fromString('media:pdf');
@@ -938,11 +945,11 @@ function test075_accepts() {
 
 // TEST076: More tags = higher specificity
 function test076_specificity() {
-  const s1 = MediaUrn.fromString('media:bytes');
-  const s2 = MediaUrn.fromString('media:pdf;bytes');
-  const s3 = MediaUrn.fromString('media:image;png;bytes;thumbnail');
-  assert(s2.specificity() > s1.specificity(), 'pdf;bytes should be more specific than bytes');
-  assert(s3.specificity() > s2.specificity(), 'image;png;bytes;thumbnail should be more specific than pdf;bytes');
+  const s1 = MediaUrn.fromString('media:');
+  const s2 = MediaUrn.fromString('media:pdf');
+  const s3 = MediaUrn.fromString('media:image;png;thumbnail');
+  assert(s2.specificity() > s1.specificity(), 'pdf should be more specific than wildcard');
+  assert(s3.specificity() > s2.specificity(), 'image;png;thumbnail should be more specific than pdf');
 }
 
 // TEST077: N/A for JS (Rust serde) - but we test JSON.stringify round-trip
@@ -1015,7 +1022,7 @@ function test093_resolveUnresolvableFailsHard() {
 // TEST097: N/A for JS (Rust validation function)
 // TEST098: N/A for JS
 
-// TEST099: MediaSpec with media:bytes -> isBinary() true
+// TEST099: MediaSpec with media: (no textable tag) -> isBinary() true
 function test099_resolvedIsBinary() {
   const spec = new MediaSpec('application/octet-stream', null, null, 'Binary', null, MEDIA_BINARY);
   assert(spec.isBinary(), 'Resolved binary spec should be binary');
@@ -1097,13 +1104,13 @@ function test106_metadataWithValidation() {
 function test107_extensionsPropagation() {
   const mediaSpecs = [
     {
-      urn: 'media:pdf;bytes',
+      urn: 'media:pdf',
       media_type: 'application/pdf',
       title: 'PDF Document',
       extensions: ['pdf']
     }
   ];
-  const resolved = resolveMediaUrn('media:pdf;bytes', mediaSpecs);
+  const resolved = resolveMediaUrn('media:pdf', mediaSpecs);
   assert(Array.isArray(resolved.extensions), 'Extensions should be an array');
   assertEqual(resolved.extensions.length, 1, 'Should have one extension');
   assertEqual(resolved.extensions[0], 'pdf', 'Should have pdf extension');
@@ -1112,7 +1119,7 @@ function test107_extensionsPropagation() {
 // TEST108: N/A for JS (Rust serde) - but we test MediaSpec with extensions
 function test108_extensionsSerialization() {
   // Test that MediaSpec can hold extensions correctly
-  const spec = new MediaSpec('application/pdf', null, null, 'PDF', null, 'media:pdf;bytes', null, null, ['pdf']);
+  const spec = new MediaSpec('application/pdf', null, null, 'PDF', null, 'media:pdf', null, null, ['pdf']);
   assert(Array.isArray(spec.extensions), 'Extensions should be array');
   assertEqual(spec.extensions[0], 'pdf', 'Should have pdf extension');
 }
@@ -1140,13 +1147,13 @@ function test109_extensionsWithMetadataAndValidation() {
 function test110_multipleExtensions() {
   const mediaSpecs = [
     {
-      urn: 'media:image;jpeg;bytes',
+      urn: 'media:image;jpeg',
       media_type: 'image/jpeg',
       title: 'JPEG Image',
       extensions: ['jpg', 'jpeg']
     }
   ];
-  const resolved = resolveMediaUrn('media:image;jpeg;bytes', mediaSpecs);
+  const resolved = resolveMediaUrn('media:image;jpeg', mediaSpecs);
   assertEqual(resolved.extensions.length, 2, 'Should have two extensions');
   assertEqual(resolved.extensions[0], 'jpg', 'First extension should be jpg');
   assertEqual(resolved.extensions[1], 'jpeg', 'Second extension should be jpeg');
@@ -1524,7 +1531,7 @@ function test157_stdinSourceFromFileReference() {
   const trackedFileId = 'tracked-file-123';
   const originalPath = '/path/to/original.pdf';
   const securityBookmark = new Uint8Array([0x62, 0x6f, 0x6f, 0x6b]);
-  const mediaUrn = 'media:pdf;bytes';
+  const mediaUrn = 'media:pdf';
 
   const source = StdinSource.fromFileReference(trackedFileId, originalPath, securityBookmark, mediaUrn);
   assert(source !== null, 'Should create source');
@@ -1580,7 +1587,7 @@ function test276_capArgumentValueAsStrValid() {
 
 // TEST277: CapArgumentValue.valueAsStr fails for non-UTF-8 binary data
 function test277_capArgumentValueAsStrInvalidUtf8() {
-  const arg = new CapArgumentValue('media:pdf;bytes', new Uint8Array([0xFF, 0xFE, 0x80]));
+  const arg = new CapArgumentValue('media:pdf', new Uint8Array([0xFF, 0xFE, 0x80]));
   let threw = false;
   try {
     arg.valueAsStr();
@@ -1611,7 +1618,7 @@ function test283_capArgumentValueLargeBinary() {
   for (let i = 0; i < 10000; i++) {
     data[i] = i % 256;
   }
-  const arg = new CapArgumentValue('media:pdf;bytes', data);
+  const arg = new CapArgumentValue('media:pdf', data);
   assertEqual(arg.value.length, 10000, 'large binary must preserve all bytes');
   assertEqual(arg.value[0], 0, 'first byte check');
   assertEqual(arg.value[255], 255, 'byte 255 check');
@@ -1629,7 +1636,7 @@ function test304_mediaAvailabilityOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
   assert(urn.getTag('textable') !== undefined, 'model-availability must be textable');
   assertEqual(urn.getTag('form'), 'map', 'model-availability must be form=map');
-  assert(urn.getTag('bytes') === undefined, 'model-availability must not be binary');
+  assert(urn.getTag('textable') !== undefined, 'model-availability must not be binary (has textable)');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
 }
@@ -1639,7 +1646,7 @@ function test305_mediaPathOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
   assert(urn.getTag('textable') !== undefined, 'model-path must be textable');
   assertEqual(urn.getTag('form'), 'map', 'model-path must be form=map');
-  assert(urn.getTag('bytes') === undefined, 'model-path must not be binary');
+  assert(urn.getTag('textable') !== undefined, 'model-path must not be binary (has textable)');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
 }
@@ -1731,8 +1738,8 @@ function test312_allUrnBuildersProduceValidUrns() {
 
 function testJS_buildExtensionIndex() {
   const mediaSpecs = [
-    { urn: 'media:pdf;bytes', media_type: 'application/pdf', extensions: ['pdf'] },
-    { urn: 'media:image;jpeg;bytes', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] },
+    { urn: 'media:pdf', media_type: 'application/pdf', extensions: ['pdf'] },
+    { urn: 'media:image;jpeg', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] },
     { urn: 'media:json;textable', media_type: 'application/json', extensions: ['json'] }
   ];
   const index = buildExtensionIndex(mediaSpecs);
@@ -1742,12 +1749,12 @@ function testJS_buildExtensionIndex() {
   assert(index.has('jpg'), 'Should have jpg');
   assert(index.has('jpeg'), 'Should have jpeg');
   assert(index.has('json'), 'Should have json');
-  assertEqual(index.get('pdf')[0], 'media:pdf;bytes', 'pdf should map correctly');
+  assertEqual(index.get('pdf')[0], 'media:pdf', 'pdf should map correctly');
 }
 
 function testJS_mediaUrnsForExtension() {
   const mediaSpecs = [
-    { urn: 'media:pdf;bytes', media_type: 'application/pdf', extensions: ['pdf'] },
+    { urn: 'media:pdf', media_type: 'application/pdf', extensions: ['pdf'] },
     { urn: 'media:json;textable;form=map', media_type: 'application/json', extensions: ['json'] },
     { urn: 'media:json;textable;form=list', media_type: 'application/json', extensions: ['json'] }
   ];
@@ -1775,8 +1782,8 @@ function testJS_mediaUrnsForExtension() {
 
 function testJS_getExtensionMappings() {
   const mediaSpecs = [
-    { urn: 'media:pdf;bytes', media_type: 'application/pdf', extensions: ['pdf'] },
-    { urn: 'media:image;jpeg;bytes', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] }
+    { urn: 'media:pdf', media_type: 'application/pdf', extensions: ['pdf'] },
+    { urn: 'media:image;jpeg', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] }
   ];
   const mappings = getExtensionMappings(mediaSpecs);
   assert(Array.isArray(mappings), 'Should return an array');
@@ -1885,7 +1892,7 @@ function testJS_binaryArgPassedToExecuteCap() {
   const cube = new CapBlock();
   cube.addRegistry('test', registry);
 
-  const binaryArg = new CapArgumentValue('media:pdf;bytes', new Uint8Array([0x89, 0x50, 0x4E, 0x47]));
+  const binaryArg = new CapArgumentValue('media:pdf', new Uint8Array([0x89, 0x50, 0x4E, 0x47]));
   const { compositeHost } = cube.can('cap:in="media:void";op=test;out="media:string"');
 
   return compositeHost.executeCap(
@@ -1893,7 +1900,7 @@ function testJS_binaryArgPassedToExecuteCap() {
     [binaryArg]
   ).then(() => {
     assert(receivedArgs !== null, 'Should receive arguments');
-    assertEqual(receivedArgs[0].mediaUrn, 'media:pdf;bytes', 'Correct mediaUrn');
+    assertEqual(receivedArgs[0].mediaUrn, 'media:pdf', 'Correct mediaUrn');
     assertEqual(receivedArgs[0].value[0], 0x89, 'First byte check');
     assertEqual(receivedArgs[0].value.length, 4, 'Correct data length');
   });
@@ -1930,12 +1937,12 @@ const sampleRegistry = {
       tags: ['pdf', 'extractor'],
       caps: [
         {
-          urn: 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"',
+          urn: 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;form=list"',
           title: 'Disbind PDF',
           description: 'Extract pages'
         },
         {
-          urn: 'cap:in="media:pdf;bytes";op=extract_metadata;out="media:file-metadata;textable;form=map"',
+          urn: 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;textable;form=map"',
           title: 'Extract Metadata',
           description: 'Get PDF metadata'
         }
@@ -2143,13 +2150,13 @@ function test328_pluginRepoServerGetByCategory() {
 function test329_pluginRepoServerGetByCap() {
   const server = new PluginRepoServer(sampleRegistry);
 
-  const disbindCap = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"';
+  const disbindCap = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;form=list"';
   const plugins = server.getPluginsByCap(disbindCap);
 
   assert(plugins.length === 1, 'Should find 1 plugin with this cap');
   assert(plugins[0].id === 'pdfcartridge', 'Should be pdfcartridge');
 
-  const metadataCap = 'cap:in="media:pdf;bytes";op=extract_metadata;out="media:file-metadata;textable;form=map"';
+  const metadataCap = 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;textable;form=map"';
   const metadataPlugins = server.getPluginsByCap(metadataCap);
   assert(metadataPlugins.length === 1, 'Should find metadata cap');
 }
@@ -2176,7 +2183,7 @@ function test331_pluginRepoClientGetSuggestions() {
 
   client.updateCache('https://example.com/api/plugins', plugins);
 
-  const disbindCap = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"';
+  const disbindCap = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;form=list"';
   const suggestions = client.getSuggestionsForCap(disbindCap);
 
   assert(suggestions.length === 1, 'Should find 1 suggestion');
@@ -2254,7 +2261,7 @@ function test335_pluginRepoServerClientIntegration() {
   assert(plugin.hasBinary(), 'Plugin should have binary');
 
   // Client can get suggestions
-  const capUrn = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"';
+  const capUrn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;form=list"';
   const suggestions = client.getSuggestionsForCap(capUrn);
   assert(suggestions.length === 1, 'Should get suggestions');
   assert(suggestions[0].pluginId === 'pdfcartridge', 'Should suggest correct plugin');
@@ -2273,7 +2280,7 @@ function test335_pluginRepoServerClientIntegration() {
 function test546_isImage() {
   assert(MediaUrn.fromString(MEDIA_PNG).isImage(), 'MEDIA_PNG should be image');
   assert(MediaUrn.fromString(MEDIA_IMAGE_THUMBNAIL).isImage(), 'MEDIA_IMAGE_THUMBNAIL should be image');
-  assert(MediaUrn.fromString('media:image;jpg;bytes').isImage(), 'media:image;jpg;bytes should be image');
+  assert(MediaUrn.fromString('media:image;jpg').isImage(), 'media:image;jpg should be image');
   // Non-image types
   assert(!MediaUrn.fromString(MEDIA_PDF).isImage(), 'MEDIA_PDF should not be image');
   assert(!MediaUrn.fromString(MEDIA_STRING).isImage(), 'MEDIA_STRING should not be image');
@@ -2285,7 +2292,7 @@ function test546_isImage() {
 function test547_isAudio() {
   assert(MediaUrn.fromString(MEDIA_AUDIO).isAudio(), 'MEDIA_AUDIO should be audio');
   assert(MediaUrn.fromString(MEDIA_AUDIO_SPEECH).isAudio(), 'MEDIA_AUDIO_SPEECH should be audio');
-  assert(MediaUrn.fromString('media:audio;mp3;bytes').isAudio(), 'media:audio;mp3;bytes should be audio');
+  assert(MediaUrn.fromString('media:audio;mp3').isAudio(), 'media:audio;mp3 should be audio');
   // Non-audio types
   assert(!MediaUrn.fromString(MEDIA_VIDEO).isAudio(), 'MEDIA_VIDEO should not be audio');
   assert(!MediaUrn.fromString(MEDIA_PNG).isAudio(), 'MEDIA_PNG should not be audio');
@@ -2295,7 +2302,7 @@ function test547_isAudio() {
 // TEST548: isVideo returns true only when video marker tag is present
 function test548_isVideo() {
   assert(MediaUrn.fromString(MEDIA_VIDEO).isVideo(), 'MEDIA_VIDEO should be video');
-  assert(MediaUrn.fromString('media:video;mp4;bytes').isVideo(), 'media:video;mp4;bytes should be video');
+  assert(MediaUrn.fromString('media:video;mp4').isVideo(), 'media:video;mp4 should be video');
   // Non-video types
   assert(!MediaUrn.fromString(MEDIA_AUDIO).isVideo(), 'MEDIA_AUDIO should not be video');
   assert(!MediaUrn.fromString(MEDIA_PNG).isVideo(), 'MEDIA_PNG should not be video');
@@ -2397,11 +2404,11 @@ function test558_predicateConstantConsistency() {
   assert(!jsonUrn.isBinary(), 'MEDIA_JSON must not be binary');
   assert(!jsonUrn.isList(), 'MEDIA_JSON must not be list');
 
-  // MEDIA_VOID is void, NOT anything else
+  // MEDIA_VOID is void, NOT text/numeric — but IS binary (no textable tag)
   const voidUrn = MediaUrn.fromString(MEDIA_VOID);
   assert(voidUrn.isVoid(), 'MEDIA_VOID must be void');
   assert(!voidUrn.isText(), 'MEDIA_VOID must not be text');
-  assert(!voidUrn.isBinary(), 'MEDIA_VOID must not be binary');
+  assert(voidUrn.isBinary(), 'MEDIA_VOID must be binary (no textable tag)');
   assert(!voidUrn.isNumeric(), 'MEDIA_VOID must not be numeric');
 }
 
@@ -2435,8 +2442,8 @@ function test559_withoutTag() {
 function test560_withInOutSpec() {
   const cap = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
 
-  const changedIn = cap.withInSpec('media:bytes');
-  assertEqual(changedIn.getInSpec(), 'media:bytes', 'withInSpec should change inSpec');
+  const changedIn = cap.withInSpec('media:');
+  assertEqual(changedIn.getInSpec(), 'media:', 'withInSpec should change inSpec');
   assertEqual(changedIn.getOutSpec(), 'media:void', 'withInSpec should preserve outSpec');
   assertEqual(changedIn.getTag('op'), 'test', 'withInSpec should preserve tags');
 
@@ -2445,8 +2452,8 @@ function test560_withInOutSpec() {
   assertEqual(changedOut.getOutSpec(), 'media:string', 'withOutSpec should change outSpec');
 
   // Chain both
-  const changedBoth = cap.withInSpec('media:pdf;bytes').withOutSpec('media:txt;textable');
-  assertEqual(changedBoth.getInSpec(), 'media:pdf;bytes', 'Chain should set inSpec');
+  const changedBoth = cap.withInSpec('media:pdf').withOutSpec('media:txt;textable');
+  assertEqual(changedBoth.getInSpec(), 'media:pdf', 'Chain should set inSpec');
   assertEqual(changedBoth.getOutSpec(), 'media:txt;textable', 'Chain should set outSpec');
 }
 
@@ -2501,10 +2508,10 @@ function test564_areCompatible() {
 function test566_withTagIgnoresInOut() {
   const cap = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
   // Attempting to set in/out via withTag is silently ignored
-  const same = cap.withTag('in', 'media:bytes');
+  const same = cap.withTag('in', 'media:');
   assertEqual(same.getInSpec(), 'media:void', 'withTag must not change in_spec');
 
-  const same2 = cap.withTag('out', 'media:bytes');
+  const same2 = cap.withTag('out', 'media:');
   assertEqual(same2.getOutSpec(), 'media:void', 'withTag must not change out_spec');
 }
 
@@ -2527,10 +2534,10 @@ function test643_explicitAsteriskIsWildcard() {
   assertEqual(cap.getOutSpec(), '*', 'out=* should be stored as wildcard');
 }
 
-// TEST644: cap:in=media:bytes;out=* has specific in, wildcard out
+// TEST644: cap:in=media:;out=* has specific in, wildcard out
 function test644_specificInWildcardOut() {
-  const cap = CapUrn.fromString('cap:in=media:bytes;out=*');
-  assertEqual(cap.getInSpec(), 'media:bytes', 'Should have specific in');
+  const cap = CapUrn.fromString('cap:in=media:;out=*');
+  assertEqual(cap.getInSpec(), 'media:', 'Should have specific in');
   assertEqual(cap.getOutSpec(), '*', 'Should have wildcard out');
 }
 
@@ -2547,7 +2554,7 @@ function test645_wildcardInSpecificOut() {
 // TEST648: Wildcard in/out match specific caps
 function test648_wildcardAcceptsSpecific() {
   const wildcard = CapUrn.fromString('cap:in=*;out=*');
-  const specific = CapUrn.fromString('cap:in="media:bytes";out="media:text"');
+  const specific = CapUrn.fromString('cap:in="media:";out="media:text"');
 
   assert(wildcard.accepts(specific), 'Wildcard should accept specific');
   assert(specific.conformsTo(wildcard), 'Specific should conform to wildcard');
@@ -2556,7 +2563,7 @@ function test648_wildcardAcceptsSpecific() {
 // TEST649: Specificity - wildcard has 0, specific has tag count
 function test649_specificityScoring() {
   const wildcard = CapUrn.fromString('cap:in=*;out=*');
-  const specific = CapUrn.fromString('cap:in="media:bytes";out="media:text"');
+  const specific = CapUrn.fromString('cap:in="media:";out="media:text"');
 
   assertEqual(wildcard.specificity(), 0, 'Wildcard cap should have 0 specificity');
   assert(specific.specificity() > 0, 'Specific cap should have non-zero specificity');
@@ -2576,7 +2583,7 @@ function test651_identityFormsEquivalent() {
   for (let i = 1; i < forms.length; i++) {
     const cap = CapUrn.fromString(forms[i]);
     // Both should accept specific caps
-    const specific = CapUrn.fromString('cap:in="media:bytes";out="media:text"');
+    const specific = CapUrn.fromString('cap:in="media:";out="media:text"');
     assert(first.accepts(specific), `Form 0 should accept specific`);
     assert(cap.accepts(specific), `Form ${i} should accept specific`);
   }

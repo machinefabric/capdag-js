@@ -732,18 +732,18 @@ const MEDIA_INTEGER_ARRAY = 'media:integer;textable;numeric;form=list';
 const MEDIA_NUMBER_ARRAY = 'media:textable;numeric;form=list';
 const MEDIA_BOOLEAN_ARRAY = 'media:bool;textable;form=list';
 const MEDIA_OBJECT_ARRAY = 'media:form=list;textable';
-const MEDIA_BINARY = 'media:bytes';
+const MEDIA_BINARY = 'media:';
 const MEDIA_VOID = 'media:void';
 // Semantic content types
-const MEDIA_PNG = 'media:image;png;bytes';
-const MEDIA_AUDIO = 'media:wav;audio;bytes;';
-const MEDIA_VIDEO = 'media:video;bytes';
+const MEDIA_PNG = 'media:image;png';
+const MEDIA_AUDIO = 'media:wav;audio';
+const MEDIA_VIDEO = 'media:video';
 // Semantic AI input types
-const MEDIA_AUDIO_SPEECH = 'media:audio;wav;bytes;speech';
-const MEDIA_IMAGE_THUMBNAIL = 'media:image;png;bytes;thumbnail';
+const MEDIA_AUDIO_SPEECH = 'media:audio;wav;speech';
+const MEDIA_IMAGE_THUMBNAIL = 'media:image;png;thumbnail';
 // Document types (PRIMARY naming - type IS the format)
-const MEDIA_PDF = 'media:pdf;bytes';
-const MEDIA_EPUB = 'media:epub;bytes';
+const MEDIA_PDF = 'media:pdf';
+const MEDIA_EPUB = 'media:epub';
 // Text format types (PRIMARY naming - type IS the format)
 const MEDIA_MD = 'media:md;textable';
 const MEDIA_TXT = 'media:txt;textable';
@@ -775,8 +775,8 @@ const MEDIA_LLM_INFERENCE_OUTPUT = 'media:generated-text;textable;form=map';
 const MEDIA_FILE_PATH = 'media:file-path;textable;form=scalar';
 const MEDIA_FILE_PATH_ARRAY = 'media:file-path;textable;form=list';
 // Collection types
-const MEDIA_COLLECTION = 'media:collection;form=map';
-const MEDIA_COLLECTION_LIST = 'media:collection;form=list';
+const MEDIA_COLLECTION = 'media:collection;textable;form=map';
+const MEDIA_COLLECTION_LIST = 'media:collection;textable;form=list';
 
 // =============================================================================
 // STANDARD CAP URN CONSTANTS
@@ -825,7 +825,7 @@ class MediaUrn {
 
   /**
    * Parse a media URN string. Validates the prefix is 'media'.
-   * @param {string} str - The media URN string (e.g., "media:bytes")
+   * @param {string} str - The media URN string (e.g., "media:pdf")
    * @returns {MediaUrn}
    * @throws {MediaUrnError} If prefix is not 'media'
    */
@@ -834,8 +834,8 @@ class MediaUrn {
     return new MediaUrn(urn);
   }
 
-  /** @returns {boolean} True if the "bytes" marker tag is present */
-  isBinary() { return this._urn.getTag('bytes') !== undefined; }
+  /** @returns {boolean} True if the "textable" marker tag is NOT present (binary = not textable) */
+  isBinary() { return this._urn.getTag('textable') === undefined; }
 
   /** @returns {boolean} True if form=map tag is present */
   isMap() { return this._urn.hasTag('form', 'map'); }
@@ -1073,7 +1073,7 @@ class MediaSpec {
     return this._parsedMediaUrn;
   }
 
-  /** @returns {boolean} True if binary (bytes marker tag present) */
+  /** @returns {boolean} True if binary (textable marker tag absent) */
   isBinary() {
     const mu = this.parsedMediaUrn();
     return mu ? mu.isBinary() : false;
@@ -1280,7 +1280,7 @@ function buildExtensionIndex(mediaSpecs) {
  *
  * @example
  * const urns = mediaUrnsForExtension('pdf', mediaSpecs);
- * // May return ['media:pdf;bytes']
+ * // May return ['media:pdf']
  */
 function mediaUrnsForExtension(extension, mediaSpecs) {
   const index = buildExtensionIndex(mediaSpecs);
