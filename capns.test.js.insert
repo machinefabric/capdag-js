@@ -18,12 +18,12 @@ const sampleRegistry = {
       tags: ['pdf', 'extractor'],
       caps: [
         {
-          urn: 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"',
+          urn: 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;list"',
           title: 'Disbind PDF',
           description: 'Extract pages'
         },
         {
-          urn: 'cap:in="media:pdf;bytes";op=extract_metadata;out="media:file-metadata;textable;form=map"',
+          urn: 'cap:in="media:pdf;bytes";op=extract_metadata;out="media:file-metadata;textable;record"',
           title: 'Extract Metadata',
           description: 'Get PDF metadata'
         }
@@ -59,7 +59,7 @@ const sampleRegistry = {
       tags: ['txt', 'text'],
       caps: [
         {
-          urn: 'cap:in="media:txt;textable";op=disbind;out="media:disbound-page;textable;form=list"',
+          urn: 'cap:in="media:txt;textable";op=disbind;out="media:disbound-page;textable;list"',
           title: 'Disbind Text',
           description: 'Extract text pages'
         }
@@ -231,13 +231,13 @@ function test328_pluginRepoServerGetByCategory() {
 function test329_pluginRepoServerGetByCap() {
   const server = new PluginRepoServer(sampleRegistry);
 
-  const disbindCap = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"';
+  const disbindCap = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;list"';
   const plugins = server.getPluginsByCap(disbindCap);
 
   assert(plugins.length === 1, 'Should find 1 plugin with this cap');
   assert(plugins[0].id === 'pdfcartridge', 'Should be pdfcartridge');
 
-  const metadataCap = 'cap:in="media:pdf;bytes";op=extract_metadata;out="media:file-metadata;textable;form=map"';
+  const metadataCap = 'cap:in="media:pdf;bytes";op=extract_metadata;out="media:file-metadata;textable;record"';
   const metadataPlugins = server.getPluginsByCap(metadataCap);
   assert(metadataPlugins.length === 1, 'Should find metadata cap');
 }
@@ -264,7 +264,7 @@ function test331_pluginRepoClientGetSuggestions() {
 
   client.updateCache('https://example.com/api/plugins', plugins);
 
-  const disbindCap = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"';
+  const disbindCap = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;list"';
   const suggestions = client.getSuggestionsForCap(disbindCap);
 
   assert(suggestions.length === 1, 'Should find 1 suggestion');
@@ -342,7 +342,7 @@ function test335_pluginRepoServerClientIntegration() {
   assert(plugin.hasBinary(), 'Plugin should have binary');
 
   // Client can get suggestions
-  const capUrn = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;form=list"';
+  const capUrn = 'cap:in="media:pdf;bytes";op=disbind;out="media:disbound-page;textable;list"';
   const suggestions = client.getSuggestionsForCap(capUrn);
   assert(suggestions.length === 1, 'Should get suggestions');
   assert(suggestions[0].pluginId === 'pdfcartridge', 'Should suggest correct plugin');

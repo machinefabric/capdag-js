@@ -84,7 +84,7 @@ const mediaSpecs = {
   [MEDIA_STRING]: { media_type: 'text/plain', title: 'My String' }
 };
 const result = validateNoMediaSpecRedefinitionSync(mediaSpecs);
-// result: { valid: false, error: 'XV5: ...', redefines: ['media:textable;form=scalar'] }
+// result: { valid: false, error: 'XV5: ...', redefines: ['media:textable'] }
 
 // This is allowed - custom spec that doesn't exist
 const customSpecs = {

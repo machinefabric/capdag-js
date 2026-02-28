@@ -721,62 +721,137 @@ const MediaSpecErrorCodes = {
 /**
  * Well-known built-in media URN constants
  * These media URNs are implicitly available and do not need to be declared in mediaSpecs
+ *
+ * Cardinality and Structure use orthogonal marker tags:
+ * - `list` marker: presence = list/array, absence = scalar (default)
+ * - `record` marker: presence = has internal fields, absence = opaque (default)
+ *
+ * Examples:
+ * - `media:pdf` → scalar, opaque (no markers)
+ * - `media:textable;list` → list, opaque (has list marker)
+ * - `media:json;textable;record` → scalar, record (has record marker)
+ * - `media:json;list;record;textable` → list of records (has both markers)
  */
-const MEDIA_STRING = 'media:textable;form=scalar';
-const MEDIA_INTEGER = 'media:integer;textable;numeric;form=scalar';
-const MEDIA_NUMBER = 'media:textable;numeric;form=scalar';
-const MEDIA_BOOLEAN = 'media:bool;textable;form=scalar';
-const MEDIA_OBJECT = 'media:form=map;textable';
-const MEDIA_STRING_ARRAY = 'media:textable;form=list';
-const MEDIA_INTEGER_ARRAY = 'media:integer;textable;numeric;form=list';
-const MEDIA_NUMBER_ARRAY = 'media:textable;numeric;form=list';
-const MEDIA_BOOLEAN_ARRAY = 'media:bool;textable;form=list';
-const MEDIA_OBJECT_ARRAY = 'media:form=list;textable';
-const MEDIA_BINARY = 'media:';
+
+// Primitive types - URNs must match base.toml definitions
+// Media URN for void (no input/output) - no coercion tags
 const MEDIA_VOID = 'media:void';
-// Semantic content types
+// Media URN for string type - textable (can become text), scalar by default (no list marker)
+const MEDIA_STRING = 'media:textable';
+// Media URN for integer type - textable, numeric (math ops valid), scalar by default
+const MEDIA_INTEGER = 'media:integer;textable;numeric';
+// Media URN for number type - textable, numeric, scalar by default
+const MEDIA_NUMBER = 'media:textable;numeric';
+// Media URN for boolean type - uses "bool" not "boolean" per base.toml
+const MEDIA_BOOLEAN = 'media:bool;textable';
+// Media URN for a generic record/object type - has internal key-value structure but NOT textable
+// Use MEDIA_JSON for textable JSON objects.
+const MEDIA_OBJECT = 'media:record';
+// Media URN for binary data - the most general media type (no constraints)
+const MEDIA_BINARY = 'media:';
+
+// Array types - URNs must match base.toml definitions
+// Media URN for string array type - textable with list marker
+const MEDIA_STRING_ARRAY = 'media:list;textable';
+// Media URN for integer array type - textable, numeric with list marker
+const MEDIA_INTEGER_ARRAY = 'media:integer;list;textable;numeric';
+// Media URN for number array type - textable, numeric with list marker
+const MEDIA_NUMBER_ARRAY = 'media:list;textable;numeric';
+// Media URN for boolean array type - uses "bool" with list marker
+const MEDIA_BOOLEAN_ARRAY = 'media:bool;list;textable';
+// Media URN for object array type - list of records (NOT textable)
+// Use a specific format like JSON array for textable object arrays.
+const MEDIA_OBJECT_ARRAY = 'media:list;record';
+
+// Semantic media types for specialized content
+// Media URN for PNG image data
 const MEDIA_PNG = 'media:image;png';
+// Media URN for audio data (wav, mp3, flac, etc.)
 const MEDIA_AUDIO = 'media:wav;audio';
+// Media URN for video data (mp4, webm, mov, etc.)
 const MEDIA_VIDEO = 'media:video';
-// Semantic AI input types
+
+// Semantic AI input types - distinguished by their purpose/context
+// Media URN for audio input containing speech for transcription (Whisper)
 const MEDIA_AUDIO_SPEECH = 'media:audio;wav;speech';
+// Media URN for thumbnail image output
 const MEDIA_IMAGE_THUMBNAIL = 'media:image;png;thumbnail';
+
 // Document types (PRIMARY naming - type IS the format)
+// Media URN for PDF documents
 const MEDIA_PDF = 'media:pdf';
+// Media URN for EPUB documents
 const MEDIA_EPUB = 'media:epub';
+
 // Text format types (PRIMARY naming - type IS the format)
+// Media URN for Markdown text
 const MEDIA_MD = 'media:md;textable';
+// Media URN for plain text
 const MEDIA_TXT = 'media:txt;textable';
+// Media URN for reStructuredText
 const MEDIA_RST = 'media:rst;textable';
+// Media URN for log files
 const MEDIA_LOG = 'media:log;textable';
+// Media URN for HTML documents
 const MEDIA_HTML = 'media:html;textable';
+// Media URN for XML documents
 const MEDIA_XML = 'media:xml;textable';
-const MEDIA_JSON = 'media:json;textable;form=map';
-const MEDIA_JSON_SCHEMA = 'media:json;json-schema;textable;form=map';
-const MEDIA_YAML = 'media:yaml;textable;form=map';
-// Semantic input types
-const MEDIA_MODEL_SPEC = 'media:model-spec;textable;form=scalar';
-const MEDIA_MODEL_REPO = 'media:model-repo;textable;form=map';
-// Semantic output types
-const MEDIA_MODEL_DIM = 'media:model-dim;integer;textable;numeric;form=scalar';
-const MEDIA_DECISION = 'media:decision;bool;textable;form=scalar';
-const MEDIA_DECISION_ARRAY = 'media:decision;bool;textable;form=list';
-// Semantic output types - model management
-const MEDIA_DOWNLOAD_OUTPUT = 'media:download-result;textable;form=map';
-const MEDIA_LIST_OUTPUT = 'media:model-list;textable;form=map';
-const MEDIA_STATUS_OUTPUT = 'media:model-status;textable;form=map';
-const MEDIA_CONTENTS_OUTPUT = 'media:model-contents;textable;form=map';
-const MEDIA_AVAILABILITY_OUTPUT = 'media:model-availability;textable;form=map';
-const MEDIA_PATH_OUTPUT = 'media:model-path;textable;form=map';
-// Semantic output types - inference
-const MEDIA_EMBEDDING_VECTOR = 'media:embedding-vector;textable;form=map';
-const MEDIA_LLM_INFERENCE_OUTPUT = 'media:generated-text;textable;form=map';
-// File path types
-const MEDIA_FILE_PATH = 'media:file-path;textable;form=scalar';
-const MEDIA_FILE_PATH_ARRAY = 'media:file-path;textable;form=list';
-// Collection types
-const MEDIA_COLLECTION = 'media:collection;textable;form=map';
-const MEDIA_COLLECTION_LIST = 'media:collection;textable;form=list';
+// Media URN for JSON data - has record marker (structured key-value)
+const MEDIA_JSON = 'media:json;record;textable';
+// Media URN for JSON with schema constraint (input for structured queries)
+const MEDIA_JSON_SCHEMA = 'media:json;json-schema;record;textable';
+// Media URN for YAML data - has record marker (structured key-value)
+const MEDIA_YAML = 'media:record;textable;yaml';
+
+// File path types - for arguments that represent filesystem paths
+// Media URN for a single file path - textable, scalar by default (no list marker)
+const MEDIA_FILE_PATH = 'media:file-path;textable';
+// Media URN for an array of file paths - textable with list marker
+const MEDIA_FILE_PATH_ARRAY = 'media:file-path;list;textable';
+
+// Semantic text input types - distinguished by their purpose/context
+// Media URN for frontmatter text (book metadata) - scalar by default
+const MEDIA_FRONTMATTER_TEXT = 'media:frontmatter;textable';
+// Media URN for model spec (provider:model format, HuggingFace name, etc.) - scalar by default
+const MEDIA_MODEL_SPEC = 'media:model-spec;textable';
+// Media URN for MLX model path - scalar by default
+const MEDIA_MLX_MODEL_PATH = 'media:mlx-model-path;textable';
+// Media URN for model repository (input for list-models) - has record marker
+const MEDIA_MODEL_REPO = 'media:model-repo;record;textable';
+
+// CAPNS output types - record marker for structured JSON objects, list marker for arrays
+// Media URN for model dimension output - scalar by default (no list marker)
+const MEDIA_MODEL_DIM = 'media:integer;model-dim;numeric;textable';
+// Media URN for model download output - has record marker
+const MEDIA_DOWNLOAD_OUTPUT = 'media:download-result;record;textable';
+// Media URN for model list output - has record marker
+const MEDIA_LIST_OUTPUT = 'media:model-list;record;textable';
+// Media URN for model status output - has record marker
+const MEDIA_STATUS_OUTPUT = 'media:model-status;record;textable';
+// Media URN for model contents output - has record marker
+const MEDIA_CONTENTS_OUTPUT = 'media:model-contents;record;textable';
+// Media URN for model availability output - has record marker
+const MEDIA_AVAILABILITY_OUTPUT = 'media:model-availability;record;textable';
+// Media URN for model path output - has record marker
+const MEDIA_PATH_OUTPUT = 'media:model-path;record;textable';
+// Media URN for embedding vector output - has record marker
+const MEDIA_EMBEDDING_VECTOR = 'media:embedding-vector;record;textable';
+// Media URN for LLM inference output - has record marker
+const MEDIA_LLM_INFERENCE_OUTPUT = 'media:generated-text;record;textable';
+// Media URN for extracted metadata - has record marker
+const MEDIA_FILE_METADATA = 'media:file-metadata;record;textable';
+// Media URN for extracted outline - has record marker
+const MEDIA_DOCUMENT_OUTLINE = 'media:document-outline;record;textable';
+// Media URN for disbound page - has list marker (array of page objects)
+const MEDIA_DISBOUND_PAGE = 'media:disbound-page;list;textable';
+// Media URN for vision inference output - textable, scalar by default
+const MEDIA_IMAGE_DESCRIPTION = 'media:image-description;textable';
+// Media URN for transcription output - has record marker
+const MEDIA_TRANSCRIPTION_OUTPUT = 'media:record;textable;transcription';
+// Media URN for decision output (bit choice) - scalar by default
+const MEDIA_DECISION = 'media:bool;decision;textable';
+// Media URN for decision array output (bit choices) - has list marker
+const MEDIA_DECISION_ARRAY = 'media:bool;decision;list;textable';
 
 // =============================================================================
 // STANDARD CAP URN CONSTANTS
@@ -837,17 +912,57 @@ class MediaUrn {
   /** @returns {boolean} True if the "textable" marker tag is NOT present (binary = not textable) */
   isBinary() { return this._urn.getTag('textable') === undefined; }
 
-  /** @returns {boolean} True if form=map tag is present */
-  isMap() { return this._urn.hasTag('form', 'map'); }
+  // =========================================================================
+  // CARDINALITY (list marker)
+  // =========================================================================
 
-  /** @returns {boolean} True if form=scalar tag is present */
-  isScalar() { return this._urn.hasTag('form', 'scalar'); }
+  /**
+   * Returns true if this media is a list (has `list` marker tag).
+   * Returns false if scalar (no `list` marker = default).
+   * @returns {boolean}
+   */
+  isList() { return this._hasMarkerTag('list'); }
 
-  /** @returns {boolean} True if form=list tag is present */
-  isList() { return this._urn.hasTag('form', 'list'); }
+  /**
+   * Returns true if this media is a scalar (no `list` marker).
+   * Scalar is the default cardinality.
+   * @returns {boolean}
+   */
+  isScalar() { return !this._hasMarkerTag('list'); }
 
-  /** @returns {boolean} True if form=map or form=list */
-  isStructured() { return this.isMap() || this.isList(); }
+  // =========================================================================
+  // STRUCTURE (record marker)
+  // =========================================================================
+
+  /**
+   * Returns true if this media is a record (has `record` marker tag).
+   * A record has internal key-value structure (e.g., JSON object).
+   * @returns {boolean}
+   */
+  isRecord() { return this._hasMarkerTag('record'); }
+
+  /**
+   * Returns true if this media is opaque (no `record` marker).
+   * Opaque is the default structure - no internal fields recognized.
+   * @returns {boolean}
+   */
+  isOpaque() { return !this._hasMarkerTag('record'); }
+
+  // =========================================================================
+  // HELPER: Check for marker tag presence
+  // =========================================================================
+
+  /**
+   * Check if a marker tag (tag with wildcard/no value) is present.
+   * A marker tag is stored as key="*" in the tagged URN.
+   * @param {string} tagName
+   * @returns {boolean}
+   * @private
+   */
+  _hasMarkerTag(tagName) {
+    const value = this._urn.getTag(tagName);
+    return value === '*';
+  }
 
   /** @returns {boolean} True if the "json" marker tag is present */
   isJson() { return this._urn.getTag('json') !== undefined; }
@@ -873,17 +988,26 @@ class MediaUrn {
   /** @returns {boolean} True if the "bool" marker tag is present */
   isBool() { return this._urn.getTag('bool') !== undefined; }
 
-  /** @returns {boolean} True if "file-path" marker tag is present AND NOT form=list */
-  isFilePath() { return this._urn.getTag('file-path') !== undefined && !this.isList(); }
+  /**
+   * Check if this represents a single file path type (not array).
+   * Returns true if the "file-path" marker tag is present AND no list marker.
+   * @returns {boolean}
+   */
+  isFilePath() { return this._hasMarkerTag('file-path') && !this.isList(); }
 
-  /** @returns {boolean} True if "file-path" marker tag is present AND form=list */
-  isFilePathArray() { return this._urn.getTag('file-path') !== undefined && this.isList(); }
+  /**
+   * Check if this represents a file path array type.
+   * Returns true if the "file-path" marker tag is present AND has list marker.
+   * @returns {boolean}
+   */
+  isFilePathArray() { return this._hasMarkerTag('file-path') && this.isList(); }
 
-  /** @returns {boolean} True if "file-path" marker tag is present (single or array) */
-  isAnyFilePath() { return this.isFilePath() || this.isFilePathArray(); }
-
-  /** @returns {boolean} True if the "collection" marker tag is present */
-  isCollection() { return this._urn.getTag('collection') !== undefined; }
+  /**
+   * Check if this represents any file path type (single or array).
+   * Returns true if "file-path" marker tag is present.
+   * @returns {boolean}
+   */
+  isAnyFilePath() { return this._hasMarkerTag('file-path'); }
 
   /**
    * Check if this media URN conforms to another (pattern).
@@ -1079,27 +1203,28 @@ class MediaSpec {
     return mu ? mu.isBinary() : false;
   }
 
-  /** @returns {boolean} True if map structure (form=map) */
-  isMap() {
+  /** @returns {boolean} True if record structure (has record marker) */
+  isRecord() {
     const mu = this.parsedMediaUrn();
-    return mu ? mu.isMap() : false;
+    return mu ? mu.isRecord() : false;
   }
 
-  /** @returns {boolean} True if scalar value (form=scalar) */
+  /** @returns {boolean} True if opaque structure (no record marker) */
+  isOpaque() {
+    const mu = this.parsedMediaUrn();
+    return mu ? mu.isOpaque() : false;
+  }
+
+  /** @returns {boolean} True if scalar value (no list marker) */
   isScalar() {
     const mu = this.parsedMediaUrn();
     return mu ? mu.isScalar() : false;
   }
 
-  /** @returns {boolean} True if list/array (form=list) */
+  /** @returns {boolean} True if list/array (has list marker) */
   isList() {
     const mu = this.parsedMediaUrn();
     return mu ? mu.isList() : false;
-  }
-
-  /** @returns {boolean} True if structured (map or list) */
-  isStructured() {
-    return this.isMap() || this.isList();
   }
 
   /** @returns {boolean} True if JSON representation (json tag present) */
@@ -1196,7 +1321,7 @@ class MediaSpec {
  * Resolution: Look up mediaUrn in mediaSpecs array (by urn field), FAIL HARD if not found.
  * There is no built-in resolution - all media URNs must be in mediaSpecs.
  *
- * @param {string} mediaUrn - The media URN (e.g., "media:textable;form=scalar")
+ * @param {string} mediaUrn - The media URN (e.g., "media:textable")
  * @param {Array} mediaSpecs - The mediaSpecs array (each item has urn, media_type, title, etc.)
  * @returns {MediaSpec} The resolved MediaSpec
  * @throws {MediaSpecError} If media URN cannot be resolved
@@ -2711,7 +2836,7 @@ class CapValidator {
 class CapArgumentValue {
   /**
    * Create a new CapArgumentValue
-   * @param {string} mediaUrn - Semantic identifier, e.g., "media:model-spec;textable;form=scalar"
+   * @param {string} mediaUrn - Semantic identifier, e.g., "media:model-spec;textable"
    * @param {Uint8Array|Buffer} value - Value bytes (UTF-8 for text, raw for binary)
    */
   constructor(mediaUrn, value) {
@@ -4160,12 +4285,17 @@ module.exports = {
   // Semantic output types - inference
   MEDIA_EMBEDDING_VECTOR,
   MEDIA_LLM_INFERENCE_OUTPUT,
+  MEDIA_FILE_METADATA,
+  MEDIA_DOCUMENT_OUTLINE,
+  MEDIA_DISBOUND_PAGE,
+  MEDIA_IMAGE_DESCRIPTION,
+  MEDIA_TRANSCRIPTION_OUTPUT,
   // File path types
   MEDIA_FILE_PATH,
   MEDIA_FILE_PATH_ARRAY,
-  // Collection types
-  MEDIA_COLLECTION,
-  MEDIA_COLLECTION_LIST,
+  // Semantic text input types
+  MEDIA_FRONTMATTER_TEXT,
+  MEDIA_MLX_MODEL_PATH,
   // Unified argument type
   CapArgumentValue,
   // Standard cap URN builders

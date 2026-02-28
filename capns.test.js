@@ -101,7 +101,7 @@ function runTest(name, fn) {
 /**
  * Helper function to build test URNs with required in/out media URNs.
  * Uses MEDIA_VOID for in and MEDIA_OBJECT for out, matching the
- * Rust reference test_urn helper: test_urn(tags) => cap:in="media:void";{tags};out="media:form=map;textable"
+ * Rust reference test_urn helper: test_urn(tags) => cap:in="media:void";{tags};out="media:record;textable"
  */
 function testUrn(tags) {
   if (!tags || tags === '') {
@@ -146,7 +146,7 @@ function matrixTestUrn(tags) {
 }
 
 // ============================================================================
-// cap_urn.rs: TEST001-TEST052
+// cap_urn.rs: TEST001-TEST050, TEST890-TEST891
 // ============================================================================
 
 // TEST001: Cap URN created with tags, direction specs accessible
@@ -180,7 +180,7 @@ function test003_directionMatching() {
   assert(cap.accepts(request), 'Same direction specs should match');
 
   // Different direction should not match
-  const requestDiff = CapUrn.fromString('cap:in="media:textable;form=scalar";op=generate;out="media:form=map;textable"');
+  const requestDiff = CapUrn.fromString('cap:in="media:textable";op=generate;out="media:record;textable"');
   assert(!cap.accepts(requestDiff), 'Different inSpec should not match');
 
   // Wildcard direction matches any
@@ -190,7 +190,7 @@ function test003_directionMatching() {
 
 // TEST004: Unquoted keys/values normalized to lowercase
 function test004_unquotedValuesLowercased() {
-  const cap = CapUrn.fromString('cap:IN="media:void";OP=Generate;EXT=PDF;OUT="media:form=map;textable"');
+  const cap = CapUrn.fromString('cap:IN="media:void";OP=Generate;EXT=PDF;OUT="media:record;textable"');
   assertEqual(cap.getTag('op'), 'generate', 'Unquoted value should be lowercased');
   assertEqual(cap.getTag('ext'), 'pdf', 'Unquoted value should be lowercased');
   // Key lookup is case-insensitive
@@ -350,20 +350,21 @@ function test019_missingTagHandling() {
 
 // TEST020: Direction specs use MediaUrn tag count, other tags count non-wildcard
 function test020_specificity() {
-  // media:void = 1 tag, media:form=map;textable = 2 tags
+  // Direction specs contribute their MediaUrn tag count:
+  // MEDIA_VOID = "media:void" -> 1 tag (void)
+  // MEDIA_OBJECT = "media:record" -> 1 tag (record)
   const cap1 = CapUrn.fromString(testUrn('type=general'));
-  assertEqual(cap1.specificity(), 4, 'void(1) + textable+form(2) + type(1) = 4');
+  assertEqual(cap1.specificity(), 3, 'void(1) + record(1) + type(1)');
 
   const cap2 = CapUrn.fromString(testUrn('op=generate'));
-  assertEqual(cap2.specificity(), 4, 'void(1) + textable+form(2) + op(1) = 4');
+  assertEqual(cap2.specificity(), 3, 'void(1) + record(1) + op(1)');
 
-  // Wildcard tag does not count
   const cap3 = CapUrn.fromString(testUrn('op=*;ext=pdf'));
-  assertEqual(cap3.specificity(), 4, 'void(1) + textable+form(2) + ext(1) = 4 (op=* does not count)');
+  assertEqual(cap3.specificity(), 3, 'void(1) + record(1) + ext(1) (wildcard op doesn\'t count)');
 
-  // Wildcard direction doesn't contribute
+  // Wildcard in direction doesn't count
   const cap4 = CapUrn.fromString(`cap:in=*;out="${MEDIA_OBJECT}";op=test`);
-  assertEqual(cap4.specificity(), 3, 'textable+form(2) + op(1) = 3 (in=* does not count)');
+  assertEqual(cap4.specificity(), 2, 'record(1) + op(1) (in wildcard doesn\'t count)');
 }
 
 // TEST021: CapUrnBuilder creates valid URN
@@ -421,7 +422,7 @@ function test024_compatibility() {
   assert(!cap3.accepts(cap1), 'Different op should not accept (reverse)');
 
   // Different in/out should not accept
-  const cap5 = CapUrn.fromString('cap:in="media:textable;form=scalar";out="media:object";op=generate');
+  const cap5 = CapUrn.fromString('cap:in="media:textable";out="media:object";op=generate');
   assert(!cap1.accepts(cap5), 'Different inSpec should not accept');
 }
 
@@ -441,11 +442,11 @@ function test025_bestMatch() {
 // TEST026: merge combines tags, subset keeps only specified
 function test026_mergeAndSubset() {
   const cap1 = CapUrn.fromString(testUrn('op=generate'));
-  const cap2 = CapUrn.fromString('cap:in="media:textable;form=scalar";ext=pdf;format=binary;out="media:"');
+  const cap2 = CapUrn.fromString('cap:in="media:textable";ext=pdf;format=binary;out="media:"');
 
   // Merge (other takes precedence)
   const merged = cap1.merge(cap2);
-  assertEqual(merged.getInSpec(), 'media:textable;form=scalar', 'Merge should take inSpec from other');
+  assertEqual(merged.getInSpec(), 'media:textable', 'Merge should take inSpec from other');
   assertEqual(merged.getOutSpec(), 'media:', 'Merge should take outSpec from other');
   assertEqual(merged.getTag('op'), 'generate', 'Merge should keep original tags');
   assertEqual(merged.getTag('ext'), 'pdf', 'Merge should add other tags');
@@ -454,7 +455,7 @@ function test026_mergeAndSubset() {
   const sub = merged.subset(['ext']);
   assertEqual(sub.getTag('ext'), 'pdf', 'Subset should keep ext');
   assertEqual(sub.getTag('op'), undefined, 'Subset should drop op');
-  assertEqual(sub.getInSpec(), 'media:textable;form=scalar', 'Subset should preserve inSpec');
+  assertEqual(sub.getInSpec(), 'media:textable', 'Subset should preserve inSpec');
 }
 
 // TEST027: withWildcardTag sets tag to wildcard including in/out
@@ -677,10 +678,8 @@ function test050_matchingSemanticsDirectionMismatch() {
   assert(!cap.accepts(request), 'Incompatible direction types should not match');
 }
 
-// TEST051: Generic media: (wildcard) provider accepts media:pdf request;
-//          specific pdf cap rejects generic wildcard request;
-//          output direction: more specific output satisfies less specific request
-function test051_directionSemanticMatching() {
+// TEST890: Semantic direction matching - generic provider matches specific request
+function test890_directionSemanticMatching() {
   // Generic wildcard cap accepts specific pdf request
   const genericCap = CapUrn.fromString(
     'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
@@ -729,9 +728,8 @@ function test051_directionSemanticMatching() {
     'Generic output cap must NOT satisfy specific output request');
 }
 
-// TEST052: Specificity: media:(0 tags) + image;png;thumbnail(3 tags) + op(1) = 4;
-//          pdf(1) + image;png;thumbnail(3) + op(1) = 5; CapMatcher prefers higher
-function test052_directionSemanticSpecificity() {
+// TEST891: Semantic direction specificity - more media URN tags = higher specificity
+function test891_directionSemanticSpecificity() {
   const genericCap = CapUrn.fromString(
     'cap:in="media:";op=generate_thumbnail;out="media:image;png;thumbnail"'
   );
@@ -821,28 +819,35 @@ function test061_isBinary() {
   assert(MediaUrn.fromString('media:epub').isBinary(), 'media:epub should be binary');
   // Textable types: is_binary is false
   assert(!MediaUrn.fromString('media:textable').isBinary(), 'media:textable should not be binary');
-  assert(!MediaUrn.fromString('media:textable;form=map').isBinary(), 'textable map should not be binary');
+  assert(!MediaUrn.fromString('media:textable;record').isBinary(), 'textable map should not be binary');
   assert(!MediaUrn.fromString(MEDIA_STRING).isBinary(), 'MEDIA_STRING should not be binary');
   assert(!MediaUrn.fromString(MEDIA_JSON).isBinary(), 'MEDIA_JSON should not be binary');
   assert(!MediaUrn.fromString(MEDIA_MD).isBinary(), 'MEDIA_MD should not be binary');
 }
 
-// TEST062: isMap true for MEDIA_OBJECT (form=map); false for MEDIA_STRING (form=scalar), MEDIA_STRING_ARRAY (form=list)
-function test062_isMap() {
-  assert(MediaUrn.fromString(MEDIA_OBJECT).isMap(), 'MEDIA_OBJECT should be map');
-  assert(!MediaUrn.fromString(MEDIA_STRING).isMap(), 'MEDIA_STRING should not be map');
-  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isMap(), 'MEDIA_STRING_ARRAY should not be map');
+// TEST062: isMap true for MEDIA_OBJECT (record); false for MEDIA_STRING (form=scalar), MEDIA_STRING_ARRAY (list)
+// TEST062: is_record returns true if record marker tag is present (key-value structure)
+function test062_isRecord() {
+  assert(MediaUrn.fromString(MEDIA_OBJECT).isRecord(), 'MEDIA_OBJECT should be record');
+  assert(MediaUrn.fromString('media:custom;record').isRecord(), 'custom;record should be record');
+  assert(MediaUrn.fromString(MEDIA_JSON).isRecord(), 'MEDIA_JSON should be record');
+  // Without record marker, is_record is false
+  assert(!MediaUrn.fromString('media:textable').isRecord(), 'plain textable should not be record');
+  assert(!MediaUrn.fromString(MEDIA_STRING).isRecord(), 'MEDIA_STRING should not be record');
+  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isRecord(), 'MEDIA_STRING_ARRAY should not be record');
 }
 
-// TEST063: isScalar true for MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN;
-//          false for MEDIA_OBJECT, MEDIA_STRING_ARRAY
+// TEST063: is_scalar returns true if NO list marker (scalar is default cardinality)
 function test063_isScalar() {
   assert(MediaUrn.fromString(MEDIA_STRING).isScalar(), 'MEDIA_STRING should be scalar');
   assert(MediaUrn.fromString(MEDIA_INTEGER).isScalar(), 'MEDIA_INTEGER should be scalar');
   assert(MediaUrn.fromString(MEDIA_NUMBER).isScalar(), 'MEDIA_NUMBER should be scalar');
   assert(MediaUrn.fromString(MEDIA_BOOLEAN).isScalar(), 'MEDIA_BOOLEAN should be scalar');
-  assert(!MediaUrn.fromString(MEDIA_OBJECT).isScalar(), 'MEDIA_OBJECT should not be scalar');
+  assert(MediaUrn.fromString(MEDIA_OBJECT).isScalar(), 'MEDIA_OBJECT (record but scalar) should be scalar');
+  assert(MediaUrn.fromString('media:textable').isScalar(), 'plain textable should be scalar');
+  // With list marker, is_scalar is false
   assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isScalar(), 'MEDIA_STRING_ARRAY should not be scalar');
+  assert(!MediaUrn.fromString(MEDIA_OBJECT_ARRAY).isScalar(), 'MEDIA_OBJECT_ARRAY should not be scalar');
 }
 
 // TEST064: isList true for MEDIA_STRING_ARRAY, MEDIA_INTEGER_ARRAY, MEDIA_OBJECT_ARRAY;
@@ -855,13 +860,15 @@ function test064_isList() {
   assert(!MediaUrn.fromString(MEDIA_OBJECT).isList(), 'MEDIA_OBJECT should not be list');
 }
 
-// TEST065: isStructured true for MEDIA_OBJECT (map), MEDIA_STRING_ARRAY (list), MEDIA_JSON (map);
-//          false for MEDIA_STRING (scalar)
-function test065_isStructured() {
-  assert(MediaUrn.fromString(MEDIA_OBJECT).isStructured(), 'MEDIA_OBJECT should be structured');
-  assert(MediaUrn.fromString(MEDIA_STRING_ARRAY).isStructured(), 'MEDIA_STRING_ARRAY should be structured');
-  assert(MediaUrn.fromString(MEDIA_JSON).isStructured(), 'MEDIA_JSON should be structured');
-  assert(!MediaUrn.fromString(MEDIA_STRING).isStructured(), 'MEDIA_STRING should not be structured');
+// TEST065: is_opaque returns true if NO record marker (opaque is default structure)
+function test065_isOpaque() {
+  assert(MediaUrn.fromString(MEDIA_STRING).isOpaque(), 'MEDIA_STRING should be opaque');
+  assert(MediaUrn.fromString(MEDIA_STRING_ARRAY).isOpaque(), 'MEDIA_STRING_ARRAY (list but no record) should be opaque');
+  assert(MediaUrn.fromString(MEDIA_PDF).isOpaque(), 'MEDIA_PDF should be opaque');
+  assert(MediaUrn.fromString('media:textable').isOpaque(), 'plain textable should be opaque');
+  // With record marker, is_opaque is false
+  assert(!MediaUrn.fromString(MEDIA_OBJECT).isOpaque(), 'MEDIA_OBJECT should not be opaque');
+  assert(!MediaUrn.fromString(MEDIA_JSON).isOpaque(), 'MEDIA_JSON should not be opaque');
 }
 
 // TEST066: isJson true for MEDIA_JSON; false for MEDIA_OBJECT (map but not json)
@@ -870,14 +877,15 @@ function test066_isJson() {
   assert(!MediaUrn.fromString(MEDIA_OBJECT).isJson(), 'MEDIA_OBJECT should not be json');
 }
 
-// TEST067: isText true for MEDIA_STRING, MEDIA_INTEGER, MEDIA_OBJECT (textable);
-//          false for MEDIA_BINARY, MEDIA_PNG
+// TEST067: is_text returns true only if "textable" marker tag is present
 function test067_isText() {
   assert(MediaUrn.fromString(MEDIA_STRING).isText(), 'MEDIA_STRING should be text');
   assert(MediaUrn.fromString(MEDIA_INTEGER).isText(), 'MEDIA_INTEGER should be text');
-  assert(MediaUrn.fromString(MEDIA_OBJECT).isText(), 'MEDIA_OBJECT should be text');
+  assert(MediaUrn.fromString(MEDIA_JSON).isText(), 'MEDIA_JSON should be text');
+  // Without textable tag, is_text is false
   assert(!MediaUrn.fromString(MEDIA_BINARY).isText(), 'MEDIA_BINARY should not be text');
   assert(!MediaUrn.fromString(MEDIA_PNG).isText(), 'MEDIA_PNG should not be text');
+  assert(!MediaUrn.fromString(MEDIA_OBJECT).isText(), 'MEDIA_OBJECT (no textable) should not be text');
 }
 
 // TEST068: isVoid true for media:void; false for media:string
@@ -1028,10 +1036,10 @@ function test099_resolvedIsBinary() {
   assert(spec.isBinary(), 'Resolved binary spec should be binary');
 }
 
-// TEST100: MediaSpec with form=map -> isMap() true
-function test100_resolvedIsMap() {
+// TEST100: MediaSpec with record -> isRecord() true
+function test100_resolvedIsRecord() {
   const spec = new MediaSpec('application/json', null, null, 'Object', null, MEDIA_OBJECT);
-  assert(spec.isMap(), 'Resolved object spec should be map');
+  assert(spec.isRecord(), 'Resolved object spec should be record');
 }
 
 // TEST101: MediaSpec with form=scalar -> isScalar() true
@@ -1040,7 +1048,7 @@ function test101_resolvedIsScalar() {
   assert(spec.isScalar(), 'Resolved string spec should be scalar');
 }
 
-// TEST102: MediaSpec with form=list -> isList() true
+// TEST102: MediaSpec with list -> isList() true
 function test102_resolvedIsList() {
   const spec = new MediaSpec('text/plain', null, null, 'String Array', null, MEDIA_STRING_ARRAY);
   assert(spec.isList(), 'Resolved string_array spec should be list');
@@ -1567,8 +1575,8 @@ function test159_stdinSourceWithBinaryContent() {
 
 // TEST274: CapArgumentValue constructor stores media_urn and raw byte value
 function test274_capArgumentValueNew() {
-  const arg = new CapArgumentValue('media:model-spec;textable;form=scalar', new Uint8Array([103, 112, 116, 45, 52]));
-  assertEqual(arg.mediaUrn, 'media:model-spec;textable;form=scalar', 'mediaUrn must match');
+  const arg = new CapArgumentValue('media:model-spec;textable', new Uint8Array([103, 112, 116, 45, 52]));
+  assertEqual(arg.mediaUrn, 'media:model-spec;textable', 'mediaUrn must match');
   assertEqual(arg.value.length, 5, 'value must have 5 bytes');
 }
 
@@ -1635,7 +1643,7 @@ const { TaggedUrn } = require('tagged-urn');
 function test304_mediaAvailabilityOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
   assert(urn.getTag('textable') !== undefined, 'model-availability must be textable');
-  assertEqual(urn.getTag('form'), 'map', 'model-availability must be form=map');
+  assertEqual(urn.getTag('record'), '*', 'model-availability must be record');
   assert(urn.getTag('textable') !== undefined, 'model-availability must not be binary (has textable)');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
@@ -1645,7 +1653,7 @@ function test304_mediaAvailabilityOutputConstant() {
 function test305_mediaPathOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
   assert(urn.getTag('textable') !== undefined, 'model-path must be textable');
-  assertEqual(urn.getTag('form'), 'map', 'model-path must be form=map');
+  assertEqual(urn.getTag('record'), '*', 'model-path must be record');
   assert(urn.getTag('textable') !== undefined, 'model-path must not be binary (has textable)');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
@@ -1755,8 +1763,8 @@ function testJS_buildExtensionIndex() {
 function testJS_mediaUrnsForExtension() {
   const mediaSpecs = [
     { urn: 'media:pdf', media_type: 'application/pdf', extensions: ['pdf'] },
-    { urn: 'media:json;textable;form=map', media_type: 'application/json', extensions: ['json'] },
-    { urn: 'media:json;textable;form=list', media_type: 'application/json', extensions: ['json'] }
+    { urn: 'media:json;textable;record', media_type: 'application/json', extensions: ['json'] },
+    { urn: 'media:json;textable;list', media_type: 'application/json', extensions: ['json'] }
   ];
 
   const pdfUrns = mediaUrnsForExtension('pdf', mediaSpecs);
@@ -1937,12 +1945,12 @@ const sampleRegistry = {
       tags: ['pdf', 'extractor'],
       caps: [
         {
-          urn: 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;form=list"',
+          urn: 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"',
           title: 'Disbind PDF',
           description: 'Extract pages'
         },
         {
-          urn: 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;textable;form=map"',
+          urn: 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;textable;record"',
           title: 'Extract Metadata',
           description: 'Get PDF metadata'
         }
@@ -1978,7 +1986,7 @@ const sampleRegistry = {
       tags: ['txt', 'text'],
       caps: [
         {
-          urn: 'cap:in="media:txt;textable";op=disbind;out="media:disbound-page;textable;form=list"',
+          urn: 'cap:in="media:txt;textable";op=disbind;out="media:disbound-page;textable;list"',
           title: 'Disbind Text',
           description: 'Extract text pages'
         }
@@ -2150,13 +2158,13 @@ function test328_pluginRepoServerGetByCategory() {
 function test329_pluginRepoServerGetByCap() {
   const server = new PluginRepoServer(sampleRegistry);
 
-  const disbindCap = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;form=list"';
+  const disbindCap = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"';
   const plugins = server.getPluginsByCap(disbindCap);
 
   assert(plugins.length === 1, 'Should find 1 plugin with this cap');
   assert(plugins[0].id === 'pdfcartridge', 'Should be pdfcartridge');
 
-  const metadataCap = 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;textable;form=map"';
+  const metadataCap = 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;textable;record"';
   const metadataPlugins = server.getPluginsByCap(metadataCap);
   assert(metadataPlugins.length === 1, 'Should find metadata cap');
 }
@@ -2183,7 +2191,7 @@ function test331_pluginRepoClientGetSuggestions() {
 
   client.updateCache('https://example.com/api/plugins', plugins);
 
-  const disbindCap = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;form=list"';
+  const disbindCap = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"';
   const suggestions = client.getSuggestionsForCap(disbindCap);
 
   assert(suggestions.length === 1, 'Should find 1 suggestion');
@@ -2261,7 +2269,7 @@ function test335_pluginRepoServerClientIntegration() {
   assert(plugin.hasBinary(), 'Plugin should have binary');
 
   // Client can get suggestions
-  const capUrn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;form=list"';
+  const capUrn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"';
   const suggestions = client.getSuggestionsForCap(capUrn);
   assert(suggestions.length === 1, 'Should get suggestions');
   assert(suggestions[0].pluginId === 'pdfcartridge', 'Should suggest correct plugin');
@@ -2362,12 +2370,9 @@ function test553_isAnyFilePath() {
 }
 
 // TEST554: isCollection returns true when collection marker tag is present
+// TEST554: N/A for JS (MEDIA_COLLECTION constants removed - no longer exists)
 function test554_isCollection() {
-  assert(MediaUrn.fromString(MEDIA_COLLECTION).isCollection(), 'MEDIA_COLLECTION should be collection');
-  assert(MediaUrn.fromString(MEDIA_COLLECTION_LIST).isCollection(), 'MEDIA_COLLECTION_LIST should be collection');
-  // Non-collection types
-  assert(!MediaUrn.fromString(MEDIA_OBJECT).isCollection(), 'MEDIA_OBJECT should not be collection');
-  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isCollection(), 'MEDIA_STRING_ARRAY should not be collection');
+  // Skip - collection types removed from capns
 }
 
 // TEST555: N/A for JS (with_tag/without_tag on MediaUrn - JS MediaUrn does not have these methods)
@@ -2395,12 +2400,12 @@ function test558_predicateConstantConsistency() {
   assert(boolUrn.isScalar(), 'MEDIA_BOOLEAN must be scalar');
   assert(!boolUrn.isNumeric(), 'MEDIA_BOOLEAN must not be numeric');
 
-  // MEDIA_JSON must be json, text, map, structured, NOT binary
+  // MEDIA_JSON must be json, text, record, scalar, NOT binary
   const jsonUrn = MediaUrn.fromString(MEDIA_JSON);
   assert(jsonUrn.isJson(), 'MEDIA_JSON must be json');
   assert(jsonUrn.isText(), 'MEDIA_JSON must be text');
-  assert(jsonUrn.isMap(), 'MEDIA_JSON must be map');
-  assert(jsonUrn.isStructured(), 'MEDIA_JSON must be structured');
+  assert(jsonUrn.isRecord(), 'MEDIA_JSON must be record');
+  assert(jsonUrn.isScalar(), 'MEDIA_JSON must be scalar (no list marker)');
   assert(!jsonUrn.isBinary(), 'MEDIA_JSON must not be binary');
   assert(!jsonUrn.isList(), 'MEDIA_JSON must not be list');
 
@@ -2617,7 +2622,7 @@ function test653_identityRoutingIsolation() {
 async function runTests() {
   console.log('Running capns-js tests...\n');
 
-  // cap_urn.rs: TEST001-TEST052
+  // cap_urn.rs: TEST001-TEST050, TEST890-TEST891
   console.log('--- cap_urn.rs ---');
   runTest('TEST001: cap_urn_creation', test001_capUrnCreation);
   runTest('TEST002: direction_specs_required', test002_directionSpecsRequired);
@@ -2669,8 +2674,8 @@ async function runTests() {
   runTest('TEST048: matching_semantics_wildcard_direction', test048_matchingSemanticsWildcardDirection);
   runTest('TEST049: matching_semantics_cross_dimension', test049_matchingSemanticsCrossDimension);
   runTest('TEST050: matching_semantics_direction_mismatch', test050_matchingSemanticsDirectionMismatch);
-  runTest('TEST051: direction_semantic_matching', test051_directionSemanticMatching);
-  runTest('TEST052: direction_semantic_specificity', test052_directionSemanticSpecificity);
+  runTest('TEST890: direction_semantic_matching', test890_directionSemanticMatching);
+  runTest('TEST891: direction_semantic_specificity', test891_directionSemanticSpecificity);
 
   // validation.rs: TEST053-TEST056
   console.log('\n--- validation.rs ---');
@@ -2683,10 +2688,10 @@ async function runTests() {
   console.log('\n--- media_urn.rs ---');
   runTest('TEST060: wrong_prefix_fails', test060_wrongPrefixFails);
   runTest('TEST061: is_binary', test061_isBinary);
-  runTest('TEST062: is_map', test062_isMap);
+  runTest('TEST062: is_record', test062_isRecord);
   runTest('TEST063: is_scalar', test063_isScalar);
   runTest('TEST064: is_list', test064_isList);
-  runTest('TEST065: is_structured', test065_isStructured);
+  runTest('TEST065: is_opaque', test065_isOpaque);
   runTest('TEST066: is_json', test066_isJson);
   runTest('TEST067: is_text', test067_isText);
   runTest('TEST068: is_void', test068_isVoid);
@@ -2709,7 +2714,7 @@ async function runTests() {
   console.log('  SKIP TEST094: N/A for JS (no registry concept)');
   console.log('  SKIP TEST095-098: N/A for JS (Rust serde/validation)');
   runTest('TEST099: resolved_is_binary', test099_resolvedIsBinary);
-  runTest('TEST100: resolved_is_map', test100_resolvedIsMap);
+  runTest('TEST100: resolved_is_record', test100_resolvedIsRecord);
   runTest('TEST101: resolved_is_scalar', test101_resolvedIsScalar);
   runTest('TEST102: resolved_is_list', test102_resolvedIsList);
   runTest('TEST103: resolved_is_json', test103_resolvedIsJson);
@@ -2814,7 +2819,7 @@ async function runTests() {
   runTest('TEST551: is_file_path', test551_isFilePath);
   runTest('TEST552: is_file_path_array', test552_isFilePathArray);
   runTest('TEST553: is_any_file_path', test553_isAnyFilePath);
-  runTest('TEST554: is_collection', test554_isCollection);
+  console.log('  SKIP TEST554: N/A for JS (collection types removed from capns)');
   console.log('  SKIP TEST555: N/A for JS (with_tag/without_tag on MediaUrn)');
   console.log('  SKIP TEST556: N/A for JS (image_media_urn_for_ext helper)');
   console.log('  SKIP TEST557: N/A for JS (audio_media_urn_for_ext helper)');
