@@ -1,6 +1,6 @@
 # Cap URN - JavaScript Implementation
 
-JavaScript implementation of Cap URN (Capability Uniform Resource Names), built on [Tagged URN](https://github.com/filegrind/tagged-urn-js).
+JavaScript implementation of Cap URN (Capability Uniform Resource Names), built on [Tagged URN](https://github.com/machinefabric/tagged-urn-js).
 
 ## Features
 
@@ -14,13 +14,13 @@ JavaScript implementation of Cap URN (Capability Uniform Resource Names), built 
 ## Installation
 
 ```bash
-npm install capns
+npm install capdag
 ```
 
 ## Quick Start
 
 ```javascript
-const { CapUrn, CapUrnBuilder, CapMatcher } = require('capns');
+const { CapUrn, CapUrnBuilder, CapMatcher } = require('capdag');
 
 // Create from string (with required direction specifiers)
 const cap = CapUrn.fromString('cap:in="media:binary";op=extract;out="media:object"');
@@ -92,7 +92,7 @@ Utility for matching sets of caps:
 ### Error Handling
 
 ```javascript
-const { CapUrnError, ErrorCodes } = require('capns');
+const { CapUrnError, ErrorCodes } = require('capdag');
 
 try {
   const cap = CapUrn.fromString('cap:op=extract'); // Missing in/out
@@ -108,12 +108,12 @@ Cap-specific error codes:
 - `ErrorCodes.MISSING_OUT_SPEC` - Missing required `out` tag
 - `ErrorCodes.INVALID_MEDIA_URN` - Invalid Media URN in direction spec
 
-For base Tagged URN error codes, see [Tagged URN documentation](https://github.com/filegrind/tagged-urn-js).
+For base Tagged URN error codes, see [Tagged URN documentation](https://github.com/machinefabric/tagged-urn-js).
 
 ## Documentation
 
 - [RULES.md](./RULES.md) - Cap-specific rules
-- [Tagged URN RULES.md](https://github.com/filegrind/tagged-urn-js/blob/main/RULES.md) - Base format rules (case, quoting, wildcards, etc.)
+- [Tagged URN RULES.md](https://github.com/machinefabric/tagged-urn-js/blob/main/RULES.md) - Base format rules (case, quoting, wildcards, etc.)
 
 ## Testing
 
@@ -124,8 +124,8 @@ npm test
 ## Cross-Language Compatibility
 
 This JavaScript implementation produces identical results to:
-- [Rust reference implementation](https://github.com/filegrind/capns)
-- [Go implementation](https://github.com/filegrind/capns-go)
-- [Objective-C implementation](https://github.com/filegrind/capns-objc)
+- [Rust reference implementation](https://github.com/machinefabric/capdag)
+- [Go implementation](https://github.com/machinefabric/capdag-go)
+- [Objective-C implementation](https://github.com/machinefabric/capdag-objc)
 
 All implementations pass the same test cases and follow identical rules.

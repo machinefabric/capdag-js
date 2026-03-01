@@ -8,8 +8,8 @@
     "node": ">=14.0.0"
   },
   "files": [
-    "capns.js",
-    "capns.test.js",
+    "capdag.js",
+    "capdag.test.js",
     "RULES.md",
     "README.md"
   ],
@@ -22,15 +22,15 @@
     "matching"
   ],
   "license": "MIT",
-  "main": "capns.js",
-  "name": "capns",
+  "main": "capdag.js",
+  "name": "capdag",
   "repository": {
-    "directory": "capns-js",
+    "directory": "capdag-js",
     "type": "git",
-    "url": "https://github.com/filegrind/capns-js.git"
+    "url": "https://github.com/machinefabric/capdag-js.git"
   },
   "scripts": {
-    "test": "node capns.test.js"
+    "test": "node capdag.test.js"
   },
   "version": "{{ project.version }}"
 }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Cap URNs extend Tagged URNs with capability-specific requirements. For base Tagged URN format rules (case handling, tag ordering, special values, quoting, value-less tags, etc.), see [Tagged URN RULES.md](https://github.com/filegrind/tagged-urn-js/blob/main/RULES.md).
+Cap URNs extend Tagged URNs with capability-specific requirements. For base Tagged URN format rules (case handling, tag ordering, special values, quoting, value-less tags, etc.), see [Tagged URN RULES.md](https://github.com/machinefabric/tagged-urn-js/blob/main/RULES.md).
 
 This document covers only cap-specific rules.
 
@@ -77,7 +77,7 @@ Examples:
 Inline media specs in a capability's `media_specs` table must not redefine media specs that already exist in the global registry or built-in specs.
 
 ```javascript
-const { validateNoMediaSpecRedefinitionSync, MEDIA_STRING } = require('capns');
+const { validateNoMediaSpecRedefinitionSync, MEDIA_STRING } = require('capdag');
 
 // This will fail - MEDIA_STRING is a built-in spec
 const mediaSpecs = {
@@ -96,7 +96,7 @@ const customResult = validateNoMediaSpecRedefinitionSync(customSpecs);
 
 For server-side validation with registry access, use the async version:
 ```javascript
-const { validateNoMediaSpecRedefinition } = require('capns');
+const { validateNoMediaSpecRedefinition } = require('capdag');
 
 const result = await validateNoMediaSpecRedefinition(mediaSpecs, {
   registryLookup: async (urn) => await mediaStore.get(urn) !== null
@@ -106,6 +106,6 @@ const result = await validateNoMediaSpecRedefinition(mediaSpecs, {
 ## Cross-Language Compatibility
 
 This JavaScript implementation follows the same rules as:
-- [Rust reference implementation](https://github.com/filegrind/capns)
-- [Go implementation](https://github.com/filegrind/capns-go)
-- [Objective-C implementation](https://github.com/filegrind/capns-objc)
+- [Rust reference implementation](https://github.com/machinefabric/capdag)
+- [Go implementation](https://github.com/machinefabric/capdag-go)
+- [Objective-C implementation](https://github.com/machinefabric/capdag-objc)

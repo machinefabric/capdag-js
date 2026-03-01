@@ -26,7 +26,7 @@ const {
   MEDIA_COLLECTION, MEDIA_COLLECTION_LIST,
   MEDIA_DECISION, MEDIA_DECISION_ARRAY,
   MEDIA_AUDIO_SPEECH, MEDIA_IMAGE_THUMBNAIL
-} = require('./capns.js');
+} = require('./capdag.js');
 
 // ============================================================================
 // Test utilities
@@ -1742,7 +1742,7 @@ function test312_allUrnBuildersProduceValidUrns() {
 // ============================================================================
 
 // These tests cover JS-specific functionality not in the Rust numbering scheme
-// but are important for capns-js correctness.
+// but are important for capdag-js correctness.
 
 function testJS_buildExtensionIndex() {
   const mediaSpecs = [
@@ -1802,7 +1802,7 @@ function testJS_capWithMediaSpecs() {
   const urn = CapUrn.fromString('cap:in="media:string";op=test;out="media:custom"');
   const cap = new Cap(urn, 'Test Cap', 'test_command');
   cap.mediaSpecs = [
-    { urn: MEDIA_STRING, media_type: 'text/plain', title: 'String', profile_uri: 'https://capns.org/schema/str' },
+    { urn: MEDIA_STRING, media_type: 'text/plain', title: 'String', profile_uri: 'https://capdag.com/schema/str' },
     { urn: 'media:custom', media_type: 'application/json', title: 'Custom Output', schema: { type: 'object' } }
   ];
   const strSpec = cap.resolveMediaUrn(MEDIA_STRING);
@@ -1915,9 +1915,9 @@ function testJS_binaryArgPassedToExecuteCap() {
 }
 
 function testJS_mediaSpecConstruction() {
-  const spec1 = new MediaSpec('text/plain', 'https://capns.org/schema/str', null, 'String', null, 'media:string');
+  const spec1 = new MediaSpec('text/plain', 'https://capdag.com/schema/str', null, 'String', null, 'media:string');
   assertEqual(spec1.contentType, 'text/plain', 'Should have content type');
-  assertEqual(spec1.profile, 'https://capns.org/schema/str', 'Should have profile');
+  assertEqual(spec1.profile, 'https://capdag.com/schema/str', 'Should have profile');
   assertEqual(spec1.title, 'String', 'Should have title');
   assertEqual(spec1.mediaUrn, 'media:string', 'Should have mediaUrn');
 
@@ -2372,7 +2372,7 @@ function test553_isAnyFilePath() {
 // TEST554: isCollection returns true when collection marker tag is present
 // TEST554: N/A for JS (MEDIA_COLLECTION constants removed - no longer exists)
 function test554_isCollection() {
-  // Skip - collection types removed from capns
+  // Skip - collection types removed from capdag
 }
 
 // TEST555: N/A for JS (with_tag/without_tag on MediaUrn - JS MediaUrn does not have these methods)
@@ -2620,7 +2620,7 @@ function test653_identityRoutingIsolation() {
 // ============================================================================
 
 async function runTests() {
-  console.log('Running capns-js tests...\n');
+  console.log('Running capdag-js tests...\n');
 
   // cap_urn.rs: TEST001-TEST050, TEST890-TEST891
   console.log('--- cap_urn.rs ---');
@@ -2819,7 +2819,7 @@ async function runTests() {
   runTest('TEST551: is_file_path', test551_isFilePath);
   runTest('TEST552: is_file_path_array', test552_isFilePathArray);
   runTest('TEST553: is_any_file_path', test553_isAnyFilePath);
-  console.log('  SKIP TEST554: N/A for JS (collection types removed from capns)');
+  console.log('  SKIP TEST554: N/A for JS (collection types removed from capdag)');
   console.log('  SKIP TEST555: N/A for JS (with_tag/without_tag on MediaUrn)');
   console.log('  SKIP TEST556: N/A for JS (image_media_urn_for_ext helper)');
   console.log('  SKIP TEST557: N/A for JS (audio_media_urn_for_ext helper)');

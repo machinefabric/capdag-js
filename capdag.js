@@ -819,7 +819,7 @@ const MEDIA_MLX_MODEL_PATH = 'media:mlx-model-path;textable';
 // Media URN for model repository (input for list-models) - has record marker
 const MEDIA_MODEL_REPO = 'media:model-repo;record;textable';
 
-// CAPNS output types - record marker for structured JSON objects, list marker for arrays
+// CAPDAG output types - record marker for structured JSON objects, list marker for arrays
 // Media URN for model dimension output - scalar by default (no list marker)
 const MEDIA_MODEL_DIM = 'media:integer;model-dim;numeric;textable';
 // Media URN for model download output - has record marker
@@ -1110,25 +1110,25 @@ function modelPathUrn() {
 // SCHEMA URL CONFIGURATION
 // =============================================================================
 
-const DEFAULT_SCHEMA_BASE = 'https://capns.org/schema';
+const DEFAULT_SCHEMA_BASE = 'https://capdag.com/schema';
 
 /**
  * Get the schema base URL from environment variables or default
  *
  * Checks in order:
- * 1. CAPNS_SCHEMA_BASE_URL environment variable
- * 2. CAPNS_REGISTRY_URL environment variable + "/schema"
- * 3. Default: "https://capns.org/schema"
+ * 1. CAPDAG_SCHEMA_BASE_URL environment variable
+ * 2. CAPDAG_REGISTRY_URL environment variable + "/schema"
+ * 3. Default: "https://capdag.com/schema"
  *
  * @returns {string} The schema base URL
  */
 function getSchemaBaseURL() {
   if (typeof process !== 'undefined' && process.env) {
-    if (process.env.CAPNS_SCHEMA_BASE_URL) {
-      return process.env.CAPNS_SCHEMA_BASE_URL;
+    if (process.env.CAPDAG_SCHEMA_BASE_URL) {
+      return process.env.CAPDAG_SCHEMA_BASE_URL;
     }
-    if (process.env.CAPNS_REGISTRY_URL) {
-      return process.env.CAPNS_REGISTRY_URL + '/schema';
+    if (process.env.CAPDAG_REGISTRY_URL) {
+      return process.env.CAPDAG_REGISTRY_URL + '/schema';
     }
   }
   return DEFAULT_SCHEMA_BASE;
@@ -1155,7 +1155,7 @@ function getProfileURL(profileName) {
  * Resolved MediaSpec structure
  *
  * A MediaSpec is a resolved media specification containing information about
- * a value type in the CAPNS system. MediaSpecs are identified by unique media URNs
+ * a value type in the CAPDAG system. MediaSpecs are identified by unique media URNs
  * and contain fields like media_type, profile_uri, schema, etc.
  *
  * MediaSpecs are defined in JSON files in the registry or inline in cap definitions.
@@ -2580,7 +2580,7 @@ class InputValidator {
    * @returns {boolean} True if valid
    */
   static validateAgainstProfile(profile, value) {
-    // Match against standard capns.org schemas (both /schema/ and /schemas/ for compatibility)
+    // Match against standard capdag.com schemas (both /schema/ and /schemas/ for compatibility)
     if (profile.includes('/schema/str') || profile.includes('/schemas/str')) {
       return typeof value === 'string';
     }
@@ -4121,7 +4121,7 @@ class PluginRepoServer {
       });
 
       // Build flat plugin object with latest version data
-      const packageUrl = `https://filegrind.com/plugins/packages/${versionData.package.name}`;
+      const packageUrl = `https://machinefabric.com/plugins/packages/${versionData.package.name}`;
       plugins.push({
         id,
         name: plugin.name,

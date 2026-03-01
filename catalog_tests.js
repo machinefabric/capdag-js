@@ -63,7 +63,7 @@ function extractTestInfo(filePath) {
         // Join description lines with space
         const description = descriptionLines.join(' ');
 
-        // Get relative path from capns-js root
+        // Get relative path from capdag-js root
         const relativePath = path.relative(path.dirname(filePath), filePath);
 
         const testInfo = new TestInfo(
@@ -117,7 +117,7 @@ function generateMarkdownTable(tests, outputFile) {
 
   let content = '# Capns-JS Test Catalog\n\n';
   content += `**Total Tests:** ${testsSorted.length}\n\n`;
-  content += 'This catalog lists all numbered tests in the capns-js codebase.\n\n';
+  content += 'This catalog lists all numbered tests in the capdag-js codebase.\n\n';
 
   // Table header
   content += '| Test # | Function Name | Description | Location |\n';
@@ -135,7 +135,7 @@ function generateMarkdownTable(tests, outputFile) {
   }
 
   content += '\n---\n\n';
-  content += '*Generated from capns-js source tree*\n';
+  content += '*Generated from capdag-js source tree*\n';
   content += `*Total numbered tests: ${testsSorted.length}*\n`;
 
   fs.writeFileSync(outputFile, content, 'utf-8');
@@ -145,10 +145,10 @@ function generateMarkdownTable(tests, outputFile) {
  * Main entry point
  */
 function main() {
-  // Determine the capns-js root directory (where this script is located)
+  // Determine the capdag-js root directory (where this script is located)
   const scriptDir = __dirname;
 
-  console.log('Scanning for tests in capns-js codebase...');
+  console.log('Scanning for tests in capdag-js codebase...');
 
   // Scan current directory for test files
   console.log(`  Scanning ${scriptDir}...`);
