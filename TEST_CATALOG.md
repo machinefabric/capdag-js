@@ -1,4 +1,4 @@
-# Capns-JS Test Catalog
+# CapDag-JS Test Catalog
 
 **Total Tests:** 236
 

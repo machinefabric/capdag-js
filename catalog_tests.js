@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Test Catalog Generator for Capns-JS
+ * Test Catalog Generator for CapDag-JS
  *
  * Scans all JavaScript test files and generates a markdown table cataloging all numbered tests
  * with their descriptions.
@@ -115,7 +115,7 @@ function generateMarkdownTable(tests, outputFile) {
   // Sort tests by test number (numerically)
   const testsSorted = tests.sort((a, b) => parseInt(a.number) - parseInt(b.number));
 
-  let content = '# Capns-JS Test Catalog\n\n';
+  let content = '# CapDag-JS Test Catalog\n\n';
   content += `**Total Tests:** ${testsSorted.length}\n\n`;
   content += 'This catalog lists all numbered tests in the capdag-js codebase.\n\n';
 

@@ -32,5 +32,5 @@
   "scripts": {
     "test": "node capdag.test.js"
   },
-  "version": "0.88.20458"
+  "version": "0.89.20894"
 }
