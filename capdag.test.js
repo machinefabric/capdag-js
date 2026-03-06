@@ -17,7 +17,7 @@ const {
   MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
   MEDIA_OBJECT, MEDIA_STRING_ARRAY, MEDIA_INTEGER_ARRAY,
   MEDIA_NUMBER_ARRAY, MEDIA_BOOLEAN_ARRAY, MEDIA_OBJECT_ARRAY,
-  MEDIA_BINARY, MEDIA_VOID, MEDIA_PNG, MEDIA_AUDIO, MEDIA_VIDEO,
+  MEDIA_IDENTITY, MEDIA_VOID, MEDIA_PNG, MEDIA_AUDIO, MEDIA_VIDEO,
   MEDIA_PDF, MEDIA_EPUB, MEDIA_MD, MEDIA_TXT, MEDIA_RST, MEDIA_LOG,
   MEDIA_HTML, MEDIA_XML, MEDIA_JSON, MEDIA_YAML, MEDIA_JSON_SCHEMA,
   MEDIA_MODEL_SPEC, MEDIA_AVAILABILITY_OUTPUT, MEDIA_PATH_OUTPUT,
@@ -673,7 +673,7 @@ function test050_matchingSemanticsDirectionMismatch() {
     `cap:in="${MEDIA_STRING}";op=generate;out="${MEDIA_OBJECT}"`
   );
   const request = CapUrn.fromString(
-    `cap:in="${MEDIA_BINARY}";op=generate;out="${MEDIA_OBJECT}"`
+    `cap:in="${MEDIA_IDENTITY}";op=generate;out="${MEDIA_OBJECT}"`
   );
   assert(!cap.accepts(request), 'Incompatible direction types should not match');
 }
@@ -812,7 +812,7 @@ function test060_wrongPrefixFails() {
 // TEST061: isBinary true when textable tag is absent (binary = not textable)
 function test061_isBinary() {
   // Binary types: no textable tag
-  assert(MediaUrn.fromString(MEDIA_BINARY).isBinary(), 'MEDIA_BINARY (media:) should be binary');
+  assert(MediaUrn.fromString(MEDIA_IDENTITY).isBinary(), 'MEDIA_IDENTITY (media:) should be binary');
   assert(MediaUrn.fromString(MEDIA_PNG).isBinary(), 'MEDIA_PNG should be binary');
   assert(MediaUrn.fromString(MEDIA_PDF).isBinary(), 'MEDIA_PDF should be binary');
   assert(MediaUrn.fromString('media:video').isBinary(), 'media:video should be binary');
@@ -883,7 +883,7 @@ function test067_isText() {
   assert(MediaUrn.fromString(MEDIA_INTEGER).isText(), 'MEDIA_INTEGER should be text');
   assert(MediaUrn.fromString(MEDIA_JSON).isText(), 'MEDIA_JSON should be text');
   // Without textable tag, is_text is false
-  assert(!MediaUrn.fromString(MEDIA_BINARY).isText(), 'MEDIA_BINARY should not be text');
+  assert(!MediaUrn.fromString(MEDIA_IDENTITY).isText(), 'MEDIA_IDENTITY should not be text');
   assert(!MediaUrn.fromString(MEDIA_PNG).isText(), 'MEDIA_PNG should not be text');
   assert(!MediaUrn.fromString(MEDIA_OBJECT).isText(), 'MEDIA_OBJECT (no textable) should not be text');
 }
@@ -898,7 +898,7 @@ function test068_isVoid() {
 
 // TEST071: Parse -> toString -> parse equals original
 function test071_toStringRoundtrip() {
-  const constants = [MEDIA_STRING, MEDIA_INTEGER, MEDIA_OBJECT, MEDIA_BINARY, MEDIA_PDF, MEDIA_JSON];
+  const constants = [MEDIA_STRING, MEDIA_INTEGER, MEDIA_OBJECT, MEDIA_IDENTITY, MEDIA_PDF, MEDIA_JSON];
   for (const constant of constants) {
     const parsed = MediaUrn.fromString(constant);
     const reparsed = MediaUrn.fromString(parsed.toString());
@@ -912,7 +912,7 @@ function test072_constantsParse() {
     MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
     MEDIA_OBJECT, MEDIA_STRING_ARRAY, MEDIA_INTEGER_ARRAY,
     MEDIA_NUMBER_ARRAY, MEDIA_BOOLEAN_ARRAY, MEDIA_OBJECT_ARRAY,
-    MEDIA_BINARY, MEDIA_VOID, MEDIA_PNG, MEDIA_PDF, MEDIA_EPUB,
+    MEDIA_IDENTITY, MEDIA_VOID, MEDIA_PNG, MEDIA_PDF, MEDIA_EPUB,
     MEDIA_MD, MEDIA_TXT, MEDIA_RST, MEDIA_LOG, MEDIA_HTML, MEDIA_XML,
     MEDIA_JSON, MEDIA_YAML, MEDIA_JSON_SCHEMA, MEDIA_AUDIO, MEDIA_VIDEO,
     MEDIA_MODEL_SPEC, MEDIA_AVAILABILITY_OUTPUT, MEDIA_PATH_OUTPUT,
@@ -946,7 +946,7 @@ function test075_accepts() {
   const sameReq = MediaUrn.fromString(MEDIA_PDF);
   assert(handler.accepts(sameReq), 'Handler should accept same request');
 
-  const generalHandler = MediaUrn.fromString(MEDIA_BINARY);
+  const generalHandler = MediaUrn.fromString(MEDIA_IDENTITY);
   const specificReq = MediaUrn.fromString(MEDIA_PDF);
   assert(generalHandler.accepts(specificReq), 'General handler should accept specific request');
 }
@@ -1032,7 +1032,7 @@ function test093_resolveUnresolvableFailsHard() {
 
 // TEST099: MediaSpec with media: (no textable tag) -> isBinary() true
 function test099_resolvedIsBinary() {
-  const spec = new MediaSpec('application/octet-stream', null, null, 'Binary', null, MEDIA_BINARY);
+  const spec = new MediaSpec('application/octet-stream', null, null, 'Binary', null, MEDIA_IDENTITY);
   assert(spec.isBinary(), 'Resolved binary spec should be binary');
 }
 
@@ -2326,7 +2326,7 @@ function test549_isNumeric() {
   // Non-numeric types
   assert(!MediaUrn.fromString(MEDIA_STRING).isNumeric(), 'MEDIA_STRING should not be numeric');
   assert(!MediaUrn.fromString(MEDIA_BOOLEAN).isNumeric(), 'MEDIA_BOOLEAN should not be numeric');
-  assert(!MediaUrn.fromString(MEDIA_BINARY).isNumeric(), 'MEDIA_BINARY should not be numeric');
+  assert(!MediaUrn.fromString(MEDIA_IDENTITY).isNumeric(), 'MEDIA_IDENTITY should not be numeric');
 }
 
 // TEST550: isBool returns true only when bool marker tag is present
@@ -2338,7 +2338,7 @@ function test550_isBool() {
   // Non-bool types
   assert(!MediaUrn.fromString(MEDIA_STRING).isBool(), 'MEDIA_STRING should not be bool');
   assert(!MediaUrn.fromString(MEDIA_INTEGER).isBool(), 'MEDIA_INTEGER should not be bool');
-  assert(!MediaUrn.fromString(MEDIA_BINARY).isBool(), 'MEDIA_BINARY should not be bool');
+  assert(!MediaUrn.fromString(MEDIA_IDENTITY).isBool(), 'MEDIA_IDENTITY should not be bool');
 }
 
 // TEST551: isFilePath returns true for scalar file-path, false for array
@@ -2348,7 +2348,7 @@ function test551_isFilePath() {
   assert(!MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isFilePath(), 'MEDIA_FILE_PATH_ARRAY should not be isFilePath');
   // Non-file-path types
   assert(!MediaUrn.fromString(MEDIA_STRING).isFilePath(), 'MEDIA_STRING should not be file-path');
-  assert(!MediaUrn.fromString(MEDIA_BINARY).isFilePath(), 'MEDIA_BINARY should not be file-path');
+  assert(!MediaUrn.fromString(MEDIA_IDENTITY).isFilePath(), 'MEDIA_IDENTITY should not be file-path');
 }
 
 // TEST552: isFilePathArray returns true for list file-path, false for scalar

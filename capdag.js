@@ -748,7 +748,7 @@ const MEDIA_BOOLEAN = 'media:bool;textable';
 // Use MEDIA_JSON for textable JSON objects.
 const MEDIA_OBJECT = 'media:record';
 // Media URN for binary data - the most general media type (no constraints)
-const MEDIA_BINARY = 'media:';
+const MEDIA_IDENTITY = 'media:';
 
 // Array types - URNs must match base.toml definitions
 // Media URN for string array type - textable with list marker
@@ -4250,7 +4250,7 @@ module.exports = {
   MEDIA_NUMBER_ARRAY,
   MEDIA_BOOLEAN_ARRAY,
   MEDIA_OBJECT_ARRAY,
-  MEDIA_BINARY,
+  MEDIA_IDENTITY,
   MEDIA_VOID,
   MEDIA_PNG,
   MEDIA_AUDIO,
