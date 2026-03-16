@@ -95,6 +95,24 @@ class CapUrn {
   }
 
   /**
+   * Parse the in= spec into a MediaUrn.
+   * @returns {MediaUrn} The input media URN
+   * @throws {MediaUrnError} If the in spec is not a valid media URN
+   */
+  inMediaUrn() {
+    return MediaUrn.fromString(this.inSpec);
+  }
+
+  /**
+   * Parse the out= spec into a MediaUrn.
+   * @returns {MediaUrn} The output media URN
+   * @throws {MediaUrnError} If the out spec is not a valid media URN
+   */
+  outMediaUrn() {
+    return MediaUrn.fromString(this.outSpec);
+  }
+
+  /**
    * Create a Cap URN from string representation
    * Format: cap:in="<media-urn>";out="<media-urn>";key1=value1;key2=value2;...
    *
@@ -506,6 +524,27 @@ class CapUrn {
     }
     const newTags = { ...this.tags, ...other.tags };
     return new CapUrn(other.inSpec, other.outSpec, newTags);
+  }
+
+  /**
+   * Check if two cap URNs are comparable (on the same specialization chain).
+   * isComparable(other) ≡ accepts(other) || other.accepts(this)
+   * @param {CapUrn} other
+   * @returns {boolean}
+   */
+  isComparable(other) {
+    return this.accepts(other) || other.accepts(this);
+  }
+
+  /**
+   * Check if two cap URNs are equivalent in the order-theoretic sense.
+   * Two URNs are equivalent if each accepts (subsumes) the other.
+   * isEquivalent(other) ≡ accepts(other) && other.accepts(this)
+   * @param {CapUrn} other
+   * @returns {boolean}
+   */
+  isEquivalent(other) {
+    return this.accepts(other) && other.accepts(this);
   }
 
   /**
@@ -1055,6 +1094,22 @@ class MediaUrn {
 
   /** @returns {string} Canonical string representation */
   toString() { return this._urn.toString(); }
+
+  /**
+   * Check if two media URNs are equivalent (each accepts the other).
+   * isEquivalent(other) ≡ accepts(other) && other.accepts(this)
+   * @param {MediaUrn} other
+   * @returns {boolean}
+   */
+  isEquivalent(other) { return this._urn.isEquivalent(other._urn); }
+
+  /**
+   * Check if two media URNs are comparable (on the same specialization chain).
+   * isComparable(other) ≡ accepts(other) || other.accepts(this)
+   * @param {MediaUrn} other
+   * @returns {boolean}
+   */
+  isComparable(other) { return this._urn.isComparable(other._urn); }
 
   /**
    * @param {MediaUrn} other
@@ -4201,6 +4256,732 @@ class PluginRepoServer {
   }
 }
 
+// ============================================================================
+// Route Notation — compact, round-trippable DAG path identifiers
+//
+// Route notation describes capability transformation paths using bracket-
+// delimited statements:
+//   [alias cap:in="...";op=...;out="..."]   — header (defines a cap with alias)
+//   [src -> alias -> dst]                   — wiring (connects nodes via cap)
+//   [(a, b) -> alias -> dst]               — fan-in wiring
+//   [src -> LOOP alias -> dst]             — loop wiring (ForEach semantics)
+// ============================================================================
+
+/**
+ * Error types for route notation parsing.
+ * Mirrors Rust RouteNotationError exactly.
+ */
+class RouteNotationError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'RouteNotationError';
+    this.code = code;
+  }
+}
+
+const RouteNotationErrorCodes = {
+  EMPTY: 'Empty',
+  UNTERMINATED_STATEMENT: 'UnterminatedStatement',
+  INVALID_CAP_URN: 'InvalidCapUrn',
+  UNDEFINED_ALIAS: 'UndefinedAlias',
+  DUPLICATE_ALIAS: 'DuplicateAlias',
+  INVALID_WIRING: 'InvalidWiring',
+  INVALID_MEDIA_URN: 'InvalidMediaUrn',
+  INVALID_HEADER: 'InvalidHeader',
+  NO_EDGES: 'NoEdges',
+  NODE_ALIAS_COLLISION: 'NodeAliasCollision',
+  PARSE_ERROR: 'ParseError',
+};
+
+/**
+ * A single edge in the route graph.
+ *
+ * Each edge represents a capability that transforms one or more source
+ * media types into a target media type. The isLoop flag indicates
+ * ForEach semantics (the capability is applied to each item in a list).
+ *
+ * Mirrors Rust RouteEdge.
+ */
+class RouteEdge {
+  /**
+   * @param {MediaUrn[]} sources - Input media URN(s)
+   * @param {CapUrn} capUrn - The capability URN (edge label)
+   * @param {MediaUrn} target - Output media URN
+   * @param {boolean} isLoop - Whether this edge has ForEach semantics
+   */
+  constructor(sources, capUrn, target, isLoop) {
+    this.sources = sources;
+    this.capUrn = capUrn;
+    this.target = target;
+    this.isLoop = isLoop;
+  }
+
+  /**
+   * Check if two edges are semantically equivalent.
+   *
+   * Equivalence is defined as:
+   * - Same number of sources, and each source in this has an equivalent source in other
+   * - Equivalent cap URNs (via CapUrn.isEquivalent)
+   * - Equivalent target media URNs (via MediaUrn.isEquivalent)
+   * - Same isLoop flag
+   *
+   * Source order does not matter — fan-in sources are compared as sets.
+   * Mirrors Rust RouteEdge::is_equivalent.
+   */
+  isEquivalent(other) {
+    if (this.isLoop !== other.isLoop) {
+      return false;
+    }
+
+    if (!this.capUrn.isEquivalent(other.capUrn)) {
+      return false;
+    }
+
+    // Target equivalence
+    if (!this.target.isEquivalent(other.target)) {
+      return false;
+    }
+
+    // Source set equivalence — order-independent comparison
+    if (this.sources.length !== other.sources.length) {
+      return false;
+    }
+
+    // For each source in this, find a matching source in other.
+    // Track which indices in other have been matched to avoid double-counting.
+    const matched = new Array(other.sources.length).fill(false);
+    for (const selfSrc of this.sources) {
+      let found = false;
+      for (let j = 0; j < other.sources.length; j++) {
+        if (matched[j]) continue;
+        if (selfSrc.isEquivalent(other.sources[j])) {
+          matched[j] = true;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Display string for this edge.
+   * Mirrors Rust Display for RouteEdge.
+   */
+  toString() {
+    const sources = this.sources.map(s => s.toString()).join(', ');
+    const loopPrefix = this.isLoop ? 'LOOP ' : '';
+    return `(${sources}) -${loopPrefix}${this.capUrn}-> ${this.target}`;
+  }
+}
+
+/**
+ * A route graph — the semantic model behind route notation.
+ *
+ * The graph is a collection of directed edges where each edge is a capability
+ * that transforms source media types into a target media type.
+ *
+ * Two graphs are equivalent if they have the same set of edges, regardless
+ * of ordering. Alias names used in the textual notation are not part of
+ * the graph model.
+ *
+ * Mirrors Rust RouteGraph.
+ */
+class RouteGraph {
+  /**
+   * @param {RouteEdge[]} edges
+   */
+  constructor(edges) {
+    this._edges = edges;
+  }
+
+  /**
+   * Create an empty route graph.
+   * @returns {RouteGraph}
+   */
+  static empty() {
+    return new RouteGraph([]);
+  }
+
+  /**
+   * Parse route notation into a RouteGraph.
+   * @param {string} input
+   * @returns {RouteGraph}
+   * @throws {RouteNotationError}
+   */
+  static fromString(input) {
+    return parseRouteNotation(input);
+  }
+
+  /**
+   * Get the edges of this graph.
+   * @returns {RouteEdge[]}
+   */
+  edges() {
+    return this._edges;
+  }
+
+  /**
+   * Number of edges in the graph.
+   * @returns {number}
+   */
+  edgeCount() {
+    return this._edges.length;
+  }
+
+  /**
+   * Check if the graph has no edges.
+   * @returns {boolean}
+   */
+  isEmpty() {
+    return this._edges.length === 0;
+  }
+
+  /**
+   * Check if two route graphs are semantically equivalent.
+   *
+   * Two graphs are equivalent if they have the same set of edges
+   * (compared using RouteEdge.isEquivalent). Edge ordering
+   * does not matter.
+   *
+   * Mirrors Rust RouteGraph::is_equivalent.
+   */
+  isEquivalent(other) {
+    if (this._edges.length !== other._edges.length) {
+      return false;
+    }
+
+    // For each edge in this, find a matching edge in other.
+    const matched = new Array(other._edges.length).fill(false);
+    for (const selfEdge of this._edges) {
+      let found = false;
+      for (let j = 0; j < other._edges.length; j++) {
+        if (matched[j]) continue;
+        if (selfEdge.isEquivalent(other._edges[j])) {
+          matched[j] = true;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Collect all unique source media URNs across all edges that are not
+   * also produced as targets by any other edge. These are the "root"
+   * inputs to the graph.
+   *
+   * Mirrors Rust RouteGraph::root_sources.
+   * @returns {MediaUrn[]}
+   */
+  rootSources() {
+    const roots = [];
+    for (const edge of this._edges) {
+      for (const src of edge.sources) {
+        // Check if any edge produces this source as a target
+        const isProduced = this._edges.some(e => e.target.isEquivalent(src));
+        if (!isProduced) {
+          // Avoid duplicates (by equivalence)
+          const alreadyAdded = roots.some(r => r.isEquivalent(src));
+          if (!alreadyAdded) {
+            roots.push(src);
+          }
+        }
+      }
+    }
+    return roots;
+  }
+
+  /**
+   * Collect all unique target media URNs that are not consumed as sources
+   * by any other edge. These are the "leaf" outputs of the graph.
+   *
+   * Mirrors Rust RouteGraph::leaf_targets.
+   * @returns {MediaUrn[]}
+   */
+  leafTargets() {
+    const leaves = [];
+    for (const edge of this._edges) {
+      const isConsumed = this._edges.some(e =>
+        e.sources.some(s => s.isEquivalent(edge.target))
+      );
+      if (!isConsumed) {
+        const alreadyAdded = leaves.some(l => l.isEquivalent(edge.target));
+        if (!alreadyAdded) {
+          leaves.push(edge.target);
+        }
+      }
+    }
+    return leaves;
+  }
+
+  // =========================================================================
+  // Serializer — deterministic canonical form
+  // Mirrors Rust serializer.rs
+  // =========================================================================
+
+  /**
+   * Serialize this route graph to canonical one-line route notation.
+   *
+   * The output is deterministic: same graph → same string.
+   * Mirrors Rust RouteGraph::to_route_notation.
+   * @returns {string}
+   */
+  toRouteNotation() {
+    if (this._edges.length === 0) {
+      return '';
+    }
+
+    const { aliases, nodeNames, edgeOrder } = this._buildSerializationMaps();
+    let output = '';
+
+    // Emit headers in alias-sorted order
+    const sortedAliases = Array.from(aliases.entries()).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+
+    for (const [alias, { edgeIdx }] of sortedAliases) {
+      const edge = this._edges[edgeIdx];
+      output += `[${alias} ${edge.capUrn}]`;
+    }
+
+    // Emit wirings in edge order
+    for (const edgeIdx of edgeOrder) {
+      const edge = this._edges[edgeIdx];
+      let alias = null;
+      for (const [a, info] of aliases) {
+        if (info.edgeIdx === edgeIdx) {
+          alias = a;
+          break;
+        }
+      }
+
+      // Source node name(s)
+      const sources = edge.sources.map(s => {
+        const key = s.toString();
+        return nodeNames.get(key);
+      });
+
+      // Target node name
+      const targetKey = edge.target.toString();
+      const targetName = nodeNames.get(targetKey);
+
+      const loopPrefix = edge.isLoop ? 'LOOP ' : '';
+
+      if (sources.length === 1) {
+        output += `[${sources[0]} -> ${loopPrefix}${alias} -> ${targetName}]`;
+      } else {
+        const group = sources.join(', ');
+        output += `[(${group}) -> ${loopPrefix}${alias} -> ${targetName}]`;
+      }
+    }
+
+    return output;
+  }
+
+  /**
+   * Serialize to multi-line route notation (one statement per line).
+   * Mirrors Rust RouteGraph::to_route_notation_multiline.
+   * @returns {string}
+   */
+  toRouteNotationMultiline() {
+    if (this._edges.length === 0) {
+      return '';
+    }
+
+    const { aliases, nodeNames, edgeOrder } = this._buildSerializationMaps();
+    const lines = [];
+
+    // Emit headers in alias-sorted order
+    const sortedAliases = Array.from(aliases.entries()).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+
+    for (const [alias, { edgeIdx }] of sortedAliases) {
+      const edge = this._edges[edgeIdx];
+      lines.push(`[${alias} ${edge.capUrn}]`);
+    }
+
+    // Emit wirings in edge order
+    for (const edgeIdx of edgeOrder) {
+      const edge = this._edges[edgeIdx];
+      let alias = null;
+      for (const [a, info] of aliases) {
+        if (info.edgeIdx === edgeIdx) {
+          alias = a;
+          break;
+        }
+      }
+
+      const sources = edge.sources.map(s => {
+        const key = s.toString();
+        return nodeNames.get(key);
+      });
+
+      const targetKey = edge.target.toString();
+      const targetName = nodeNames.get(targetKey);
+
+      const loopPrefix = edge.isLoop ? 'LOOP ' : '';
+
+      if (sources.length === 1) {
+        lines.push(`[${sources[0]} -> ${loopPrefix}${alias} -> ${targetName}]`);
+      } else {
+        const group = sources.join(', ');
+        lines.push(`[(${group}) -> ${loopPrefix}${alias} -> ${targetName}]`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Build the alias map, node name map, and edge ordering for serialization.
+   *
+   * Returns:
+   * - aliases: Map<string, { edgeIdx: number, capStr: string }>
+   * - nodeNames: Map<string, string> (media_urn_canonical → node_name)
+   * - edgeOrder: number[] (edge indices in canonical order)
+   *
+   * Mirrors Rust RouteGraph::build_serialization_maps.
+   * @private
+   */
+  _buildSerializationMaps() {
+    // Step 1: Generate canonical edge ordering
+    const edgeOrder = Array.from({ length: this._edges.length }, (_, i) => i);
+    edgeOrder.sort((a, b) => {
+      const ea = this._edges[a];
+      const eb = this._edges[b];
+
+      const capCmp = ea.capUrn.toString().localeCompare(eb.capUrn.toString());
+      if (capCmp !== 0) return capCmp;
+
+      const srcA = ea.sources.map(s => s.toString());
+      const srcB = eb.sources.map(s => s.toString());
+      // Lexicographic comparison of source arrays
+      const minLen = Math.min(srcA.length, srcB.length);
+      for (let i = 0; i < minLen; i++) {
+        const cmp = srcA[i].localeCompare(srcB[i]);
+        if (cmp !== 0) return cmp;
+      }
+      if (srcA.length !== srcB.length) return srcA.length - srcB.length;
+
+      return ea.target.toString().localeCompare(eb.target.toString());
+    });
+
+    // Step 2: Generate aliases from op= tag
+    const aliases = new Map();
+    const aliasCounts = new Map();
+
+    for (const idx of edgeOrder) {
+      const edge = this._edges[idx];
+      const opTag = edge.capUrn.getTag('op');
+      const baseAlias = opTag !== undefined ? opTag : `edge_${idx}`;
+
+      const count = aliasCounts.get(baseAlias) || 0;
+      const alias = count === 0 ? baseAlias : `${baseAlias}_${count}`;
+      aliasCounts.set(baseAlias, count + 1);
+
+      const capStr = edge.capUrn.toString();
+      aliases.set(alias, { edgeIdx: idx, capStr });
+    }
+
+    // Step 3: Generate node names
+    // Collect all unique media URNs, assign names in order of first appearance
+    const nodeNames = new Map();
+    let nodeCounter = 0;
+
+    for (const idx of edgeOrder) {
+      const edge = this._edges[idx];
+      for (const src of edge.sources) {
+        const key = src.toString();
+        if (!nodeNames.has(key)) {
+          nodeNames.set(key, `n${nodeCounter}`);
+          nodeCounter++;
+        }
+      }
+      const targetKey = edge.target.toString();
+      if (!nodeNames.has(targetKey)) {
+        nodeNames.set(targetKey, `n${nodeCounter}`);
+        nodeCounter++;
+      }
+    }
+
+    return { aliases, nodeNames, edgeOrder };
+  }
+
+  /**
+   * Display string for this graph.
+   * Mirrors Rust Display for RouteGraph.
+   */
+  toString() {
+    if (this._edges.length === 0) {
+      return 'RouteGraph(empty)';
+    }
+    return `RouteGraph(${this._edges.length} edges)`;
+  }
+}
+
+// ============================================================================
+// Route Parser — PEG-based parser using Peggy
+// Mirrors Rust parser.rs exactly (4-phase pipeline)
+// ============================================================================
+
+// Load the Peggy-generated parser
+const routeParser = require('./route-parser.js');
+
+/**
+ * Assign a media URN to a node, or check consistency if already assigned.
+ *
+ * Uses MediaUrn.isComparable() — two types on the same specialization
+ * chain are compatible.
+ *
+ * Mirrors Rust assign_or_check_node.
+ * @private
+ */
+function assignOrCheckNode(node, mediaUrn, nodeMedia, position) {
+  const existing = nodeMedia.get(node);
+  if (existing !== undefined) {
+    const compatible = existing.isComparable(mediaUrn);
+    if (!compatible) {
+      throw new RouteNotationError(
+        RouteNotationErrorCodes.INVALID_WIRING,
+        `invalid wiring at statement ${position}: node '${node}' has conflicting media types: existing '${existing}', new '${mediaUrn}'`
+      );
+    }
+  } else {
+    nodeMedia.set(node, mediaUrn);
+  }
+}
+
+/**
+ * Parse route notation into a RouteGraph.
+ *
+ * Uses the Peggy-generated PEG parser to parse the input, then resolves
+ * cap URNs and derives media URNs from cap in/out specs.
+ *
+ * Fails hard — no fallbacks, no guessing, no recovery.
+ *
+ * Mirrors Rust parse_route_notation exactly.
+ *
+ * @param {string} input - Route notation string
+ * @returns {RouteGraph}
+ * @throws {RouteNotationError}
+ */
+function parseRouteNotation(input) {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) {
+    throw new RouteNotationError(
+      RouteNotationErrorCodes.EMPTY,
+      'route notation is empty'
+    );
+  }
+
+  // Phase 1: Parse with Peggy grammar
+  let stmts;
+  try {
+    stmts = routeParser.parse(trimmed);
+  } catch (e) {
+    throw new RouteNotationError(
+      RouteNotationErrorCodes.PARSE_ERROR,
+      `parse error: ${e.message}`
+    );
+  }
+
+  // Phase 2: Separate headers and wirings (already done by grammar actions)
+  const headers = []; // { alias, capUrn, position }
+  const wirings = []; // { sources, capAlias, target, isLoop, position }
+
+  for (let i = 0; i < stmts.length; i++) {
+    const stmt = stmts[i];
+    if (stmt.type === 'header') {
+      // Parse the cap URN string
+      let capUrn;
+      try {
+        capUrn = CapUrn.fromString(stmt.capUrn);
+      } catch (e) {
+        throw new RouteNotationError(
+          RouteNotationErrorCodes.INVALID_CAP_URN,
+          `invalid cap URN in header '${stmt.alias}': ${e.message}`
+        );
+      }
+      headers.push({ alias: stmt.alias, capUrn, position: i });
+    } else if (stmt.type === 'wiring') {
+      wirings.push({
+        sources: stmt.sources,
+        capAlias: stmt.capAlias,
+        target: stmt.target,
+        isLoop: stmt.isLoop,
+        position: i,
+      });
+    }
+  }
+
+  // Phase 3: Build alias → CapUrn map, checking for duplicates
+  const aliasMap = new Map(); // alias → { capUrn, position }
+  for (const header of headers) {
+    if (aliasMap.has(header.alias)) {
+      const firstPos = aliasMap.get(header.alias).position;
+      throw new RouteNotationError(
+        RouteNotationErrorCodes.DUPLICATE_ALIAS,
+        `duplicate alias '${header.alias}' (first defined at statement ${firstPos})`
+      );
+    }
+    aliasMap.set(header.alias, { capUrn: header.capUrn, position: header.position });
+  }
+
+  // Phase 4: Resolve wirings into RouteEdges
+  if (wirings.length === 0 && headers.length > 0) {
+    throw new RouteNotationError(
+      RouteNotationErrorCodes.NO_EDGES,
+      'route has headers but no wirings — define at least one edge'
+    );
+  }
+
+  const nodeMedia = new Map(); // node_name → MediaUrn
+  const edges = [];
+
+  for (const wiring of wirings) {
+    // Look up the cap alias
+    const aliasEntry = aliasMap.get(wiring.capAlias);
+    if (!aliasEntry) {
+      throw new RouteNotationError(
+        RouteNotationErrorCodes.UNDEFINED_ALIAS,
+        `wiring references undefined alias '${wiring.capAlias}'`
+      );
+    }
+    const capUrn = aliasEntry.capUrn;
+
+    // Check node-alias collisions
+    for (const src of wiring.sources) {
+      if (aliasMap.has(src)) {
+        throw new RouteNotationError(
+          RouteNotationErrorCodes.NODE_ALIAS_COLLISION,
+          `node name '${src}' collides with cap alias '${src}'`
+        );
+      }
+    }
+    if (aliasMap.has(wiring.target)) {
+      throw new RouteNotationError(
+        RouteNotationErrorCodes.NODE_ALIAS_COLLISION,
+        `node name '${wiring.target}' collides with cap alias '${wiring.target}'`
+      );
+    }
+
+    // Derive media URNs from cap's in=/out= specs
+    let capInMedia;
+    try {
+      capInMedia = capUrn.inMediaUrn();
+    } catch (e) {
+      throw new RouteNotationError(
+        RouteNotationErrorCodes.INVALID_MEDIA_URN,
+        `invalid media URN in cap '${wiring.capAlias}': in= spec: ${e.message}`
+      );
+    }
+
+    let capOutMedia;
+    try {
+      capOutMedia = capUrn.outMediaUrn();
+    } catch (e) {
+      throw new RouteNotationError(
+        RouteNotationErrorCodes.INVALID_MEDIA_URN,
+        `invalid media URN in cap '${wiring.capAlias}': out= spec: ${e.message}`
+      );
+    }
+
+    // Resolve source media URNs
+    const sourceUrns = [];
+    for (let i = 0; i < wiring.sources.length; i++) {
+      const src = wiring.sources[i];
+      if (i === 0) {
+        // Primary source: use cap's in= spec
+        assignOrCheckNode(src, capInMedia, nodeMedia, wiring.position);
+        sourceUrns.push(capInMedia);
+      } else {
+        // Secondary source (fan-in): use existing type if assigned,
+        // otherwise use wildcard media: — the orchestrator parser will
+        // resolve the real type from the cap's args via registry lookup.
+        let secondaryMedia = nodeMedia.get(src);
+        if (secondaryMedia === undefined) {
+          secondaryMedia = MediaUrn.fromString('media:');
+          nodeMedia.set(src, secondaryMedia);
+        }
+        sourceUrns.push(secondaryMedia);
+      }
+    }
+
+    // Assign target media URN
+    assignOrCheckNode(wiring.target, capOutMedia, nodeMedia, wiring.position);
+
+    edges.push(new RouteEdge(sourceUrns, capUrn, capOutMedia, wiring.isLoop));
+  }
+
+  return new RouteGraph(edges);
+}
+
+// ============================================================================
+// RouteGraphBuilder — programmatic path construction
+// ============================================================================
+
+/**
+ * Builder for constructing RouteGraphs programmatically.
+ *
+ * Provides a fluent API for building route graphs without writing
+ * route notation strings. Useful for constructing paths from graph
+ * exploration (e.g., selecting paths in the UI).
+ */
+class RouteGraphBuilder {
+  constructor() {
+    this._edges = [];
+  }
+
+  /**
+   * Add an edge to the graph.
+   * @param {string[]} sourceUrns - Source media URN strings
+   * @param {string} capUrnStr - Cap URN string
+   * @param {string} targetUrn - Target media URN string
+   * @param {boolean} [isLoop=false] - Whether this edge has ForEach semantics
+   * @returns {RouteGraphBuilder} this (for chaining)
+   */
+  addEdge(sourceUrns, capUrnStr, targetUrn, isLoop = false) {
+    const sources = sourceUrns.map(s => MediaUrn.fromString(s));
+    const capUrn = CapUrn.fromString(capUrnStr);
+    const target = MediaUrn.fromString(targetUrn);
+    this._edges.push(new RouteEdge(sources, capUrn, target, isLoop));
+    return this;
+  }
+
+  /**
+   * Add a linear chain of edges from CapGraphEdge[] (from CapGraph.findAllPaths).
+   *
+   * Each CapGraphEdge has fromUrn, toUrn, and cap (with cap.urn).
+   * This converts the path into a series of RouteEdges.
+   *
+   * @param {CapGraphEdge[]} capGraphEdges - Array of CapGraphEdge from pathfinding
+   * @returns {RouteGraphBuilder} this (for chaining)
+   */
+  addCapGraphPath(capGraphEdges) {
+    for (const edge of capGraphEdges) {
+      const source = MediaUrn.fromString(edge.fromUrn);
+      const target = MediaUrn.fromString(edge.toUrn);
+      this._edges.push(new RouteEdge([source], edge.cap.urn, target, false));
+    }
+    return this;
+  }
+
+  /**
+   * Build the RouteGraph from the accumulated edges.
+   * @returns {RouteGraph}
+   */
+  build() {
+    return new RouteGraph([...this._edges]);
+  }
+}
+
 // Export for CommonJS
 module.exports = {
   CapUrn,
@@ -4318,5 +5099,12 @@ module.exports = {
   PluginSuggestion,
   PluginRepoCache,
   PluginRepoClient,
-  PluginRepoServer
+  PluginRepoServer,
+  // Route notation
+  RouteNotationError,
+  RouteNotationErrorCodes,
+  RouteEdge,
+  RouteGraph,
+  RouteGraphBuilder,
+  parseRouteNotation,
 };
