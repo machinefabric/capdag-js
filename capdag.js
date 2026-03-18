@@ -4257,7 +4257,7 @@ class PluginRepoServer {
 }
 
 // ============================================================================
-// Route Notation — compact, round-trippable DAG path identifiers
+// Machine Notation — compact, round-trippable DAG path identifiers
 //
 // Route notation describes capability transformation paths using bracket-
 // delimited statements:
@@ -4268,18 +4268,18 @@ class PluginRepoServer {
 // ============================================================================
 
 /**
- * Error types for route notation parsing.
- * Mirrors Rust RouteNotationError exactly.
+ * Error types for machine notation parsing.
+ * Mirrors Rust MachineSyntaxError exactly.
  */
-class RouteNotationError extends Error {
+class MachineSyntaxError extends Error {
   constructor(code, message) {
     super(message);
-    this.name = 'RouteNotationError';
+    this.name = 'MachineSyntaxError';
     this.code = code;
   }
 }
 
-const RouteNotationErrorCodes = {
+const MachineSyntaxErrorCodes = {
   EMPTY: 'Empty',
   UNTERMINATED_STATEMENT: 'UnterminatedStatement',
   INVALID_CAP_URN: 'InvalidCapUrn',
@@ -4300,9 +4300,9 @@ const RouteNotationErrorCodes = {
  * media types into a target media type. The isLoop flag indicates
  * ForEach semantics (the capability is applied to each item in a list).
  *
- * Mirrors Rust RouteEdge.
+ * Mirrors Rust MachineEdge.
  */
-class RouteEdge {
+class MachineEdge {
   /**
    * @param {MediaUrn[]} sources - Input media URN(s)
    * @param {CapUrn} capUrn - The capability URN (edge label)
@@ -4326,7 +4326,7 @@ class RouteEdge {
    * - Same isLoop flag
    *
    * Source order does not matter — fan-in sources are compared as sets.
-   * Mirrors Rust RouteEdge::is_equivalent.
+   * Mirrors Rust MachineEdge::is_equivalent.
    */
   isEquivalent(other) {
     if (this.isLoop !== other.isLoop) {
@@ -4370,7 +4370,7 @@ class RouteEdge {
 
   /**
    * Display string for this edge.
-   * Mirrors Rust Display for RouteEdge.
+   * Mirrors Rust Display for MachineEdge.
    */
   toString() {
     const sources = this.sources.map(s => s.toString()).join(', ');
@@ -4380,7 +4380,7 @@ class RouteEdge {
 }
 
 /**
- * A route graph — the semantic model behind route notation.
+ * A route graph — the semantic model behind machine notation.
  *
  * The graph is a collection of directed edges where each edge is a capability
  * that transforms source media types into a target media type.
@@ -4389,11 +4389,11 @@ class RouteEdge {
  * of ordering. Alias names used in the textual notation are not part of
  * the graph model.
  *
- * Mirrors Rust RouteGraph.
+ * Mirrors Rust Machine.
  */
-class RouteGraph {
+class Machine {
   /**
-   * @param {RouteEdge[]} edges
+   * @param {MachineEdge[]} edges
    */
   constructor(edges) {
     this._edges = edges;
@@ -4401,25 +4401,25 @@ class RouteGraph {
 
   /**
    * Create an empty route graph.
-   * @returns {RouteGraph}
+   * @returns {Machine}
    */
   static empty() {
-    return new RouteGraph([]);
+    return new Machine([]);
   }
 
   /**
-   * Parse route notation into a RouteGraph.
+   * Parse machine notation into a Machine.
    * @param {string} input
-   * @returns {RouteGraph}
-   * @throws {RouteNotationError}
+   * @returns {Machine}
+   * @throws {MachineSyntaxError}
    */
   static fromString(input) {
-    return parseRouteNotation(input);
+    return parseMachine(input);
   }
 
   /**
    * Get the edges of this graph.
-   * @returns {RouteEdge[]}
+   * @returns {MachineEdge[]}
    */
   edges() {
     return this._edges;
@@ -4445,10 +4445,10 @@ class RouteGraph {
    * Check if two route graphs are semantically equivalent.
    *
    * Two graphs are equivalent if they have the same set of edges
-   * (compared using RouteEdge.isEquivalent). Edge ordering
+   * (compared using MachineEdge.isEquivalent). Edge ordering
    * does not matter.
    *
-   * Mirrors Rust RouteGraph::is_equivalent.
+   * Mirrors Rust Machine::is_equivalent.
    */
   isEquivalent(other) {
     if (this._edges.length !== other._edges.length) {
@@ -4480,7 +4480,7 @@ class RouteGraph {
    * also produced as targets by any other edge. These are the "root"
    * inputs to the graph.
    *
-   * Mirrors Rust RouteGraph::root_sources.
+   * Mirrors Rust Machine::root_sources.
    * @returns {MediaUrn[]}
    */
   rootSources() {
@@ -4505,7 +4505,7 @@ class RouteGraph {
    * Collect all unique target media URNs that are not consumed as sources
    * by any other edge. These are the "leaf" outputs of the graph.
    *
-   * Mirrors Rust RouteGraph::leaf_targets.
+   * Mirrors Rust Machine::leaf_targets.
    * @returns {MediaUrn[]}
    */
   leafTargets() {
@@ -4530,13 +4530,13 @@ class RouteGraph {
   // =========================================================================
 
   /**
-   * Serialize this route graph to canonical one-line route notation.
+   * Serialize this route graph to canonical one-line machine notation.
    *
    * The output is deterministic: same graph → same string.
-   * Mirrors Rust RouteGraph::to_route_notation.
+   * Mirrors Rust Machine::to_machine_notation.
    * @returns {string}
    */
-  toRouteNotation() {
+  toMachineNotation() {
     if (this._edges.length === 0) {
       return '';
     }
@@ -4587,11 +4587,11 @@ class RouteGraph {
   }
 
   /**
-   * Serialize to multi-line route notation (one statement per line).
-   * Mirrors Rust RouteGraph::to_route_notation_multiline.
+   * Serialize to multi-line machine notation (one statement per line).
+   * Mirrors Rust Machine::to_machine_notation_multiline.
    * @returns {string}
    */
-  toRouteNotationMultiline() {
+  toMachineNotationMultiline() {
     if (this._edges.length === 0) {
       return '';
     }
@@ -4647,7 +4647,7 @@ class RouteGraph {
    * - nodeNames: Map<string, string> (media_urn_canonical → node_name)
    * - edgeOrder: number[] (edge indices in canonical order)
    *
-   * Mirrors Rust RouteGraph::build_serialization_maps.
+   * Mirrors Rust Machine::build_serialization_maps.
    * @private
    */
   _buildSerializationMaps() {
@@ -4716,13 +4716,13 @@ class RouteGraph {
 
   /**
    * Display string for this graph.
-   * Mirrors Rust Display for RouteGraph.
+   * Mirrors Rust Display for Machine.
    */
   toString() {
     if (this._edges.length === 0) {
-      return 'RouteGraph(empty)';
+      return 'Machine(empty)';
     }
-    return `RouteGraph(${this._edges.length} edges)`;
+    return `Machine(${this._edges.length} edges)`;
   }
 }
 
@@ -4732,7 +4732,7 @@ class RouteGraph {
 // ============================================================================
 
 // Load the Peggy-generated parser
-const routeParser = require('./route-parser.js');
+const routeParser = require('./machine-parser.js');
 
 /**
  * Assign a media URN to a node, or check consistency if already assigned.
@@ -4748,8 +4748,8 @@ function assignOrCheckNode(node, mediaUrn, nodeMedia, position) {
   if (existing !== undefined) {
     const compatible = existing.isComparable(mediaUrn);
     if (!compatible) {
-      throw new RouteNotationError(
-        RouteNotationErrorCodes.INVALID_WIRING,
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.INVALID_WIRING,
         `invalid wiring at statement ${position}: node '${node}' has conflicting media types: existing '${existing}', new '${mediaUrn}'`
       );
     }
@@ -4759,25 +4759,25 @@ function assignOrCheckNode(node, mediaUrn, nodeMedia, position) {
 }
 
 /**
- * Parse route notation into a RouteGraph.
+ * Parse machine notation into a Machine.
  *
  * Uses the Peggy-generated PEG parser to parse the input, then resolves
  * cap URNs and derives media URNs from cap in/out specs.
  *
  * Fails hard — no fallbacks, no guessing, no recovery.
  *
- * Mirrors Rust parse_route_notation exactly.
+ * Mirrors Rust parse_machine exactly.
  *
  * @param {string} input - Route notation string
- * @returns {RouteGraph}
- * @throws {RouteNotationError}
+ * @returns {Machine}
+ * @throws {MachineSyntaxError}
  */
-function parseRouteNotation(input) {
+function parseMachine(input) {
   const trimmed = input.trim();
   if (trimmed.length === 0) {
-    throw new RouteNotationError(
-      RouteNotationErrorCodes.EMPTY,
-      'route notation is empty'
+    throw new MachineSyntaxError(
+      MachineSyntaxErrorCodes.EMPTY,
+      'machine notation is empty'
     );
   }
 
@@ -4786,8 +4786,8 @@ function parseRouteNotation(input) {
   try {
     stmts = routeParser.parse(trimmed);
   } catch (e) {
-    throw new RouteNotationError(
-      RouteNotationErrorCodes.PARSE_ERROR,
+    throw new MachineSyntaxError(
+      MachineSyntaxErrorCodes.PARSE_ERROR,
       `parse error: ${e.message}`
     );
   }
@@ -4804,8 +4804,8 @@ function parseRouteNotation(input) {
       try {
         capUrn = CapUrn.fromString(stmt.capUrn);
       } catch (e) {
-        throw new RouteNotationError(
-          RouteNotationErrorCodes.INVALID_CAP_URN,
+        throw new MachineSyntaxError(
+          MachineSyntaxErrorCodes.INVALID_CAP_URN,
           `invalid cap URN in header '${stmt.alias}': ${e.message}`
         );
       }
@@ -4826,18 +4826,18 @@ function parseRouteNotation(input) {
   for (const header of headers) {
     if (aliasMap.has(header.alias)) {
       const firstPos = aliasMap.get(header.alias).position;
-      throw new RouteNotationError(
-        RouteNotationErrorCodes.DUPLICATE_ALIAS,
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.DUPLICATE_ALIAS,
         `duplicate alias '${header.alias}' (first defined at statement ${firstPos})`
       );
     }
     aliasMap.set(header.alias, { capUrn: header.capUrn, position: header.position });
   }
 
-  // Phase 4: Resolve wirings into RouteEdges
+  // Phase 4: Resolve wirings into MachineEdges
   if (wirings.length === 0 && headers.length > 0) {
-    throw new RouteNotationError(
-      RouteNotationErrorCodes.NO_EDGES,
+    throw new MachineSyntaxError(
+      MachineSyntaxErrorCodes.NO_EDGES,
       'route has headers but no wirings — define at least one edge'
     );
   }
@@ -4849,8 +4849,8 @@ function parseRouteNotation(input) {
     // Look up the cap alias
     const aliasEntry = aliasMap.get(wiring.capAlias);
     if (!aliasEntry) {
-      throw new RouteNotationError(
-        RouteNotationErrorCodes.UNDEFINED_ALIAS,
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.UNDEFINED_ALIAS,
         `wiring references undefined alias '${wiring.capAlias}'`
       );
     }
@@ -4859,15 +4859,15 @@ function parseRouteNotation(input) {
     // Check node-alias collisions
     for (const src of wiring.sources) {
       if (aliasMap.has(src)) {
-        throw new RouteNotationError(
-          RouteNotationErrorCodes.NODE_ALIAS_COLLISION,
+        throw new MachineSyntaxError(
+          MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION,
           `node name '${src}' collides with cap alias '${src}'`
         );
       }
     }
     if (aliasMap.has(wiring.target)) {
-      throw new RouteNotationError(
-        RouteNotationErrorCodes.NODE_ALIAS_COLLISION,
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION,
         `node name '${wiring.target}' collides with cap alias '${wiring.target}'`
       );
     }
@@ -4877,8 +4877,8 @@ function parseRouteNotation(input) {
     try {
       capInMedia = capUrn.inMediaUrn();
     } catch (e) {
-      throw new RouteNotationError(
-        RouteNotationErrorCodes.INVALID_MEDIA_URN,
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.INVALID_MEDIA_URN,
         `invalid media URN in cap '${wiring.capAlias}': in= spec: ${e.message}`
       );
     }
@@ -4887,8 +4887,8 @@ function parseRouteNotation(input) {
     try {
       capOutMedia = capUrn.outMediaUrn();
     } catch (e) {
-      throw new RouteNotationError(
-        RouteNotationErrorCodes.INVALID_MEDIA_URN,
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.INVALID_MEDIA_URN,
         `invalid media URN in cap '${wiring.capAlias}': out= spec: ${e.message}`
       );
     }
@@ -4917,24 +4917,24 @@ function parseRouteNotation(input) {
     // Assign target media URN
     assignOrCheckNode(wiring.target, capOutMedia, nodeMedia, wiring.position);
 
-    edges.push(new RouteEdge(sourceUrns, capUrn, capOutMedia, wiring.isLoop));
+    edges.push(new MachineEdge(sourceUrns, capUrn, capOutMedia, wiring.isLoop));
   }
 
-  return new RouteGraph(edges);
+  return new Machine(edges);
 }
 
 // ============================================================================
-// RouteGraphBuilder — programmatic path construction
+// MachineBuilder — programmatic path construction
 // ============================================================================
 
 /**
- * Builder for constructing RouteGraphs programmatically.
+ * Builder for constructing Machines programmatically.
  *
  * Provides a fluent API for building route graphs without writing
- * route notation strings. Useful for constructing paths from graph
+ * machine notation strings. Useful for constructing paths from graph
  * exploration (e.g., selecting paths in the UI).
  */
-class RouteGraphBuilder {
+class MachineBuilder {
   constructor() {
     this._edges = [];
   }
@@ -4945,13 +4945,13 @@ class RouteGraphBuilder {
    * @param {string} capUrnStr - Cap URN string
    * @param {string} targetUrn - Target media URN string
    * @param {boolean} [isLoop=false] - Whether this edge has ForEach semantics
-   * @returns {RouteGraphBuilder} this (for chaining)
+   * @returns {MachineBuilder} this (for chaining)
    */
   addEdge(sourceUrns, capUrnStr, targetUrn, isLoop = false) {
     const sources = sourceUrns.map(s => MediaUrn.fromString(s));
     const capUrn = CapUrn.fromString(capUrnStr);
     const target = MediaUrn.fromString(targetUrn);
-    this._edges.push(new RouteEdge(sources, capUrn, target, isLoop));
+    this._edges.push(new MachineEdge(sources, capUrn, target, isLoop));
     return this;
   }
 
@@ -4959,26 +4959,26 @@ class RouteGraphBuilder {
    * Add a linear chain of edges from CapGraphEdge[] (from CapGraph.findAllPaths).
    *
    * Each CapGraphEdge has fromUrn, toUrn, and cap (with cap.urn).
-   * This converts the path into a series of RouteEdges.
+   * This converts the path into a series of MachineEdges.
    *
    * @param {CapGraphEdge[]} capGraphEdges - Array of CapGraphEdge from pathfinding
-   * @returns {RouteGraphBuilder} this (for chaining)
+   * @returns {MachineBuilder} this (for chaining)
    */
   addCapGraphPath(capGraphEdges) {
     for (const edge of capGraphEdges) {
       const source = MediaUrn.fromString(edge.fromUrn);
       const target = MediaUrn.fromString(edge.toUrn);
-      this._edges.push(new RouteEdge([source], edge.cap.urn, target, false));
+      this._edges.push(new MachineEdge([source], edge.cap.urn, target, false));
     }
     return this;
   }
 
   /**
-   * Build the RouteGraph from the accumulated edges.
-   * @returns {RouteGraph}
+   * Build the Machine from the accumulated edges.
+   * @returns {Machine}
    */
   build() {
-    return new RouteGraph([...this._edges]);
+    return new Machine([...this._edges]);
   }
 }
 
@@ -5101,10 +5101,10 @@ module.exports = {
   PluginRepoClient,
   PluginRepoServer,
   // Route notation
-  RouteNotationError,
-  RouteNotationErrorCodes,
-  RouteEdge,
-  RouteGraph,
-  RouteGraphBuilder,
-  parseRouteNotation,
+  MachineSyntaxError,
+  MachineSyntaxErrorCodes,
+  MachineEdge,
+  Machine,
+  MachineBuilder,
+  parseMachine,
 };

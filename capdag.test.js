@@ -14,7 +14,7 @@ const {
   validateNoMediaSpecRedefinitionSync,
   CapArgumentValue,
   llmConversationUrn, modelAvailabilityUrn, modelPathUrn,
-  RouteNotationError, RouteNotationErrorCodes, RouteEdge, RouteGraph, RouteGraphBuilder, parseRouteNotation,
+  MachineSyntaxError, MachineSyntaxErrorCodes, MachineEdge, Machine, MachineBuilder, parseMachine,
   MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
   MEDIA_OBJECT, MEDIA_STRING_ARRAY, MEDIA_INTEGER_ARRAY,
   MEDIA_NUMBER_ARRAY, MEDIA_BOOLEAN_ARRAY, MEDIA_OBJECT_ARRAY,
@@ -2622,34 +2622,34 @@ function test653_identityRoutingIsolation() {
 
 // --- Route parser tests (mirrors parser.rs tests) ---
 
-function testRoute_emptyInput() {
-  assertThrowsWithCode(() => parseRouteNotation(''), RouteNotationErrorCodes.EMPTY);
+function testMachine_emptyInput() {
+  assertThrowsWithCode(() => parseMachine(''), MachineSyntaxErrorCodes.EMPTY);
 }
 
-function testRoute_whitespaceOnly() {
-  assertThrowsWithCode(() => parseRouteNotation('   \n  \t  '), RouteNotationErrorCodes.EMPTY);
+function testMachine_whitespaceOnly() {
+  assertThrowsWithCode(() => parseMachine('   \n  \t  '), MachineSyntaxErrorCodes.EMPTY);
 }
 
-function testRoute_headerOnlyNoWirings() {
+function testMachine_headerOnlyNoWirings() {
   assertThrowsWithCode(
-    () => RouteGraph.fromString('[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]'),
-    RouteNotationErrorCodes.NO_EDGES
+    () => Machine.fromString('[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]'),
+    MachineSyntaxErrorCodes.NO_EDGES
   );
 }
 
-function testRoute_duplicateAlias() {
+function testMachine_duplicateAlias() {
   assertThrowsWithCode(
-    () => RouteGraph.fromString(
+    () => Machine.fromString(
       '[ex cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
       '[ex cap:in="media:pdf";op=summarize;out="media:txt;textable"]' +
       '[a -> ex -> b]'
     ),
-    RouteNotationErrorCodes.DUPLICATE_ALIAS
+    MachineSyntaxErrorCodes.DUPLICATE_ALIAS
   );
 }
 
-function testRoute_simpleLinearChain() {
-  const g = RouteGraph.fromString(
+function testMachine_simpleLinearChain() {
+  const g = Machine.fromString(
     '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
     '[doc -> extract -> text]'
   );
@@ -2663,8 +2663,8 @@ function testRoute_simpleLinearChain() {
   assertEqual(edge.isLoop, false);
 }
 
-function testRoute_twoStepChain() {
-  const g = RouteGraph.fromString(
+function testMachine_twoStepChain() {
+  const g = Machine.fromString(
     '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
     '[embed cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"]' +
     '[doc -> extract -> text]' +
@@ -2677,8 +2677,8 @@ function testRoute_twoStepChain() {
     'Second edge target should be media:embedding-vector;record;textable');
 }
 
-function testRoute_fanOut() {
-  const g = RouteGraph.fromString(
+function testMachine_fanOut() {
+  const g = Machine.fromString(
     '[meta cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;record;textable"]' +
     '[outline cap:in="media:pdf";op=extract_outline;out="media:document-outline;record;textable"]' +
     '[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]' +
@@ -2694,8 +2694,8 @@ function testRoute_fanOut() {
   }
 }
 
-function testRoute_fanInSecondaryAssignedByPriorWiring() {
-  const g = RouteGraph.fromString(
+function testMachine_fanInSecondaryAssignedByPriorWiring() {
+  const g = Machine.fromString(
     '[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]' +
     '[model_dl cap:in="media:model-spec;textable";op=download;out="media:model-spec;textable"]' +
     '[describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"]' +
@@ -2707,8 +2707,8 @@ function testRoute_fanInSecondaryAssignedByPriorWiring() {
   assertEqual(g.edges()[2].sources.length, 2);
 }
 
-function testRoute_fanInSecondaryUnassignedGetsWildcard() {
-  const g = RouteGraph.fromString(
+function testMachine_fanInSecondaryUnassignedGetsWildcard() {
+  const g = Machine.fromString(
     '[describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"]\n' +
     '[(thumbnail, model_spec) -> describe -> description]'
   );
@@ -2718,8 +2718,8 @@ function testRoute_fanInSecondaryUnassignedGetsWildcard() {
   assertEqual(g.edges()[0].sources[1].toString(), 'media:');
 }
 
-function testRoute_loopEdge() {
-  const g = RouteGraph.fromString(
+function testMachine_loopEdge() {
+  const g = Machine.fromString(
     '[p2t cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable"]' +
     '[pages -> LOOP p2t -> texts]'
   );
@@ -2727,37 +2727,37 @@ function testRoute_loopEdge() {
   assertEqual(g.edges()[0].isLoop, true);
 }
 
-function testRoute_undefinedAliasFails() {
+function testMachine_undefinedAliasFails() {
   assertThrowsWithCode(
-    () => RouteGraph.fromString('[doc -> nonexistent -> text]'),
-    RouteNotationErrorCodes.UNDEFINED_ALIAS
+    () => Machine.fromString('[doc -> nonexistent -> text]'),
+    MachineSyntaxErrorCodes.UNDEFINED_ALIAS
   );
 }
 
-function testRoute_nodeAliasCollision() {
+function testMachine_nodeAliasCollision() {
   assertThrowsWithCode(
-    () => RouteGraph.fromString(
+    () => Machine.fromString(
       '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
       '[extract -> extract -> text]'
     ),
-    RouteNotationErrorCodes.NODE_ALIAS_COLLISION
+    MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION
   );
 }
 
-function testRoute_conflictingMediaTypesFail() {
+function testMachine_conflictingMediaTypesFail() {
   assertThrowsWithCode(
-    () => RouteGraph.fromString(
+    () => Machine.fromString(
       '[cap1 cap:in="media:txt;textable";op=a;out="media:pdf"]' +
       '[cap2 cap:in="media:audio;wav";op=b;out="media:txt;textable"]' +
       '[src -> cap1 -> mid]' +
       '[mid -> cap2 -> dst]'
     ),
-    RouteNotationErrorCodes.INVALID_WIRING
+    MachineSyntaxErrorCodes.INVALID_WIRING
   );
 }
 
-function testRoute_multilineFormat() {
-  const g = RouteGraph.fromString(
+function testMachine_multilineFormat() {
+  const g = Machine.fromString(
     '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]\n' +
     '[embed cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"]\n' +
     '[doc -> extract -> text]\n' +
@@ -2766,42 +2766,42 @@ function testRoute_multilineFormat() {
   assertEqual(g.edgeCount(), 2);
 }
 
-function testRoute_differentAliasesSameGraph() {
-  const g1 = RouteGraph.fromString(
+function testMachine_differentAliasesSameGraph() {
+  const g1 = Machine.fromString(
     '[ex cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
     '[a -> ex -> b]'
   );
-  const g2 = RouteGraph.fromString(
+  const g2 = Machine.fromString(
     '[xt cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
     '[x -> xt -> y]'
   );
   assert(g1.isEquivalent(g2), 'Different aliases should produce equivalent graphs');
 }
 
-function testRoute_malformedInputFails() {
+function testMachine_malformedInputFails() {
   assertThrowsWithCode(
-    () => parseRouteNotation('not valid route notation'),
-    RouteNotationErrorCodes.PARSE_ERROR
+    () => parseMachine('not valid machine notation'),
+    MachineSyntaxErrorCodes.PARSE_ERROR
   );
 }
 
-function testRoute_unterminatedBracketFails() {
+function testMachine_unterminatedBracketFails() {
   assertThrowsWithCode(
-    () => parseRouteNotation('[extract cap:in=media:pdf'),
-    RouteNotationErrorCodes.PARSE_ERROR
+    () => parseMachine('[extract cap:in=media:pdf'),
+    MachineSyntaxErrorCodes.PARSE_ERROR
   );
 }
 
 // --- Route graph tests (mirrors graph.rs tests) ---
 
-function testRoute_edgeEquivalenceSameUrns() {
-  const e1 = new RouteEdge(
+function testMachine_edgeEquivalenceSameUrns() {
+  const e1 = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   );
-  const e2 = new RouteEdge(
+  const e2 = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
@@ -2810,14 +2810,14 @@ function testRoute_edgeEquivalenceSameUrns() {
   assert(e1.isEquivalent(e2), 'Same URNs should be equivalent');
 }
 
-function testRoute_edgeEquivalenceDifferentCapUrns() {
-  const e1 = new RouteEdge(
+function testMachine_edgeEquivalenceDifferentCapUrns() {
+  const e1 = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   );
-  const e2 = new RouteEdge(
+  const e2 = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=summarize;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
@@ -2826,14 +2826,14 @@ function testRoute_edgeEquivalenceDifferentCapUrns() {
   assert(!e1.isEquivalent(e2), 'Different cap URNs should not be equivalent');
 }
 
-function testRoute_edgeEquivalenceDifferentTargets() {
-  const e1 = new RouteEdge(
+function testMachine_edgeEquivalenceDifferentTargets() {
+  const e1 = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   );
-  const e2 = new RouteEdge(
+  const e2 = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:json;record;textable'),
@@ -2842,14 +2842,14 @@ function testRoute_edgeEquivalenceDifferentTargets() {
   assert(!e1.isEquivalent(e2), 'Different targets should not be equivalent');
 }
 
-function testRoute_edgeEquivalenceDifferentLoopFlag() {
-  const e1 = new RouteEdge(
+function testMachine_edgeEquivalenceDifferentLoopFlag() {
+  const e1 = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   );
-  const e2 = new RouteEdge(
+  const e2 = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
@@ -2858,14 +2858,14 @@ function testRoute_edgeEquivalenceDifferentLoopFlag() {
   assert(!e1.isEquivalent(e2), 'Different loop flags should not be equivalent');
 }
 
-function testRoute_edgeEquivalenceSourceOrderIndependent() {
-  const e1 = new RouteEdge(
+function testMachine_edgeEquivalenceSourceOrderIndependent() {
+  const e1 = new MachineEdge(
     [MediaUrn.fromString('media:txt;textable'), MediaUrn.fromString('media:model-spec;textable')],
     CapUrn.fromString('cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"'),
     MediaUrn.fromString('media:embedding-vector;record;textable'),
     false
   );
-  const e2 = new RouteEdge(
+  const e2 = new MachineEdge(
     [MediaUrn.fromString('media:model-spec;textable'), MediaUrn.fromString('media:txt;textable')],
     CapUrn.fromString('cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"'),
     MediaUrn.fromString('media:embedding-vector;record;textable'),
@@ -2874,14 +2874,14 @@ function testRoute_edgeEquivalenceSourceOrderIndependent() {
   assert(e1.isEquivalent(e2), 'Source order should not matter for equivalence');
 }
 
-function testRoute_edgeEquivalenceDifferentSourceCount() {
-  const e1 = new RouteEdge(
+function testMachine_edgeEquivalenceDifferentSourceCount() {
+  const e1 = new MachineEdge(
     [MediaUrn.fromString('media:txt;textable')],
     CapUrn.fromString('cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"'),
     MediaUrn.fromString('media:embedding-vector;record;textable'),
     false
   );
-  const e2 = new RouteEdge(
+  const e2 = new MachineEdge(
     [MediaUrn.fromString('media:txt;textable'), MediaUrn.fromString('media:model-spec;textable')],
     CapUrn.fromString('cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"'),
     MediaUrn.fromString('media:embedding-vector;record;textable'),
@@ -2890,80 +2890,80 @@ function testRoute_edgeEquivalenceDifferentSourceCount() {
   assert(!e1.isEquivalent(e2), 'Different source counts should not be equivalent');
 }
 
-function testRoute_graphEquivalenceSameEdges() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_graphEquivalenceSameEdges() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const g1 = new RouteGraph([
+  const g1 = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
-  const g2 = new RouteGraph([
+  const g2 = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
   assert(g1.isEquivalent(g2), 'Same edges should be equivalent');
 }
 
-function testRoute_graphEquivalenceReorderedEdges() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_graphEquivalenceReorderedEdges() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const g1 = new RouteGraph([
+  const g1 = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
-  const g2 = new RouteGraph([
+  const g2 = new Machine([
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
   ]);
   assert(g1.isEquivalent(g2), 'Reordered edges should still be equivalent');
 }
 
-function testRoute_graphNotEquivalentDifferentEdgeCount() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_graphNotEquivalentDifferentEdgeCount() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const g1 = new RouteGraph([
+  const g1 = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
   ]);
-  const g2 = new RouteGraph([
+  const g2 = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
   assert(!g1.isEquivalent(g2), 'Different edge counts should not be equivalent');
 }
 
-function testRoute_graphNotEquivalentDifferentCap() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_graphNotEquivalentDifferentCap() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const g1 = new RouteGraph([
+  const g1 = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
   ]);
-  const g2 = new RouteGraph([
+  const g2 = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=summarize;out="media:txt;textable"', 'media:txt;textable'),
   ]);
   assert(!g1.isEquivalent(g2), 'Different caps should not be equivalent');
 }
 
-function testRoute_graphEmpty() {
-  const g = RouteGraph.empty();
+function testMachine_graphEmpty() {
+  const g = Machine.empty();
   assert(g.isEmpty(), 'Empty graph should be empty');
   assertEqual(g.edgeCount(), 0);
 }
 
-function testRoute_graphEmptyEquivalence() {
-  const g1 = RouteGraph.empty();
-  const g2 = RouteGraph.empty();
+function testMachine_graphEmptyEquivalence() {
+  const g1 = Machine.empty();
+  const g2 = Machine.empty();
   assert(g1.isEquivalent(g2), 'Two empty graphs should be equivalent');
 }
 
-function testRoute_rootSourcesLinearChain() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_rootSourcesLinearChain() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const g = new RouteGraph([
+  const g = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
@@ -2973,11 +2973,11 @@ function testRoute_rootSourcesLinearChain() {
     'Root source should be media:pdf');
 }
 
-function testRoute_leafTargetsLinearChain() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_leafTargetsLinearChain() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const g = new RouteGraph([
+  const g = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
@@ -2987,20 +2987,20 @@ function testRoute_leafTargetsLinearChain() {
     'Leaf target should be media:embedding-vector;record;textable');
 }
 
-function testRoute_rootSourcesFanIn() {
-  const e = new RouteEdge(
+function testMachine_rootSourcesFanIn() {
+  const e = new MachineEdge(
     [MediaUrn.fromString('media:txt;textable'), MediaUrn.fromString('media:model-spec;textable')],
     CapUrn.fromString('cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"'),
     MediaUrn.fromString('media:embedding-vector;record;textable'),
     false
   );
-  const g = new RouteGraph([e]);
+  const g = new Machine([e]);
   const roots = g.rootSources();
   assertEqual(roots.length, 2);
 }
 
-function testRoute_displayEdge() {
-  const e = new RouteEdge(
+function testMachine_displayEdge() {
+  const e = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
@@ -3010,194 +3010,194 @@ function testRoute_displayEdge() {
   assert(display.includes('media:pdf'), 'Display should contain media:pdf');
 }
 
-function testRoute_displayGraph() {
-  const e = new RouteEdge(
+function testMachine_displayGraph() {
+  const e = new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   );
-  assertEqual(new RouteGraph([e]).toString(), 'RouteGraph(1 edges)');
-  assertEqual(RouteGraph.empty().toString(), 'RouteGraph(empty)');
+  assertEqual(new Machine([e]).toString(), 'Machine(1 edges)');
+  assertEqual(Machine.empty().toString(), 'Machine(empty)');
 }
 
 // --- Route serializer tests (mirrors serializer.rs tests) ---
 
-function testRoute_serializeSingleEdge() {
-  const g = new RouteGraph([new RouteEdge(
+function testMachine_serializeSingleEdge() {
+  const g = new Machine([new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   )]);
-  const notation = g.toRouteNotation();
+  const notation = g.toMachineNotation();
   assert(notation.includes('[extract '), 'Should use extract alias: ' + notation);
   assert(notation.includes('-> extract ->'), 'Should have extract in wiring: ' + notation);
   assert(notation.includes('[n0 ->'), 'Should use n0 for source: ' + notation);
   assert(notation.includes('-> n1]'), 'Should use n1 for target: ' + notation);
 }
 
-function testRoute_serializeTwoEdgeChain() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_serializeTwoEdgeChain() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const g = new RouteGraph([
+  const g = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
-  const notation = g.toRouteNotation();
+  const notation = g.toMachineNotation();
   const bracketCount = (notation.match(/\[/g) || []).length;
   assertEqual(bracketCount, 4, 'Should have 4 brackets (2 headers + 2 wirings)');
 }
 
-function testRoute_serializeEmptyGraph() {
-  assertEqual(RouteGraph.empty().toRouteNotation(), '');
+function testMachine_serializeEmptyGraph() {
+  assertEqual(Machine.empty().toMachineNotation(), '');
 }
 
-function testRoute_roundtripSingleEdge() {
-  const original = new RouteGraph([new RouteEdge(
+function testMachine_roundtripSingleEdge() {
+  const original = new Machine([new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   )]);
-  const notation = original.toRouteNotation();
-  const reparsed = RouteGraph.fromString(notation);
+  const notation = original.toMachineNotation();
+  const reparsed = Machine.fromString(notation);
   assert(original.isEquivalent(reparsed),
     'Single edge round-trip failed: ' + notation);
 }
 
-function testRoute_roundtripTwoEdgeChain() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_roundtripTwoEdgeChain() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const original = new RouteGraph([
+  const original = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
-  const notation = original.toRouteNotation();
-  const reparsed = RouteGraph.fromString(notation);
+  const notation = original.toMachineNotation();
+  const reparsed = Machine.fromString(notation);
   assert(original.isEquivalent(reparsed),
     'Two-edge chain round-trip failed: ' + notation);
 }
 
-function testRoute_roundtripFanOut() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_roundtripFanOut() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const original = new RouteGraph([
+  const original = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;record;textable"', 'media:file-metadata;record;textable'),
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract_outline;out="media:document-outline;record;textable"', 'media:document-outline;record;textable'),
     mkEdge('media:pdf', 'cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"', 'media:image;png;thumbnail'),
   ]);
-  const notation = original.toRouteNotation();
-  const reparsed = RouteGraph.fromString(notation);
+  const notation = original.toMachineNotation();
+  const reparsed = Machine.fromString(notation);
   assert(original.isEquivalent(reparsed),
     'Fan-out round-trip failed: ' + notation);
 }
 
-function testRoute_roundtripLoopEdge() {
-  const original = new RouteGraph([new RouteEdge(
+function testMachine_roundtripLoopEdge() {
+  const original = new Machine([new MachineEdge(
     [MediaUrn.fromString('media:disbound-page;textable')],
     CapUrn.fromString('cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     true
   )]);
-  const notation = original.toRouteNotation();
-  const reparsed = RouteGraph.fromString(notation);
+  const notation = original.toMachineNotation();
+  const reparsed = Machine.fromString(notation);
   assert(original.isEquivalent(reparsed), 'Loop round-trip failed');
   assertEqual(reparsed.edges()[0].isLoop, true, 'isLoop must be preserved');
 }
 
-function testRoute_serializationIsDeterministic() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_serializationIsDeterministic() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const g = new RouteGraph([
+  const g = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
-  const n1 = g.toRouteNotation();
-  const n2 = g.toRouteNotation();
+  const n1 = g.toMachineNotation();
+  const n2 = g.toMachineNotation();
   assertEqual(n1, n2, 'Serialization must be deterministic');
 }
 
-function testRoute_reorderedEdgesProduceSameNotation() {
-  const mkEdge = (src, cap, tgt) => new RouteEdge(
+function testMachine_reorderedEdgesProduceSameNotation() {
+  const mkEdge = (src, cap, tgt) => new MachineEdge(
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
-  const g1 = new RouteGraph([
+  const g1 = new Machine([
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
   ]);
-  const g2 = new RouteGraph([
+  const g2 = new Machine([
     mkEdge('media:txt;textable', 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable'),
     mkEdge('media:pdf', 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable'),
   ]);
-  assertEqual(g1.toRouteNotation(), g2.toRouteNotation(),
+  assertEqual(g1.toMachineNotation(), g2.toMachineNotation(),
     'Same graph with reordered edges must produce identical notation');
 }
 
-function testRoute_multilineSerializeFormat() {
-  const g = new RouteGraph([new RouteEdge(
+function testMachine_multilineSerializeFormat() {
+  const g = new Machine([new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   )]);
-  const multi = g.toRouteNotationMultiline();
+  const multi = g.toMachineNotationMultiline();
   assert(multi.includes('\n'), 'Multi-line format must contain newlines');
   // Should round-trip
-  const reparsed = RouteGraph.fromString(multi);
+  const reparsed = Machine.fromString(multi);
   assert(g.isEquivalent(reparsed), 'Multi-line round-trip failed');
 }
 
-function testRoute_aliasFromOpTag() {
-  const g = new RouteGraph([new RouteEdge(
+function testMachine_aliasFromOpTag() {
+  const g = new Machine([new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   )]);
-  const notation = g.toRouteNotation();
+  const notation = g.toMachineNotation();
   assert(notation.includes('[extract '), 'Expected extract alias, got: ' + notation);
 }
 
-function testRoute_aliasFallbackWithoutOpTag() {
-  const g = new RouteGraph([new RouteEdge(
+function testMachine_aliasFallbackWithoutOpTag() {
+  const g = new Machine([new MachineEdge(
     [MediaUrn.fromString('media:pdf')],
     CapUrn.fromString('cap:in="media:pdf";out="media:txt;textable"'),
     MediaUrn.fromString('media:txt;textable'),
     false
   )]);
-  const notation = g.toRouteNotation();
+  const notation = g.toMachineNotation();
   assert(notation.includes('edge_'), 'Expected fallback alias, got: ' + notation);
 }
 
-function testRoute_duplicateOpTagsDisambiguated() {
-  const g = new RouteGraph([
-    new RouteEdge(
+function testMachine_duplicateOpTagsDisambiguated() {
+  const g = new Machine([
+    new MachineEdge(
       [MediaUrn.fromString('media:pdf')],
       CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
       MediaUrn.fromString('media:txt;textable'),
       false
     ),
-    new RouteEdge(
+    new MachineEdge(
       [MediaUrn.fromString('media:pdf')],
       CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:json;record;textable"'),
       MediaUrn.fromString('media:json;record;textable'),
       false
     ),
   ]);
-  const notation = g.toRouteNotation();
+  const notation = g.toMachineNotation();
   assert(notation.includes('extract_1') || notation.includes('extract_2'),
     'Duplicate ops must be disambiguated: ' + notation);
 }
 
 // --- Route builder tests ---
 
-function testRoute_builderSingleEdge() {
-  const builder = new RouteGraphBuilder();
+function testMachine_builderSingleEdge() {
+  const builder = new MachineBuilder();
   builder.addEdge(
     ['media:pdf'],
     'cap:in="media:pdf";op=extract;out="media:txt;textable"',
@@ -3208,8 +3208,8 @@ function testRoute_builderSingleEdge() {
   assertEqual(g.edges()[0].isLoop, false);
 }
 
-function testRoute_builderWithLoop() {
-  const builder = new RouteGraphBuilder();
+function testMachine_builderWithLoop() {
+  const builder = new MachineBuilder();
   builder.addEdge(
     ['media:disbound-page;textable'],
     'cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable"',
@@ -3220,39 +3220,39 @@ function testRoute_builderWithLoop() {
   assertEqual(g.edges()[0].isLoop, true);
 }
 
-function testRoute_builderChaining() {
-  const g = new RouteGraphBuilder()
+function testMachine_builderChaining() {
+  const g = new MachineBuilder()
     .addEdge(['media:pdf'], 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable')
     .addEdge(['media:txt;textable'], 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable')
     .build();
   assertEqual(g.edgeCount(), 2);
 }
 
-function testRoute_builderEquivalentToParsed() {
-  const parsed = RouteGraph.fromString(
+function testMachine_builderEquivalentToParsed() {
+  const parsed = Machine.fromString(
     '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
     '[doc -> extract -> text]'
   );
-  const built = new RouteGraphBuilder()
+  const built = new MachineBuilder()
     .addEdge(['media:pdf'], 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable')
     .build();
   assert(parsed.isEquivalent(built),
     'Builder-constructed graph should be equivalent to parsed graph');
 }
 
-function testRoute_builderRoundTrip() {
-  const built = new RouteGraphBuilder()
+function testMachine_builderRoundTrip() {
+  const built = new MachineBuilder()
     .addEdge(['media:pdf'], 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'media:txt;textable')
     .addEdge(['media:txt;textable'], 'cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"', 'media:embedding-vector;record;textable')
     .build();
-  const notation = built.toRouteNotation();
-  const reparsed = RouteGraph.fromString(notation);
+  const notation = built.toMachineNotation();
+  const reparsed = Machine.fromString(notation);
   assert(built.isEquivalent(reparsed), 'Builder round-trip failed');
 }
 
 // --- CapUrn.isEquivalent/isComparable tests ---
 
-function testRoute_capUrnIsEquivalent() {
+function testMachine_capUrnIsEquivalent() {
   const a = CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"');
   const b = CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"');
   assert(a.isEquivalent(b), 'Same cap URNs should be equivalent');
@@ -3260,21 +3260,21 @@ function testRoute_capUrnIsEquivalent() {
   assert(!a.isEquivalent(c), 'Different cap URNs should not be equivalent');
 }
 
-function testRoute_capUrnIsComparable() {
+function testMachine_capUrnIsComparable() {
   const general = CapUrn.fromString('cap:in="media:pdf";out="media:txt;textable"');
   const specific = CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"');
   assert(general.isComparable(specific), 'General should be comparable to specific');
   assert(specific.isComparable(general), 'isComparable should be symmetric');
 }
 
-function testRoute_capUrnInMediaUrn() {
+function testMachine_capUrnInMediaUrn() {
   const cap = CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"');
   const inUrn = cap.inMediaUrn();
   assert(inUrn instanceof MediaUrn, 'inMediaUrn should return MediaUrn');
   assert(inUrn.isEquivalent(MediaUrn.fromString('media:pdf')), 'inMediaUrn should be media:pdf');
 }
 
-function testRoute_capUrnOutMediaUrn() {
+function testMachine_capUrnOutMediaUrn() {
   const cap = CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"');
   const outUrn = cap.outMediaUrn();
   assert(outUrn instanceof MediaUrn, 'outMediaUrn should return MediaUrn');
@@ -3283,7 +3283,7 @@ function testRoute_capUrnOutMediaUrn() {
 
 // --- MediaUrn.isEquivalent/isComparable tests ---
 
-function testRoute_mediaUrnIsEquivalent() {
+function testMachine_mediaUrnIsEquivalent() {
   const a = MediaUrn.fromString('media:pdf');
   const b = MediaUrn.fromString('media:pdf');
   assert(a.isEquivalent(b), 'Same media URNs should be equivalent');
@@ -3291,7 +3291,7 @@ function testRoute_mediaUrnIsEquivalent() {
   assert(!a.isEquivalent(c), 'Different media URNs should not be equivalent');
 }
 
-function testRoute_mediaUrnIsComparable() {
+function testMachine_mediaUrnIsComparable() {
   const general = MediaUrn.fromString('media:textable');
   const specific = MediaUrn.fromString('media:txt;textable');
   assert(general.isComparable(specific), 'General should be comparable to specific');
@@ -3550,76 +3550,76 @@ async function runTests() {
 
   // route module: parser tests (mirrors parser.rs)
   console.log('\n--- route/parser.rs ---');
-  runTest('ROUTE: empty_input', testRoute_emptyInput);
-  runTest('ROUTE: whitespace_only', testRoute_whitespaceOnly);
-  runTest('ROUTE: header_only_no_wirings', testRoute_headerOnlyNoWirings);
-  runTest('ROUTE: duplicate_alias', testRoute_duplicateAlias);
-  runTest('ROUTE: simple_linear_chain', testRoute_simpleLinearChain);
-  runTest('ROUTE: two_step_chain', testRoute_twoStepChain);
-  runTest('ROUTE: fan_out', testRoute_fanOut);
-  runTest('ROUTE: fan_in_secondary_assigned_by_prior_wiring', testRoute_fanInSecondaryAssignedByPriorWiring);
-  runTest('ROUTE: fan_in_secondary_unassigned_gets_wildcard', testRoute_fanInSecondaryUnassignedGetsWildcard);
-  runTest('ROUTE: loop_edge', testRoute_loopEdge);
-  runTest('ROUTE: undefined_alias_fails', testRoute_undefinedAliasFails);
-  runTest('ROUTE: node_alias_collision', testRoute_nodeAliasCollision);
-  runTest('ROUTE: conflicting_media_types_fail', testRoute_conflictingMediaTypesFail);
-  runTest('ROUTE: multiline_format', testRoute_multilineFormat);
-  runTest('ROUTE: different_aliases_same_graph', testRoute_differentAliasesSameGraph);
-  runTest('ROUTE: malformed_input_fails', testRoute_malformedInputFails);
-  runTest('ROUTE: unterminated_bracket_fails', testRoute_unterminatedBracketFails);
+  runTest('ROUTE: empty_input', testMachine_emptyInput);
+  runTest('ROUTE: whitespace_only', testMachine_whitespaceOnly);
+  runTest('ROUTE: header_only_no_wirings', testMachine_headerOnlyNoWirings);
+  runTest('ROUTE: duplicate_alias', testMachine_duplicateAlias);
+  runTest('ROUTE: simple_linear_chain', testMachine_simpleLinearChain);
+  runTest('ROUTE: two_step_chain', testMachine_twoStepChain);
+  runTest('ROUTE: fan_out', testMachine_fanOut);
+  runTest('ROUTE: fan_in_secondary_assigned_by_prior_wiring', testMachine_fanInSecondaryAssignedByPriorWiring);
+  runTest('ROUTE: fan_in_secondary_unassigned_gets_wildcard', testMachine_fanInSecondaryUnassignedGetsWildcard);
+  runTest('ROUTE: loop_edge', testMachine_loopEdge);
+  runTest('ROUTE: undefined_alias_fails', testMachine_undefinedAliasFails);
+  runTest('ROUTE: node_alias_collision', testMachine_nodeAliasCollision);
+  runTest('ROUTE: conflicting_media_types_fail', testMachine_conflictingMediaTypesFail);
+  runTest('ROUTE: multiline_format', testMachine_multilineFormat);
+  runTest('ROUTE: different_aliases_same_graph', testMachine_differentAliasesSameGraph);
+  runTest('ROUTE: malformed_input_fails', testMachine_malformedInputFails);
+  runTest('ROUTE: unterminated_bracket_fails', testMachine_unterminatedBracketFails);
 
   // route module: graph tests (mirrors graph.rs)
   console.log('\n--- route/graph.rs ---');
-  runTest('ROUTE: edge_equivalence_same_urns', testRoute_edgeEquivalenceSameUrns);
-  runTest('ROUTE: edge_equivalence_different_cap_urns', testRoute_edgeEquivalenceDifferentCapUrns);
-  runTest('ROUTE: edge_equivalence_different_targets', testRoute_edgeEquivalenceDifferentTargets);
-  runTest('ROUTE: edge_equivalence_different_loop_flag', testRoute_edgeEquivalenceDifferentLoopFlag);
-  runTest('ROUTE: edge_equivalence_source_order_independent', testRoute_edgeEquivalenceSourceOrderIndependent);
-  runTest('ROUTE: edge_equivalence_different_source_count', testRoute_edgeEquivalenceDifferentSourceCount);
-  runTest('ROUTE: graph_equivalence_same_edges', testRoute_graphEquivalenceSameEdges);
-  runTest('ROUTE: graph_equivalence_reordered_edges', testRoute_graphEquivalenceReorderedEdges);
-  runTest('ROUTE: graph_not_equivalent_different_edge_count', testRoute_graphNotEquivalentDifferentEdgeCount);
-  runTest('ROUTE: graph_not_equivalent_different_cap', testRoute_graphNotEquivalentDifferentCap);
-  runTest('ROUTE: graph_empty', testRoute_graphEmpty);
-  runTest('ROUTE: graph_empty_equivalence', testRoute_graphEmptyEquivalence);
-  runTest('ROUTE: root_sources_linear_chain', testRoute_rootSourcesLinearChain);
-  runTest('ROUTE: leaf_targets_linear_chain', testRoute_leafTargetsLinearChain);
-  runTest('ROUTE: root_sources_fan_in', testRoute_rootSourcesFanIn);
-  runTest('ROUTE: display_edge', testRoute_displayEdge);
-  runTest('ROUTE: display_graph', testRoute_displayGraph);
+  runTest('ROUTE: edge_equivalence_same_urns', testMachine_edgeEquivalenceSameUrns);
+  runTest('ROUTE: edge_equivalence_different_cap_urns', testMachine_edgeEquivalenceDifferentCapUrns);
+  runTest('ROUTE: edge_equivalence_different_targets', testMachine_edgeEquivalenceDifferentTargets);
+  runTest('ROUTE: edge_equivalence_different_loop_flag', testMachine_edgeEquivalenceDifferentLoopFlag);
+  runTest('ROUTE: edge_equivalence_source_order_independent', testMachine_edgeEquivalenceSourceOrderIndependent);
+  runTest('ROUTE: edge_equivalence_different_source_count', testMachine_edgeEquivalenceDifferentSourceCount);
+  runTest('ROUTE: graph_equivalence_same_edges', testMachine_graphEquivalenceSameEdges);
+  runTest('ROUTE: graph_equivalence_reordered_edges', testMachine_graphEquivalenceReorderedEdges);
+  runTest('ROUTE: graph_not_equivalent_different_edge_count', testMachine_graphNotEquivalentDifferentEdgeCount);
+  runTest('ROUTE: graph_not_equivalent_different_cap', testMachine_graphNotEquivalentDifferentCap);
+  runTest('ROUTE: graph_empty', testMachine_graphEmpty);
+  runTest('ROUTE: graph_empty_equivalence', testMachine_graphEmptyEquivalence);
+  runTest('ROUTE: root_sources_linear_chain', testMachine_rootSourcesLinearChain);
+  runTest('ROUTE: leaf_targets_linear_chain', testMachine_leafTargetsLinearChain);
+  runTest('ROUTE: root_sources_fan_in', testMachine_rootSourcesFanIn);
+  runTest('ROUTE: display_edge', testMachine_displayEdge);
+  runTest('ROUTE: display_graph', testMachine_displayGraph);
 
   // route module: serializer tests (mirrors serializer.rs)
   console.log('\n--- route/serializer.rs ---');
-  runTest('ROUTE: serialize_single_edge', testRoute_serializeSingleEdge);
-  runTest('ROUTE: serialize_two_edge_chain', testRoute_serializeTwoEdgeChain);
-  runTest('ROUTE: serialize_empty_graph', testRoute_serializeEmptyGraph);
-  runTest('ROUTE: roundtrip_single_edge', testRoute_roundtripSingleEdge);
-  runTest('ROUTE: roundtrip_two_edge_chain', testRoute_roundtripTwoEdgeChain);
-  runTest('ROUTE: roundtrip_fan_out', testRoute_roundtripFanOut);
-  runTest('ROUTE: roundtrip_loop_edge', testRoute_roundtripLoopEdge);
-  runTest('ROUTE: serialization_is_deterministic', testRoute_serializationIsDeterministic);
-  runTest('ROUTE: reordered_edges_produce_same_notation', testRoute_reorderedEdgesProduceSameNotation);
-  runTest('ROUTE: multiline_serialize_format', testRoute_multilineSerializeFormat);
-  runTest('ROUTE: alias_from_op_tag', testRoute_aliasFromOpTag);
-  runTest('ROUTE: alias_fallback_without_op_tag', testRoute_aliasFallbackWithoutOpTag);
-  runTest('ROUTE: duplicate_op_tags_disambiguated', testRoute_duplicateOpTagsDisambiguated);
+  runTest('ROUTE: serialize_single_edge', testMachine_serializeSingleEdge);
+  runTest('ROUTE: serialize_two_edge_chain', testMachine_serializeTwoEdgeChain);
+  runTest('ROUTE: serialize_empty_graph', testMachine_serializeEmptyGraph);
+  runTest('ROUTE: roundtrip_single_edge', testMachine_roundtripSingleEdge);
+  runTest('ROUTE: roundtrip_two_edge_chain', testMachine_roundtripTwoEdgeChain);
+  runTest('ROUTE: roundtrip_fan_out', testMachine_roundtripFanOut);
+  runTest('ROUTE: roundtrip_loop_edge', testMachine_roundtripLoopEdge);
+  runTest('ROUTE: serialization_is_deterministic', testMachine_serializationIsDeterministic);
+  runTest('ROUTE: reordered_edges_produce_same_notation', testMachine_reorderedEdgesProduceSameNotation);
+  runTest('ROUTE: multiline_serialize_format', testMachine_multilineSerializeFormat);
+  runTest('ROUTE: alias_from_op_tag', testMachine_aliasFromOpTag);
+  runTest('ROUTE: alias_fallback_without_op_tag', testMachine_aliasFallbackWithoutOpTag);
+  runTest('ROUTE: duplicate_op_tags_disambiguated', testMachine_duplicateOpTagsDisambiguated);
 
   // route module: builder tests
   console.log('\n--- route/builder ---');
-  runTest('ROUTE: builder_single_edge', testRoute_builderSingleEdge);
-  runTest('ROUTE: builder_with_loop', testRoute_builderWithLoop);
-  runTest('ROUTE: builder_chaining', testRoute_builderChaining);
-  runTest('ROUTE: builder_equivalent_to_parsed', testRoute_builderEquivalentToParsed);
-  runTest('ROUTE: builder_round_trip', testRoute_builderRoundTrip);
+  runTest('ROUTE: builder_single_edge', testMachine_builderSingleEdge);
+  runTest('ROUTE: builder_with_loop', testMachine_builderWithLoop);
+  runTest('ROUTE: builder_chaining', testMachine_builderChaining);
+  runTest('ROUTE: builder_equivalent_to_parsed', testMachine_builderEquivalentToParsed);
+  runTest('ROUTE: builder_round_trip', testMachine_builderRoundTrip);
 
   // route module: CapUrn.isEquivalent/isComparable
   console.log('\n--- route/urn_predicates ---');
-  runTest('ROUTE: cap_urn_is_equivalent', testRoute_capUrnIsEquivalent);
-  runTest('ROUTE: cap_urn_is_comparable', testRoute_capUrnIsComparable);
-  runTest('ROUTE: cap_urn_in_media_urn', testRoute_capUrnInMediaUrn);
-  runTest('ROUTE: cap_urn_out_media_urn', testRoute_capUrnOutMediaUrn);
-  runTest('ROUTE: media_urn_is_equivalent', testRoute_mediaUrnIsEquivalent);
-  runTest('ROUTE: media_urn_is_comparable', testRoute_mediaUrnIsComparable);
+  runTest('ROUTE: cap_urn_is_equivalent', testMachine_capUrnIsEquivalent);
+  runTest('ROUTE: cap_urn_is_comparable', testMachine_capUrnIsComparable);
+  runTest('ROUTE: cap_urn_in_media_urn', testMachine_capUrnInMediaUrn);
+  runTest('ROUTE: cap_urn_out_media_urn', testMachine_capUrnOutMediaUrn);
+  runTest('ROUTE: media_urn_is_equivalent', testMachine_mediaUrnIsEquivalent);
+  runTest('ROUTE: media_urn_is_comparable', testMachine_mediaUrnIsComparable);
 
   // Summary
   console.log(`\n${passCount + failCount} tests: ${passCount} passed, ${failCount} failed`);

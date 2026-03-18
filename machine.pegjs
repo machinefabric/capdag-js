@@ -1,6 +1,6 @@
-// Bracket-delimited route notation grammar for Peggy.
+// Bracket-delimited machine notation grammar for Peggy.
 //
-// This grammar mirrors the Rust pest grammar in route.pest exactly.
+// This grammar mirrors the Rust pest grammar in machine.pest exactly.
 //
 // Examples:
 //   [extract cap:in="media:pdf";op=extract;out="media:txt;textable"]

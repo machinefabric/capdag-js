@@ -11,8 +11,8 @@
   "files": [
     "capdag.js",
     "capdag.test.js",
-    "route.pegjs",
-    "route-parser.js",
+    "machine.pegjs",
+    "machine-parser.js",
     "RULES.md",
     "README.md"
   ],
@@ -33,9 +33,9 @@
     "url": "https://github.com/machinefabric/capdag-js.git"
   },
   "scripts": {
-    "build:parser": "npx peggy --format commonjs -o route-parser.js route.pegjs",
+    "build:parser": "npx peggy --format commonjs -o machine-parser.js machine.pegjs",
     "pretest": "npm run build:parser",
     "test": "node capdag.test.js"
   },
-  "version": "0.92.23685"
+  "version": "0.93.23689"
 }
