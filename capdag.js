@@ -4272,10 +4272,16 @@ class PluginRepoServer {
  * Mirrors Rust MachineSyntaxError exactly.
  */
 class MachineSyntaxError extends Error {
-  constructor(code, message) {
+  /**
+   * @param {string} code - Error code from MachineSyntaxErrorCodes
+   * @param {string} message - Human-readable error message
+   * @param {Object|null} [location] - Source location { start: {offset,line,column}, end: {offset,line,column} }
+   */
+  constructor(code, message, location) {
     super(message);
     this.name = 'MachineSyntaxError';
     this.code = code;
+    this.location = location || null;
   }
 }
 
@@ -4715,6 +4721,78 @@ class Machine {
   }
 
   /**
+   * Generate a Mermaid flowchart string from this machine graph.
+   *
+   * - Root sources: stadium-shaped nodes (rounded)
+   * - Leaf targets: stadium-shaped nodes (rounded)
+   * - Intermediate nodes: rectangular
+   * - Edge labels: op= tag value (or full cap URN if no op)
+   * - LOOP edges: dotted line style with "LOOP" prefix on label
+   * - Node labels: derived MediaUrn type
+   *
+   * @returns {string} Mermaid flowchart definition
+   */
+  toMermaid() {
+    if (this._edges.length === 0) {
+      return 'flowchart LR\n  empty["(empty graph)"]';
+    }
+
+    const { aliases, nodeNames, edgeOrder } = this._buildSerializationMaps();
+    const rootSourceSet = new Set(this.rootSources().map(s => s.toString()));
+    const leafTargetSet = new Set(this.leafTargets().map(t => t.toString()));
+
+    const lines = ['flowchart LR'];
+
+    // Define node shapes based on role
+    for (const [mediaKey, nodeName] of nodeNames) {
+      // Escape special mermaid characters in the label
+      const label = mediaKey.replace(/"/g, '#quot;');
+      if (rootSourceSet.has(mediaKey)) {
+        // Stadium shape for roots
+        lines.push(`  ${nodeName}([${label}])`);
+      } else if (leafTargetSet.has(mediaKey)) {
+        // Stadium shape for leaves
+        lines.push(`  ${nodeName}([${label}])`);
+      } else {
+        // Rectangle for intermediates
+        lines.push(`  ${nodeName}[${label}]`);
+      }
+    }
+
+    // Define edges
+    for (const edgeIdx of edgeOrder) {
+      const edge = this._edges[edgeIdx];
+      // Find alias for this edge
+      let edgeLabel = null;
+      for (const [a, info] of aliases) {
+        if (info.edgeIdx === edgeIdx) {
+          edgeLabel = a;
+          break;
+        }
+      }
+      const opTag = edge.capUrn.getTag('op');
+      const label = opTag !== undefined ? opTag : edgeLabel;
+
+      const targetKey = edge.target.toString();
+      const targetName = nodeNames.get(targetKey);
+
+      for (const src of edge.sources) {
+        const srcKey = src.toString();
+        const srcName = nodeNames.get(srcKey);
+
+        if (edge.isLoop) {
+          // Dotted line for LOOP edges
+          lines.push(`  ${srcName} -. "LOOP ${label}" .-> ${targetName}`);
+        } else {
+          lines.push(`  ${srcName} -- "${label}" --> ${targetName}`);
+        }
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
    * Display string for this graph.
    * Mirrors Rust Display for Machine.
    */
@@ -4743,19 +4821,216 @@ const routeParser = require('./machine-parser.js');
  * Mirrors Rust assign_or_check_node.
  * @private
  */
-function assignOrCheckNode(node, mediaUrn, nodeMedia, position) {
+function assignOrCheckNode(node, mediaUrn, nodeMedia, position, location) {
   const existing = nodeMedia.get(node);
   if (existing !== undefined) {
     const compatible = existing.isComparable(mediaUrn);
     if (!compatible) {
       throw new MachineSyntaxError(
         MachineSyntaxErrorCodes.INVALID_WIRING,
-        `invalid wiring at statement ${position}: node '${node}' has conflicting media types: existing '${existing}', new '${mediaUrn}'`
+        `invalid wiring at statement ${position}: node '${node}' has conflicting media types: existing '${existing}', new '${mediaUrn}'`,
+        location
       );
     }
   } else {
     nodeMedia.set(node, mediaUrn);
   }
+}
+
+/**
+ * Internal: run the 4-phase parse pipeline on machine notation input.
+ * Returns { machine, statements, aliasMap, nodeMedia } for full introspection.
+ *
+ * @param {string} input - Route notation string
+ * @returns {{ machine: Machine, statements: Object[], aliasMap: Map, nodeMedia: Map }}
+ * @throws {MachineSyntaxError}
+ * @private
+ */
+function _parseMachineInternal(input) {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) {
+    throw new MachineSyntaxError(
+      MachineSyntaxErrorCodes.EMPTY,
+      'machine notation is empty'
+    );
+  }
+
+  // Phase 1: Parse with Peggy grammar
+  let stmts;
+  try {
+    stmts = routeParser.parse(trimmed);
+  } catch (e) {
+    // Peggy SyntaxError has .location — propagate it
+    const loc = e.location || null;
+    throw new MachineSyntaxError(
+      MachineSyntaxErrorCodes.PARSE_ERROR,
+      `parse error: ${e.message}`,
+      loc
+    );
+  }
+
+  // Phase 2: Separate headers and wirings (already done by grammar actions)
+  const headers = [];
+  const wirings = [];
+
+  for (let i = 0; i < stmts.length; i++) {
+    const stmt = stmts[i];
+    if (stmt.type === 'header') {
+      // Parse the cap URN string
+      let capUrn;
+      try {
+        capUrn = CapUrn.fromString(stmt.capUrn);
+      } catch (e) {
+        throw new MachineSyntaxError(
+          MachineSyntaxErrorCodes.INVALID_CAP_URN,
+          `invalid cap URN in header '${stmt.alias}': ${e.message}`,
+          stmt.capUrnLocation || stmt.location
+        );
+      }
+      headers.push({
+        alias: stmt.alias,
+        capUrn,
+        position: i,
+        location: stmt.location,
+        aliasLocation: stmt.aliasLocation,
+        capUrnLocation: stmt.capUrnLocation,
+      });
+    } else if (stmt.type === 'wiring') {
+      wirings.push({
+        sources: stmt.sources,
+        capAlias: stmt.capAlias,
+        target: stmt.target,
+        isLoop: stmt.isLoop,
+        position: i,
+        location: stmt.location,
+        sourceLocations: stmt.sourceLocations,
+        capAliasLocation: stmt.capAliasLocation,
+        targetLocation: stmt.targetLocation,
+      });
+    }
+  }
+
+  // Phase 3: Build alias → CapUrn map, checking for duplicates
+  const aliasMap = new Map();
+  for (const header of headers) {
+    if (aliasMap.has(header.alias)) {
+      const firstPos = aliasMap.get(header.alias).position;
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.DUPLICATE_ALIAS,
+        `duplicate alias '${header.alias}' (first defined at statement ${firstPos})`,
+        header.aliasLocation || header.location
+      );
+    }
+    aliasMap.set(header.alias, {
+      capUrn: header.capUrn,
+      position: header.position,
+      location: header.location,
+      aliasLocation: header.aliasLocation,
+      capUrnLocation: header.capUrnLocation,
+    });
+  }
+
+  // Phase 4: Resolve wirings into MachineEdges
+  if (wirings.length === 0 && headers.length > 0) {
+    throw new MachineSyntaxError(
+      MachineSyntaxErrorCodes.NO_EDGES,
+      'route has headers but no wirings — define at least one edge',
+      headers[headers.length - 1].location
+    );
+  }
+
+  const nodeMedia = new Map(); // node_name → MediaUrn
+  const edges = [];
+
+  for (const wiring of wirings) {
+    // Look up the cap alias
+    const aliasEntry = aliasMap.get(wiring.capAlias);
+    if (!aliasEntry) {
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.UNDEFINED_ALIAS,
+        `wiring references undefined alias '${wiring.capAlias}'`,
+        wiring.capAliasLocation || wiring.location
+      );
+    }
+    const capUrn = aliasEntry.capUrn;
+
+    // Check node-alias collisions
+    for (let si = 0; si < wiring.sources.length; si++) {
+      const src = wiring.sources[si];
+      if (aliasMap.has(src)) {
+        throw new MachineSyntaxError(
+          MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION,
+          `node name '${src}' collides with cap alias '${src}'`,
+          wiring.sourceLocations ? wiring.sourceLocations[si] : wiring.location
+        );
+      }
+    }
+    if (aliasMap.has(wiring.target)) {
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION,
+        `node name '${wiring.target}' collides with cap alias '${wiring.target}'`,
+        wiring.targetLocation || wiring.location
+      );
+    }
+
+    // Derive media URNs from cap's in=/out= specs
+    let capInMedia;
+    try {
+      capInMedia = capUrn.inMediaUrn();
+    } catch (e) {
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.INVALID_MEDIA_URN,
+        `invalid media URN in cap '${wiring.capAlias}': in= spec: ${e.message}`,
+        aliasEntry.capUrnLocation || wiring.location
+      );
+    }
+
+    let capOutMedia;
+    try {
+      capOutMedia = capUrn.outMediaUrn();
+    } catch (e) {
+      throw new MachineSyntaxError(
+        MachineSyntaxErrorCodes.INVALID_MEDIA_URN,
+        `invalid media URN in cap '${wiring.capAlias}': out= spec: ${e.message}`,
+        aliasEntry.capUrnLocation || wiring.location
+      );
+    }
+
+    // Resolve source media URNs
+    const sourceUrns = [];
+    for (let i = 0; i < wiring.sources.length; i++) {
+      const src = wiring.sources[i];
+      if (i === 0) {
+        // Primary source: use cap's in= spec
+        assignOrCheckNode(src, capInMedia, nodeMedia, wiring.position,
+          wiring.sourceLocations ? wiring.sourceLocations[i] : wiring.location);
+        sourceUrns.push(capInMedia);
+      } else {
+        // Secondary source (fan-in): use existing type if assigned,
+        // otherwise use wildcard media: — the orchestrator parser will
+        // resolve the real type from the cap's args via registry lookup.
+        let secondaryMedia = nodeMedia.get(src);
+        if (secondaryMedia === undefined) {
+          secondaryMedia = MediaUrn.fromString('media:');
+          nodeMedia.set(src, secondaryMedia);
+        }
+        sourceUrns.push(secondaryMedia);
+      }
+    }
+
+    // Assign target media URN
+    assignOrCheckNode(wiring.target, capOutMedia, nodeMedia, wiring.position,
+      wiring.targetLocation || wiring.location);
+
+    edges.push(new MachineEdge(sourceUrns, capUrn, capOutMedia, wiring.isLoop));
+  }
+
+  return {
+    machine: new Machine(edges),
+    statements: stmts,
+    aliasMap,
+    nodeMedia,
+  };
 }
 
 /**
@@ -4773,154 +5048,21 @@ function assignOrCheckNode(node, mediaUrn, nodeMedia, position) {
  * @throws {MachineSyntaxError}
  */
 function parseMachine(input) {
-  const trimmed = input.trim();
-  if (trimmed.length === 0) {
-    throw new MachineSyntaxError(
-      MachineSyntaxErrorCodes.EMPTY,
-      'machine notation is empty'
-    );
-  }
+  return _parseMachineInternal(input).machine;
+}
 
-  // Phase 1: Parse with Peggy grammar
-  let stmts;
-  try {
-    stmts = routeParser.parse(trimmed);
-  } catch (e) {
-    throw new MachineSyntaxError(
-      MachineSyntaxErrorCodes.PARSE_ERROR,
-      `parse error: ${e.message}`
-    );
-  }
-
-  // Phase 2: Separate headers and wirings (already done by grammar actions)
-  const headers = []; // { alias, capUrn, position }
-  const wirings = []; // { sources, capAlias, target, isLoop, position }
-
-  for (let i = 0; i < stmts.length; i++) {
-    const stmt = stmts[i];
-    if (stmt.type === 'header') {
-      // Parse the cap URN string
-      let capUrn;
-      try {
-        capUrn = CapUrn.fromString(stmt.capUrn);
-      } catch (e) {
-        throw new MachineSyntaxError(
-          MachineSyntaxErrorCodes.INVALID_CAP_URN,
-          `invalid cap URN in header '${stmt.alias}': ${e.message}`
-        );
-      }
-      headers.push({ alias: stmt.alias, capUrn, position: i });
-    } else if (stmt.type === 'wiring') {
-      wirings.push({
-        sources: stmt.sources,
-        capAlias: stmt.capAlias,
-        target: stmt.target,
-        isLoop: stmt.isLoop,
-        position: i,
-      });
-    }
-  }
-
-  // Phase 3: Build alias → CapUrn map, checking for duplicates
-  const aliasMap = new Map(); // alias → { capUrn, position }
-  for (const header of headers) {
-    if (aliasMap.has(header.alias)) {
-      const firstPos = aliasMap.get(header.alias).position;
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.DUPLICATE_ALIAS,
-        `duplicate alias '${header.alias}' (first defined at statement ${firstPos})`
-      );
-    }
-    aliasMap.set(header.alias, { capUrn: header.capUrn, position: header.position });
-  }
-
-  // Phase 4: Resolve wirings into MachineEdges
-  if (wirings.length === 0 && headers.length > 0) {
-    throw new MachineSyntaxError(
-      MachineSyntaxErrorCodes.NO_EDGES,
-      'route has headers but no wirings — define at least one edge'
-    );
-  }
-
-  const nodeMedia = new Map(); // node_name → MediaUrn
-  const edges = [];
-
-  for (const wiring of wirings) {
-    // Look up the cap alias
-    const aliasEntry = aliasMap.get(wiring.capAlias);
-    if (!aliasEntry) {
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.UNDEFINED_ALIAS,
-        `wiring references undefined alias '${wiring.capAlias}'`
-      );
-    }
-    const capUrn = aliasEntry.capUrn;
-
-    // Check node-alias collisions
-    for (const src of wiring.sources) {
-      if (aliasMap.has(src)) {
-        throw new MachineSyntaxError(
-          MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION,
-          `node name '${src}' collides with cap alias '${src}'`
-        );
-      }
-    }
-    if (aliasMap.has(wiring.target)) {
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION,
-        `node name '${wiring.target}' collides with cap alias '${wiring.target}'`
-      );
-    }
-
-    // Derive media URNs from cap's in=/out= specs
-    let capInMedia;
-    try {
-      capInMedia = capUrn.inMediaUrn();
-    } catch (e) {
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.INVALID_MEDIA_URN,
-        `invalid media URN in cap '${wiring.capAlias}': in= spec: ${e.message}`
-      );
-    }
-
-    let capOutMedia;
-    try {
-      capOutMedia = capUrn.outMediaUrn();
-    } catch (e) {
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.INVALID_MEDIA_URN,
-        `invalid media URN in cap '${wiring.capAlias}': out= spec: ${e.message}`
-      );
-    }
-
-    // Resolve source media URNs
-    const sourceUrns = [];
-    for (let i = 0; i < wiring.sources.length; i++) {
-      const src = wiring.sources[i];
-      if (i === 0) {
-        // Primary source: use cap's in= spec
-        assignOrCheckNode(src, capInMedia, nodeMedia, wiring.position);
-        sourceUrns.push(capInMedia);
-      } else {
-        // Secondary source (fan-in): use existing type if assigned,
-        // otherwise use wildcard media: — the orchestrator parser will
-        // resolve the real type from the cap's args via registry lookup.
-        let secondaryMedia = nodeMedia.get(src);
-        if (secondaryMedia === undefined) {
-          secondaryMedia = MediaUrn.fromString('media:');
-          nodeMedia.set(src, secondaryMedia);
-        }
-        sourceUrns.push(secondaryMedia);
-      }
-    }
-
-    // Assign target media URN
-    assignOrCheckNode(wiring.target, capOutMedia, nodeMedia, wiring.position);
-
-    edges.push(new MachineEdge(sourceUrns, capUrn, capOutMedia, wiring.isLoop));
-  }
-
-  return new Machine(edges);
+/**
+ * Parse machine notation and return both the Machine and the raw AST with locations.
+ *
+ * Use this for LSP tooling — the statements array contains full position information
+ * for every element (aliases, cap URNs, sources, targets).
+ *
+ * @param {string} input - Route notation string
+ * @returns {{ machine: Machine, statements: Object[], aliasMap: Map, nodeMedia: Map }}
+ * @throws {MachineSyntaxError}
+ */
+function parseMachineWithAST(input) {
+  return _parseMachineInternal(input);
 }
 
 // ============================================================================
@@ -4979,6 +5121,179 @@ class MachineBuilder {
    */
   build() {
     return new Machine([...this._edges]);
+  }
+}
+
+// ============================================================================
+// Cap & Media Registry Client
+// Fetches and caches capability and media registries from capdag.com
+// ============================================================================
+
+/**
+ * A capability entry from the registry.
+ * Matches the denormalized view format from capdag.com /api/capabilities.
+ */
+class CapRegistryEntry {
+  constructor(data) {
+    this.urn = data.urn;
+    this.title = data.title || '';
+    this.command = data.command || '';
+    this.description = data.cap_description || '';
+    this.args = data.args || [];
+    this.output = data.output || null;
+    this.mediaSpecs = data.media_specs || [];
+    this.urnTags = data.urn_tags || {};
+    this.inSpec = data.in_spec || '';
+    this.outSpec = data.out_spec || '';
+    this.inMediaTitle = data.in_media_title || '';
+    this.outMediaTitle = data.out_media_title || '';
+  }
+}
+
+/**
+ * A media spec entry from the registry.
+ * Matches the media lookup format from capdag.com /media:*.
+ */
+class MediaRegistryEntry {
+  constructor(data) {
+    this.urn = data.urn;
+    this.title = data.title || '';
+    this.mediaType = data.media_type || '';
+    this.description = data.description || '';
+  }
+}
+
+/**
+ * Client for fetching and caching capability and media registries from capdag.com.
+ *
+ * Uses a time-based cache with configurable TTL. All methods are async.
+ * Fails hard on network errors — no silent degradation.
+ */
+class CapRegistryClient {
+  /**
+   * @param {string} [baseUrl='https://capdag.com'] - Registry base URL
+   * @param {number} [cacheTtlSeconds=300] - Cache TTL in seconds
+   */
+  constructor(baseUrl = 'https://capdag.com', cacheTtlSeconds = 300) {
+    this._baseUrl = baseUrl.replace(/\/$/, '');
+    this._cacheTtl = cacheTtlSeconds * 1000;
+    this._capCache = null;       // { entries: CapRegistryEntry[], fetchedAt: number }
+    this._mediaCache = new Map(); // media_urn_string → { entry: MediaRegistryEntry, fetchedAt: number }
+  }
+
+  /**
+   * Fetch all capabilities from the registry (cached).
+   * @returns {Promise<CapRegistryEntry[]>}
+   */
+  async fetchCapabilities() {
+    if (this._capCache && (Date.now() - this._capCache.fetchedAt) < this._cacheTtl) {
+      return this._capCache.entries;
+    }
+
+    const response = await fetch(`${this._baseUrl}/api/capabilities`);
+    if (!response.ok) {
+      throw new Error(`Cap registry request failed: HTTP ${response.status} from ${this._baseUrl}/api/capabilities`);
+    }
+
+    const data = await response.json();
+    if (!Array.isArray(data)) {
+      throw new Error(`Invalid cap registry response: expected array, got ${typeof data}`);
+    }
+
+    const entries = data.map(d => new CapRegistryEntry(d));
+    this._capCache = { entries, fetchedAt: Date.now() };
+    return entries;
+  }
+
+  /**
+   * Lookup a single capability by URN.
+   * Uses the capabilities cache if available, otherwise falls back to direct lookup.
+   * @param {string} capUrnStr - Cap URN string
+   * @returns {Promise<CapRegistryEntry|null>}
+   */
+  async lookupCap(capUrnStr) {
+    // Try cache first
+    if (this._capCache && (Date.now() - this._capCache.fetchedAt) < this._cacheTtl) {
+      const found = this._capCache.entries.find(e => e.urn === capUrnStr);
+      if (found) return found;
+    }
+
+    // Direct lookup
+    const encoded = encodeURIComponent(capUrnStr);
+    const response = await fetch(`${this._baseUrl}/${encoded}`);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(`Cap lookup failed: HTTP ${response.status} for ${capUrnStr}`);
+    }
+
+    const data = await response.json();
+    return new CapRegistryEntry(data);
+  }
+
+  /**
+   * Lookup a single media spec by URN.
+   * @param {string} mediaUrnStr - Media URN string
+   * @returns {Promise<MediaRegistryEntry|null>}
+   */
+  async lookupMedia(mediaUrnStr) {
+    // Check cache
+    const cached = this._mediaCache.get(mediaUrnStr);
+    if (cached && (Date.now() - cached.fetchedAt) < this._cacheTtl) {
+      return cached.entry;
+    }
+
+    const encoded = encodeURIComponent(mediaUrnStr);
+    const response = await fetch(`${this._baseUrl}/${encoded}`);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(`Media lookup failed: HTTP ${response.status} for ${mediaUrnStr}`);
+    }
+
+    const data = await response.json();
+    const entry = new MediaRegistryEntry(data);
+    this._mediaCache.set(mediaUrnStr, { entry, fetchedAt: Date.now() });
+    return entry;
+  }
+
+  /**
+   * Get all known media URNs from cached capabilities (in and out specs).
+   * Fetches capabilities if not cached.
+   * @returns {Promise<string[]>}
+   */
+  async getKnownMediaUrns() {
+    const caps = await this.fetchCapabilities();
+    const urns = new Set();
+    for (const cap of caps) {
+      if (cap.inSpec) urns.add(cap.inSpec);
+      if (cap.outSpec) urns.add(cap.outSpec);
+    }
+    return Array.from(urns).sort();
+  }
+
+  /**
+   * Get all known op= tag values from cached capabilities.
+   * @returns {Promise<string[]>}
+   */
+  async getKnownOps() {
+    const caps = await this.fetchCapabilities();
+    const ops = new Set();
+    for (const cap of caps) {
+      const op = cap.urnTags && cap.urnTags.op;
+      if (op) ops.add(op);
+    }
+    return Array.from(ops).sort();
+  }
+
+  /**
+   * Invalidate all caches. Next call to any method will fetch fresh data.
+   */
+  invalidate() {
+    this._capCache = null;
+    this._mediaCache.clear();
   }
 }
 
@@ -5107,4 +5422,9 @@ module.exports = {
   Machine,
   MachineBuilder,
   parseMachine,
+  parseMachineWithAST,
+  // Cap & Media Registry
+  CapRegistryEntry,
+  MediaRegistryEntry,
+  CapRegistryClient,
 };

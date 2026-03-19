@@ -1,6 +1,7 @@
 // Bracket-delimited machine notation grammar for Peggy.
 //
 // This grammar mirrors the Rust pest grammar in machine.pest exactly.
+// All actions return location() for LSP position tracking.
 //
 // Examples:
 //   [extract cap:in="media:pdf";op=extract;out="media:txt;textable"]
@@ -15,31 +16,37 @@ stmt = "[" _ inner:inner _ "]" _ { return inner; }
 inner = wiring / header
 
 // Header: alias followed by a cap URN starting with "cap:".
-header = a:alias __ c:cap_urn {
-  return { type: 'header', alias: a, capUrn: c };
+header = a:alias_loc __ c:cap_urn_loc {
+  return { type: 'header', alias: a.value, capUrn: c.value, location: location(), aliasLocation: a.location, capUrnLocation: c.location };
 }
 
 // Wiring: source -> loop_cap -> target
-wiring = s:source _ arrow _ lc:loop_cap _ arrow _ t:alias {
-  return { type: 'wiring', sources: s, capAlias: lc.alias, isLoop: lc.isLoop, target: t };
+wiring = s:source_loc _ arrow _ lc:loop_cap_loc _ arrow _ t:alias_loc {
+  return { type: 'wiring', sources: s.values, capAlias: lc.alias, isLoop: lc.isLoop, target: t.value, location: location(), sourceLocations: s.locations, capAliasLocation: lc.location, targetLocation: t.location };
 }
 
-source = group / single_alias
+source_loc = group_loc / single_alias_loc
 
-single_alias = a:alias { return [a]; }
+single_alias_loc = a:alias_loc { return { values: [a.value], locations: [a.location] }; }
 
-group = "(" _ first:alias rest:("," _ a:alias { return a; })+ _ ")" {
-  return [first, ...rest];
+group_loc = "(" _ first:alias_loc rest:("," _ a:alias_loc { return a; })+ _ ")" {
+  return { values: [first.value, ...rest.map(r => r.value)], locations: [first.location, ...rest.map(r => r.location)] };
 }
 
-loop_cap = "LOOP" __ a:alias { return { alias: a, isLoop: true }; }
-         / a:alias { return { alias: a, isLoop: false }; }
+loop_cap_loc = "LOOP" __ a:alias_loc { return { alias: a.value, isLoop: true, location: a.location }; }
+            / a:alias_loc { return { alias: a.value, isLoop: false, location: a.location }; }
 
 arrow = "-"+ ">"
+
+// Alias with location tracking
+alias_loc = a:alias { return { value: a, location: location() }; }
 
 // Alias: starts with alpha or underscore, continues with alphanumeric, underscore, or hyphen.
 // This is atomic — no whitespace skipping inside.
 alias = $( [a-zA-Z_] [a-zA-Z0-9_-]* )
+
+// Cap URN with location tracking
+cap_urn_loc = c:cap_urn { return { value: c, location: location() }; }
 
 // Cap URN: starts with "cap:", reads until the statement-closing "]",
 // except quoted strings can contain "]".

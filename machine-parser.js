@@ -203,18 +203,20 @@ function peg$parse(input, options) {
   function peg$f0(stmts) {    return stmts;  }
   function peg$f1(inner) {    return inner;  }
   function peg$f2(a, c) {
-    return { type: 'header', alias: a, capUrn: c };
+    return { type: 'header', alias: a.value, capUrn: c.value, location: location(), aliasLocation: a.location, capUrnLocation: c.location };
   }
   function peg$f3(s, lc, t) {
-    return { type: 'wiring', sources: s, capAlias: lc.alias, isLoop: lc.isLoop, target: t };
+    return { type: 'wiring', sources: s.values, capAlias: lc.alias, isLoop: lc.isLoop, target: t.value, location: location(), sourceLocations: s.locations, capAliasLocation: lc.location, targetLocation: t.location };
   }
-  function peg$f4(a) {    return [a];  }
+  function peg$f4(a) {    return { values: [a.value], locations: [a.location] };  }
   function peg$f5(first, a) {    return a;  }
   function peg$f6(first, rest) {
-    return [first, ...rest];
+    return { values: [first.value, ...rest.map(r => r.value)], locations: [first.location, ...rest.map(r => r.location)] };
   }
-  function peg$f7(a) {    return { alias: a, isLoop: true };  }
-  function peg$f8(a) {    return { alias: a, isLoop: false };  }
+  function peg$f7(a) {    return { alias: a.value, isLoop: true, location: a.location };  }
+  function peg$f8(a) {    return { alias: a.value, isLoop: false, location: a.location };  }
+  function peg$f9(a) {    return { value: a, location: location() };  }
+  function peg$f10(c) {    return { value: c, location: location() };  }
   let peg$currPos = options.peg$currPos | 0;
   let peg$savedPos = peg$currPos;
   const peg$posDetailsCache = [{ line: 1, column: 1 }];
@@ -461,11 +463,11 @@ function peg$parse(input, options) {
     let s0, s1, s2, s3;
 
     s0 = peg$currPos;
-    s1 = peg$parsealias();
+    s1 = peg$parsealias_loc();
     if (s1 !== peg$FAILED) {
       s2 = peg$parse__();
       if (s2 !== peg$FAILED) {
-        s3 = peg$parsecap_urn();
+        s3 = peg$parsecap_urn_loc();
         if (s3 !== peg$FAILED) {
           peg$savedPos = s0;
           s0 = peg$f2(s1, s3);
@@ -489,19 +491,19 @@ function peg$parse(input, options) {
     let s0, s1, s2, s3, s4, s5, s6, s7, s8, s9;
 
     s0 = peg$currPos;
-    s1 = peg$parsesource();
+    s1 = peg$parsesource_loc();
     if (s1 !== peg$FAILED) {
       s2 = peg$parse_();
       s3 = peg$parsearrow();
       if (s3 !== peg$FAILED) {
         s4 = peg$parse_();
-        s5 = peg$parseloop_cap();
+        s5 = peg$parseloop_cap_loc();
         if (s5 !== peg$FAILED) {
           s6 = peg$parse_();
           s7 = peg$parsearrow();
           if (s7 !== peg$FAILED) {
             s8 = peg$parse_();
-            s9 = peg$parsealias();
+            s9 = peg$parsealias_loc();
             if (s9 !== peg$FAILED) {
               peg$savedPos = s0;
               s0 = peg$f3(s1, s5, s9);
@@ -529,22 +531,22 @@ function peg$parse(input, options) {
     return s0;
   }
 
-  function peg$parsesource() {
+  function peg$parsesource_loc() {
     let s0;
 
-    s0 = peg$parsegroup();
+    s0 = peg$parsegroup_loc();
     if (s0 === peg$FAILED) {
-      s0 = peg$parsesingle_alias();
+      s0 = peg$parsesingle_alias_loc();
     }
 
     return s0;
   }
 
-  function peg$parsesingle_alias() {
+  function peg$parsesingle_alias_loc() {
     let s0, s1;
 
     s0 = peg$currPos;
-    s1 = peg$parsealias();
+    s1 = peg$parsealias_loc();
     if (s1 !== peg$FAILED) {
       peg$savedPos = s0;
       s1 = peg$f4(s1);
@@ -554,7 +556,7 @@ function peg$parse(input, options) {
     return s0;
   }
 
-  function peg$parsegroup() {
+  function peg$parsegroup_loc() {
     let s0, s1, s2, s3, s4, s5, s6, s7, s8;
 
     s0 = peg$currPos;
@@ -567,7 +569,7 @@ function peg$parse(input, options) {
     }
     if (s1 !== peg$FAILED) {
       s2 = peg$parse_();
-      s3 = peg$parsealias();
+      s3 = peg$parsealias_loc();
       if (s3 !== peg$FAILED) {
         s4 = [];
         s5 = peg$currPos;
@@ -580,7 +582,7 @@ function peg$parse(input, options) {
         }
         if (s6 !== peg$FAILED) {
           s7 = peg$parse_();
-          s8 = peg$parsealias();
+          s8 = peg$parsealias_loc();
           if (s8 !== peg$FAILED) {
             peg$savedPos = s5;
             s5 = peg$f5(s3, s8);
@@ -605,7 +607,7 @@ function peg$parse(input, options) {
             }
             if (s6 !== peg$FAILED) {
               s7 = peg$parse_();
-              s8 = peg$parsealias();
+              s8 = peg$parsealias_loc();
               if (s8 !== peg$FAILED) {
                 peg$savedPos = s5;
                 s5 = peg$f5(s3, s8);
@@ -653,7 +655,7 @@ function peg$parse(input, options) {
     return s0;
   }
 
-  function peg$parseloop_cap() {
+  function peg$parseloop_cap_loc() {
     let s0, s1, s2, s3;
 
     s0 = peg$currPos;
@@ -667,7 +669,7 @@ function peg$parse(input, options) {
     if (s1 !== peg$FAILED) {
       s2 = peg$parse__();
       if (s2 !== peg$FAILED) {
-        s3 = peg$parsealias();
+        s3 = peg$parsealias_loc();
         if (s3 !== peg$FAILED) {
           peg$savedPos = s0;
           s0 = peg$f7(s3);
@@ -685,7 +687,7 @@ function peg$parse(input, options) {
     }
     if (s0 === peg$FAILED) {
       s0 = peg$currPos;
-      s1 = peg$parsealias();
+      s1 = peg$parsealias_loc();
       if (s1 !== peg$FAILED) {
         peg$savedPos = s0;
         s1 = peg$f8(s1);
@@ -745,6 +747,20 @@ function peg$parse(input, options) {
     return s0;
   }
 
+  function peg$parsealias_loc() {
+    let s0, s1;
+
+    s0 = peg$currPos;
+    s1 = peg$parsealias();
+    if (s1 !== peg$FAILED) {
+      peg$savedPos = s0;
+      s1 = peg$f9(s1);
+    }
+    s0 = s1;
+
+    return s0;
+  }
+
   function peg$parsealias() {
     let s0, s1, s2, s3, s4;
 
@@ -787,6 +803,20 @@ function peg$parse(input, options) {
     } else {
       s0 = s1;
     }
+
+    return s0;
+  }
+
+  function peg$parsecap_urn_loc() {
+    let s0, s1;
+
+    s0 = peg$currPos;
+    s1 = peg$parsecap_urn();
+    if (s1 !== peg$FAILED) {
+      peg$savedPos = s0;
+      s1 = peg$f10(s1);
+    }
+    s0 = s1;
 
     return s0;
   }

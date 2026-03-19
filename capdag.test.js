@@ -14,7 +14,8 @@ const {
   validateNoMediaSpecRedefinitionSync,
   CapArgumentValue,
   llmConversationUrn, modelAvailabilityUrn, modelPathUrn,
-  MachineSyntaxError, MachineSyntaxErrorCodes, MachineEdge, Machine, MachineBuilder, parseMachine,
+  MachineSyntaxError, MachineSyntaxErrorCodes, MachineEdge, Machine, MachineBuilder, parseMachine, parseMachineWithAST,
+  CapRegistryEntry, MediaRegistryEntry, CapRegistryClient,
   MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
   MEDIA_OBJECT, MEDIA_STRING_ARRAY, MEDIA_INTEGER_ARRAY,
   MEDIA_NUMBER_ARRAY, MEDIA_BOOLEAN_ARRAY, MEDIA_OBJECT_ARRAY,
@@ -3300,6 +3301,245 @@ function testMachine_mediaUrnIsComparable() {
   assert(!general.isComparable(unrelated), 'Unrelated should not be comparable');
 }
 
+// ============================================================================
+// Phase 0A: Position tracking tests
+// ============================================================================
+
+function testMachine_parseMachineWithAST_headerLocation() {
+  const input = '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"][doc -> extract -> text]';
+  const result = parseMachineWithAST(input);
+  assert(result.statements.length === 2, 'Should have 2 statements');
+  const stmt = result.statements[0];
+  assertEqual(stmt.type, 'header', 'First statement should be a header');
+  assert(stmt.location !== undefined, 'Header should have location');
+  assert(stmt.location.start !== undefined, 'Location should have start');
+  assert(stmt.location.end !== undefined, 'Location should have end');
+  assert(stmt.location.start.line !== undefined, 'Start should have line');
+  assert(stmt.location.start.column !== undefined, 'Start should have column');
+  assert(stmt.aliasLocation !== undefined, 'Header should have aliasLocation');
+  assert(stmt.capUrnLocation !== undefined, 'Header should have capUrnLocation');
+  assertEqual(stmt.alias, 'extract', 'Alias should be extract');
+}
+
+function testMachine_parseMachineWithAST_wiringLocation() {
+  const input = '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]\n[doc -> extract -> text]';
+  const result = parseMachineWithAST(input);
+  assert(result.statements.length === 2, 'Should have 2 statements');
+  const wiring = result.statements[1];
+  assertEqual(wiring.type, 'wiring', 'Second statement should be a wiring');
+  assert(wiring.location !== undefined, 'Wiring should have location');
+  assert(wiring.sourceLocations !== undefined, 'Wiring should have sourceLocations');
+  assert(wiring.sourceLocations.length === 1, 'Should have 1 source location');
+  assert(wiring.capAliasLocation !== undefined, 'Wiring should have capAliasLocation');
+  assert(wiring.targetLocation !== undefined, 'Wiring should have targetLocation');
+  assertEqual(wiring.target, 'text', 'Target should be text');
+}
+
+function testMachine_parseMachineWithAST_multilinePositions() {
+  const input = '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]\n[doc -> extract -> text]';
+  const result = parseMachineWithAST(input);
+  const headerLoc = result.statements[0].location;
+  const wiringLoc = result.statements[1].location;
+  assertEqual(headerLoc.start.line, 1, 'Header should be on line 1');
+  assertEqual(wiringLoc.start.line, 2, 'Wiring should be on line 2');
+}
+
+function testMachine_parseMachineWithAST_fanInSourceLocations() {
+  const input = [
+    '[describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"]',
+    '[(thumbnail, model_spec) -> describe -> description]'
+  ].join('\n');
+  const result = parseMachineWithAST(input);
+  const wiring = result.statements[1];
+  assertEqual(wiring.sources.length, 2, 'Fan-in should have 2 sources');
+  assert(wiring.sourceLocations.length === 2, 'Should have 2 source locations');
+}
+
+function testMachine_parseMachineWithAST_aliasMap() {
+  const input = [
+    '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]',
+    '[embed cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"]',
+    '[doc -> extract -> text]',
+    '[text -> embed -> vectors]',
+  ].join('\n');
+  const result = parseMachineWithAST(input);
+  assert(result.aliasMap.has('extract'), 'aliasMap should have extract');
+  assert(result.aliasMap.has('embed'), 'aliasMap should have embed');
+  assertEqual(result.aliasMap.size, 2, 'aliasMap should have 2 entries');
+  const extractEntry = result.aliasMap.get('extract');
+  assert(extractEntry.capUrn !== undefined, 'Alias entry should have capUrn');
+  assert(extractEntry.location !== undefined, 'Alias entry should have location');
+  assert(extractEntry.aliasLocation !== undefined, 'Alias entry should have aliasLocation');
+  assert(extractEntry.capUrnLocation !== undefined, 'Alias entry should have capUrnLocation');
+}
+
+function testMachine_parseMachineWithAST_nodeMedia() {
+  const input = [
+    '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]',
+    '[doc -> extract -> text]',
+  ].join('\n');
+  const result = parseMachineWithAST(input);
+  assert(result.nodeMedia.has('doc'), 'nodeMedia should have doc');
+  assert(result.nodeMedia.has('text'), 'nodeMedia should have text');
+  assertEqual(result.nodeMedia.get('doc').toString(), 'media:pdf', 'doc should be media:pdf');
+  assertEqual(result.nodeMedia.get('text').toString(), 'media:textable;txt', 'text should be media:textable;txt');
+}
+
+function testMachine_errorLocation_parseError() {
+  try {
+    parseMachine('[this is not valid');
+    throw new Error('Expected MachineSyntaxError');
+  } catch (e) {
+    assertEqual(e.code, MachineSyntaxErrorCodes.PARSE_ERROR, 'Should be PARSE_ERROR');
+    assert(e.location !== null, 'Parse error should have location');
+  }
+}
+
+function testMachine_errorLocation_duplicateAlias() {
+  try {
+    parseMachine(
+      '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
+      '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
+      '[doc -> extract -> text]'
+    );
+    throw new Error('Expected MachineSyntaxError');
+  } catch (e) {
+    assertEqual(e.code, MachineSyntaxErrorCodes.DUPLICATE_ALIAS, 'Should be DUPLICATE_ALIAS');
+    assert(e.location !== null, 'Duplicate alias error should have location');
+  }
+}
+
+function testMachine_errorLocation_undefinedAlias() {
+  try {
+    parseMachine('[doc -> nonexistent -> text]');
+    throw new Error('Expected MachineSyntaxError');
+  } catch (e) {
+    assertEqual(e.code, MachineSyntaxErrorCodes.UNDEFINED_ALIAS, 'Should be UNDEFINED_ALIAS');
+    assert(e.location !== null, 'Undefined alias error should have location');
+  }
+}
+
+// ============================================================================
+// Phase 0C: Machine.toMermaid() tests
+// ============================================================================
+
+function testMachine_toMermaid_linearChain() {
+  const machine = Machine.fromString(
+    '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
+    '[doc -> extract -> text]'
+  );
+  const mermaid = machine.toMermaid();
+  assert(mermaid.startsWith('flowchart LR'), 'Should start with flowchart LR');
+  assert(mermaid.includes('extract'), 'Should include extract label');
+  assert(mermaid.includes('media:pdf'), 'Should include media:pdf node');
+  assert(mermaid.includes('media:textable;txt'), 'Should include media:textable;txt node');
+  assert(mermaid.includes('-->'), 'Should include arrow');
+  // Root source and leaf target should both be stadium shape
+  assert(mermaid.includes('(['), 'Should have stadium shape nodes');
+}
+
+function testMachine_toMermaid_loopEdge() {
+  const machine = Machine.fromString(
+    '[p2t cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable"]' +
+    '[pages -> LOOP p2t -> texts]'
+  );
+  const mermaid = machine.toMermaid();
+  assert(mermaid.includes('LOOP'), 'Should include LOOP label');
+  assert(mermaid.includes('-.'), 'Should use dotted line for LOOP');
+  assert(mermaid.includes('.->'), 'Should use dotted arrow for LOOP');
+}
+
+function testMachine_toMermaid_emptyGraph() {
+  const machine = Machine.empty();
+  const mermaid = machine.toMermaid();
+  assert(mermaid.includes('empty graph'), 'Should indicate empty graph');
+}
+
+function testMachine_toMermaid_fanIn() {
+  const machine = Machine.fromString(
+    '[describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"]' +
+    '[(thumbnail, model_spec) -> describe -> description]'
+  );
+  const mermaid = machine.toMermaid();
+  // Fan-in should produce two arrows pointing to the same target
+  const arrowCount = (mermaid.match(/-->/g) || []).length;
+  assertEqual(arrowCount, 2, 'Fan-in should produce 2 arrows');
+}
+
+function testMachine_toMermaid_fanOut() {
+  const input = [
+    '[meta cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;record;textable"]',
+    '[thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"]',
+    '[doc -> meta -> metadata]',
+    '[doc -> thumb -> thumbnail]'
+  ].join('');
+  const machine = Machine.fromString(input);
+  const mermaid = machine.toMermaid();
+  // Should have 2 edges
+  const arrowCount = (mermaid.match(/-->/g) || []).length;
+  assertEqual(arrowCount, 2, 'Fan-out should produce 2 arrows');
+  // The root source (media:pdf) should appear once as a node definition
+  assert(mermaid.includes('media:pdf'), 'Should include media:pdf');
+}
+
+// ============================================================================
+// Phase 0B: CapRegistryClient tests
+// ============================================================================
+
+function testMachine_capRegistryEntry_construction() {
+  const entry = new CapRegistryEntry({
+    urn: 'cap:in="media:pdf";op=extract;out="media:txt;textable"',
+    title: 'PDF Extractor',
+    command: 'extract',
+    cap_description: 'Extracts text from PDF',
+    args: [{ media_urn: 'media:pdf', required: true }],
+    output: { media_urn: 'media:txt;textable', output_description: 'Extracted text' },
+    media_specs: [],
+    urn_tags: { op: 'extract' },
+    in_spec: 'media:pdf',
+    out_spec: 'media:txt;textable',
+    in_media_title: 'PDF Document',
+    out_media_title: 'Text'
+  });
+  assertEqual(entry.urn, 'cap:in="media:pdf";op=extract;out="media:txt;textable"', 'URN should match');
+  assertEqual(entry.title, 'PDF Extractor', 'Title should match');
+  assertEqual(entry.description, 'Extracts text from PDF', 'Description should match');
+  assertEqual(entry.inSpec, 'media:pdf', 'inSpec should match');
+  assertEqual(entry.outSpec, 'media:txt;textable', 'outSpec should match');
+  assertEqual(entry.urnTags.op, 'extract', 'op tag should match');
+}
+
+function testMachine_mediaRegistryEntry_construction() {
+  const entry = new MediaRegistryEntry({
+    urn: 'media:pdf',
+    title: 'PDF Document',
+    media_type: 'application/pdf',
+    description: 'Portable Document Format'
+  });
+  assertEqual(entry.urn, 'media:pdf', 'URN should match');
+  assertEqual(entry.title, 'PDF Document', 'Title should match');
+  assertEqual(entry.mediaType, 'application/pdf', 'Media type should match');
+  assertEqual(entry.description, 'Portable Document Format', 'Description should match');
+}
+
+function testMachine_capRegistryClient_construction() {
+  const client = new CapRegistryClient('https://example.com', 600);
+  assert(client !== null, 'Client should be constructed');
+  // Invalidate should not throw
+  client.invalidate();
+}
+
+function testMachine_capRegistryEntry_defaults() {
+  // Verify that missing fields default gracefully
+  const entry = new CapRegistryEntry({ urn: 'cap:in=media:;op=test;out=media:' });
+  assertEqual(entry.urn, 'cap:in=media:;op=test;out=media:', 'URN should match');
+  assertEqual(entry.title, '', 'Title should default to empty');
+  assertEqual(entry.description, '', 'Description should default to empty');
+  assertEqual(entry.command, '', 'Command should default to empty');
+  assert(Array.isArray(entry.args), 'Args should default to array');
+  assertEqual(entry.args.length, 0, 'Args should be empty');
+}
+
 // Helper for route error tests
 function assertThrowsWithCode(fn, expectedCode) {
   try {
@@ -3620,6 +3860,33 @@ async function runTests() {
   runTest('ROUTE: cap_urn_out_media_urn', testMachine_capUrnOutMediaUrn);
   runTest('ROUTE: media_urn_is_equivalent', testMachine_mediaUrnIsEquivalent);
   runTest('ROUTE: media_urn_is_comparable', testMachine_mediaUrnIsComparable);
+
+  // Phase 0A: Position tracking
+  console.log('\n--- route/position_tracking ---');
+  runTest('ROUTE: parseMachineWithAST_headerLocation', testMachine_parseMachineWithAST_headerLocation);
+  runTest('ROUTE: parseMachineWithAST_wiringLocation', testMachine_parseMachineWithAST_wiringLocation);
+  runTest('ROUTE: parseMachineWithAST_multilinePositions', testMachine_parseMachineWithAST_multilinePositions);
+  runTest('ROUTE: parseMachineWithAST_fanInSourceLocations', testMachine_parseMachineWithAST_fanInSourceLocations);
+  runTest('ROUTE: parseMachineWithAST_aliasMap', testMachine_parseMachineWithAST_aliasMap);
+  runTest('ROUTE: parseMachineWithAST_nodeMedia', testMachine_parseMachineWithAST_nodeMedia);
+  runTest('ROUTE: errorLocation_parseError', testMachine_errorLocation_parseError);
+  runTest('ROUTE: errorLocation_duplicateAlias', testMachine_errorLocation_duplicateAlias);
+  runTest('ROUTE: errorLocation_undefinedAlias', testMachine_errorLocation_undefinedAlias);
+
+  // Phase 0C: Machine.toMermaid()
+  console.log('\n--- route/mermaid ---');
+  runTest('ROUTE: toMermaid_linearChain', testMachine_toMermaid_linearChain);
+  runTest('ROUTE: toMermaid_loopEdge', testMachine_toMermaid_loopEdge);
+  runTest('ROUTE: toMermaid_emptyGraph', testMachine_toMermaid_emptyGraph);
+  runTest('ROUTE: toMermaid_fanIn', testMachine_toMermaid_fanIn);
+  runTest('ROUTE: toMermaid_fanOut', testMachine_toMermaid_fanOut);
+
+  // Phase 0B: CapRegistryClient
+  console.log('\n--- registry/client ---');
+  runTest('REGISTRY: capRegistryEntry_construction', testMachine_capRegistryEntry_construction);
+  runTest('REGISTRY: mediaRegistryEntry_construction', testMachine_mediaRegistryEntry_construction);
+  runTest('REGISTRY: capRegistryClient_construction', testMachine_capRegistryClient_construction);
+  runTest('REGISTRY: capRegistryEntry_defaults', testMachine_capRegistryEntry_defaults);
 
   // Summary
   console.log(`\n${passCount + failCount} tests: ${passCount} passed, ${failCount} failed`);
