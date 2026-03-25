@@ -4259,7 +4259,7 @@ class PluginRepoServer {
 // ============================================================================
 // Machine Notation — compact, round-trippable DAG path identifiers
 //
-// Route notation describes capability transformation paths using bracket-
+// Machine notation describes capability transformation paths using bracket-
 // delimited statements:
 //   [alias cap:in="...";op=...;out="..."]   — header (defines a cap with alias)
 //   [src -> alias -> dst]                   — wiring (connects nodes via cap)
@@ -4300,7 +4300,7 @@ const MachineSyntaxErrorCodes = {
 };
 
 /**
- * A single edge in the route graph.
+ * A single edge in the machine graph.
  *
  * Each edge represents a capability that transforms one or more source
  * media types into a target media type. The isLoop flag indicates
@@ -4386,7 +4386,7 @@ class MachineEdge {
 }
 
 /**
- * A route graph — the semantic model behind machine notation.
+ * A machine graph — the semantic model behind machine notation.
  *
  * The graph is a collection of directed edges where each edge is a capability
  * that transforms source media types into a target media type.
@@ -4406,7 +4406,7 @@ class Machine {
   }
 
   /**
-   * Create an empty route graph.
+   * Create an empty machine graph.
    * @returns {Machine}
    */
   static empty() {
@@ -4448,7 +4448,7 @@ class Machine {
   }
 
   /**
-   * Check if two route graphs are semantically equivalent.
+   * Check if two machine graphs are semantically equivalent.
    *
    * Two graphs are equivalent if they have the same set of edges
    * (compared using MachineEdge.isEquivalent). Edge ordering
@@ -4536,7 +4536,7 @@ class Machine {
   // =========================================================================
 
   /**
-   * Serialize this route graph to canonical one-line machine notation.
+   * Serialize this machine graph to canonical one-line machine notation.
    *
    * The output is deterministic: same graph → same string.
    * Mirrors Rust Machine::to_machine_notation.
@@ -4805,12 +4805,12 @@ class Machine {
 }
 
 // ============================================================================
-// Route Parser — PEG-based parser using Peggy
+// Machine Parser — PEG-based parser using Peggy
 // Mirrors Rust parser.rs exactly (4-phase pipeline)
 // ============================================================================
 
 // Load the Peggy-generated parser
-const routeParser = require('./machine-parser.js');
+const machineParser = require('./machine-parser.js');
 
 /**
  * Assign a media URN to a node, or check consistency if already assigned.
@@ -4841,7 +4841,7 @@ function assignOrCheckNode(node, mediaUrn, nodeMedia, position, location) {
  * Internal: run the 4-phase parse pipeline on machine notation input.
  * Returns { machine, statements, aliasMap, nodeMedia } for full introspection.
  *
- * @param {string} input - Route notation string
+ * @param {string} input - Machine notation string
  * @returns {{ machine: Machine, statements: Object[], aliasMap: Map, nodeMedia: Map }}
  * @throws {MachineSyntaxError}
  * @private
@@ -4858,7 +4858,7 @@ function _parseMachineInternal(input) {
   // Phase 1: Parse with Peggy grammar
   let stmts;
   try {
-    stmts = routeParser.parse(trimmed);
+    stmts = machineParser.parse(trimmed);
   } catch (e) {
     // Peggy SyntaxError has .location — propagate it
     const loc = e.location || null;
@@ -4934,7 +4934,7 @@ function _parseMachineInternal(input) {
   if (wirings.length === 0 && headers.length > 0) {
     throw new MachineSyntaxError(
       MachineSyntaxErrorCodes.NO_EDGES,
-      'route has headers but no wirings — define at least one edge',
+      'machine has headers but no wirings — define at least one edge',
       headers[headers.length - 1].location
     );
   }
@@ -5043,7 +5043,7 @@ function _parseMachineInternal(input) {
  *
  * Mirrors Rust parse_machine exactly.
  *
- * @param {string} input - Route notation string
+ * @param {string} input - Machine notation string
  * @returns {Machine}
  * @throws {MachineSyntaxError}
  */
@@ -5057,7 +5057,7 @@ function parseMachine(input) {
  * Use this for LSP tooling — the statements array contains full position information
  * for every element (aliases, cap URNs, sources, targets).
  *
- * @param {string} input - Route notation string
+ * @param {string} input - Machine notation string
  * @returns {{ machine: Machine, statements: Object[], aliasMap: Map, nodeMedia: Map }}
  * @throws {MachineSyntaxError}
  */
@@ -5072,7 +5072,7 @@ function parseMachineWithAST(input) {
 /**
  * Builder for constructing Machines programmatically.
  *
- * Provides a fluent API for building route graphs without writing
+ * Provides a fluent API for building machine graphs without writing
  * machine notation strings. Useful for constructing paths from graph
  * exploration (e.g., selecting paths in the UI).
  */
@@ -5415,7 +5415,7 @@ module.exports = {
   PluginRepoCache,
   PluginRepoClient,
   PluginRepoServer,
-  // Route notation
+  // Machine notation
   MachineSyntaxError,
   MachineSyntaxErrorCodes,
   MachineEdge,

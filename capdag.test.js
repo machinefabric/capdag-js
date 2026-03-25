@@ -2618,10 +2618,10 @@ function test653_identityRoutingIsolation() {
 }
 
 // ============================================================================
-// Route notation tests — mirrors Rust route module tests exactly
+// Machine notation tests — mirrors Rust machine module tests exactly
 // ============================================================================
 
-// --- Route parser tests (mirrors parser.rs tests) ---
+// --- Machine parser tests (mirrors parser.rs tests) ---
 
 function testMachine_emptyInput() {
   assertThrowsWithCode(() => parseMachine(''), MachineSyntaxErrorCodes.EMPTY);
@@ -2793,7 +2793,7 @@ function testMachine_unterminatedBracketFails() {
   );
 }
 
-// --- Route graph tests (mirrors graph.rs tests) ---
+// --- Machine graph tests (mirrors graph.rs tests) ---
 
 function testMachine_edgeEquivalenceSameUrns() {
   const e1 = new MachineEdge(
@@ -3022,7 +3022,7 @@ function testMachine_displayGraph() {
   assertEqual(Machine.empty().toString(), 'Machine(empty)');
 }
 
-// --- Route serializer tests (mirrors serializer.rs tests) ---
+// --- Machine serializer tests (mirrors serializer.rs tests) ---
 
 function testMachine_serializeSingleEdge() {
   const g = new Machine([new MachineEdge(
@@ -3195,7 +3195,7 @@ function testMachine_duplicateOpTagsDisambiguated() {
     'Duplicate ops must be disambiguated: ' + notation);
 }
 
-// --- Route builder tests ---
+// --- Machine builder tests ---
 
 function testMachine_builderSingleEdge() {
   const builder = new MachineBuilder();
@@ -3540,7 +3540,7 @@ function testMachine_capRegistryEntry_defaults() {
   assertEqual(entry.args.length, 0, 'Args should be empty');
 }
 
-// Helper for route error tests
+// Helper for machine error tests
 function assertThrowsWithCode(fn, expectedCode) {
   try {
     fn();
@@ -3788,98 +3788,98 @@ async function runTests() {
   console.log('  SKIP TEST652: N/A for JS (CAP_IDENTITY constant)');
   runTest('TEST653: identity_routing_isolation', test653_identityRoutingIsolation);
 
-  // route module: parser tests (mirrors parser.rs)
-  console.log('\n--- route/parser.rs ---');
-  runTest('ROUTE: empty_input', testMachine_emptyInput);
-  runTest('ROUTE: whitespace_only', testMachine_whitespaceOnly);
-  runTest('ROUTE: header_only_no_wirings', testMachine_headerOnlyNoWirings);
-  runTest('ROUTE: duplicate_alias', testMachine_duplicateAlias);
-  runTest('ROUTE: simple_linear_chain', testMachine_simpleLinearChain);
-  runTest('ROUTE: two_step_chain', testMachine_twoStepChain);
-  runTest('ROUTE: fan_out', testMachine_fanOut);
-  runTest('ROUTE: fan_in_secondary_assigned_by_prior_wiring', testMachine_fanInSecondaryAssignedByPriorWiring);
-  runTest('ROUTE: fan_in_secondary_unassigned_gets_wildcard', testMachine_fanInSecondaryUnassignedGetsWildcard);
-  runTest('ROUTE: loop_edge', testMachine_loopEdge);
-  runTest('ROUTE: undefined_alias_fails', testMachine_undefinedAliasFails);
-  runTest('ROUTE: node_alias_collision', testMachine_nodeAliasCollision);
-  runTest('ROUTE: conflicting_media_types_fail', testMachine_conflictingMediaTypesFail);
-  runTest('ROUTE: multiline_format', testMachine_multilineFormat);
-  runTest('ROUTE: different_aliases_same_graph', testMachine_differentAliasesSameGraph);
-  runTest('ROUTE: malformed_input_fails', testMachine_malformedInputFails);
-  runTest('ROUTE: unterminated_bracket_fails', testMachine_unterminatedBracketFails);
+  // machine module: parser tests (mirrors parser.rs)
+  console.log('\n--- machine/parser.rs ---');
+  runTest('MACHINE:empty_input', testMachine_emptyInput);
+  runTest('MACHINE:whitespace_only', testMachine_whitespaceOnly);
+  runTest('MACHINE:header_only_no_wirings', testMachine_headerOnlyNoWirings);
+  runTest('MACHINE:duplicate_alias', testMachine_duplicateAlias);
+  runTest('MACHINE:simple_linear_chain', testMachine_simpleLinearChain);
+  runTest('MACHINE:two_step_chain', testMachine_twoStepChain);
+  runTest('MACHINE:fan_out', testMachine_fanOut);
+  runTest('MACHINE:fan_in_secondary_assigned_by_prior_wiring', testMachine_fanInSecondaryAssignedByPriorWiring);
+  runTest('MACHINE:fan_in_secondary_unassigned_gets_wildcard', testMachine_fanInSecondaryUnassignedGetsWildcard);
+  runTest('MACHINE:loop_edge', testMachine_loopEdge);
+  runTest('MACHINE:undefined_alias_fails', testMachine_undefinedAliasFails);
+  runTest('MACHINE:node_alias_collision', testMachine_nodeAliasCollision);
+  runTest('MACHINE:conflicting_media_types_fail', testMachine_conflictingMediaTypesFail);
+  runTest('MACHINE:multiline_format', testMachine_multilineFormat);
+  runTest('MACHINE:different_aliases_same_graph', testMachine_differentAliasesSameGraph);
+  runTest('MACHINE:malformed_input_fails', testMachine_malformedInputFails);
+  runTest('MACHINE:unterminated_bracket_fails', testMachine_unterminatedBracketFails);
 
-  // route module: graph tests (mirrors graph.rs)
-  console.log('\n--- route/graph.rs ---');
-  runTest('ROUTE: edge_equivalence_same_urns', testMachine_edgeEquivalenceSameUrns);
-  runTest('ROUTE: edge_equivalence_different_cap_urns', testMachine_edgeEquivalenceDifferentCapUrns);
-  runTest('ROUTE: edge_equivalence_different_targets', testMachine_edgeEquivalenceDifferentTargets);
-  runTest('ROUTE: edge_equivalence_different_loop_flag', testMachine_edgeEquivalenceDifferentLoopFlag);
-  runTest('ROUTE: edge_equivalence_source_order_independent', testMachine_edgeEquivalenceSourceOrderIndependent);
-  runTest('ROUTE: edge_equivalence_different_source_count', testMachine_edgeEquivalenceDifferentSourceCount);
-  runTest('ROUTE: graph_equivalence_same_edges', testMachine_graphEquivalenceSameEdges);
-  runTest('ROUTE: graph_equivalence_reordered_edges', testMachine_graphEquivalenceReorderedEdges);
-  runTest('ROUTE: graph_not_equivalent_different_edge_count', testMachine_graphNotEquivalentDifferentEdgeCount);
-  runTest('ROUTE: graph_not_equivalent_different_cap', testMachine_graphNotEquivalentDifferentCap);
-  runTest('ROUTE: graph_empty', testMachine_graphEmpty);
-  runTest('ROUTE: graph_empty_equivalence', testMachine_graphEmptyEquivalence);
-  runTest('ROUTE: root_sources_linear_chain', testMachine_rootSourcesLinearChain);
-  runTest('ROUTE: leaf_targets_linear_chain', testMachine_leafTargetsLinearChain);
-  runTest('ROUTE: root_sources_fan_in', testMachine_rootSourcesFanIn);
-  runTest('ROUTE: display_edge', testMachine_displayEdge);
-  runTest('ROUTE: display_graph', testMachine_displayGraph);
+  // machine module: graph tests (mirrors graph.rs)
+  console.log('\n--- machine/graph.rs ---');
+  runTest('MACHINE:edge_equivalence_same_urns', testMachine_edgeEquivalenceSameUrns);
+  runTest('MACHINE:edge_equivalence_different_cap_urns', testMachine_edgeEquivalenceDifferentCapUrns);
+  runTest('MACHINE:edge_equivalence_different_targets', testMachine_edgeEquivalenceDifferentTargets);
+  runTest('MACHINE:edge_equivalence_different_loop_flag', testMachine_edgeEquivalenceDifferentLoopFlag);
+  runTest('MACHINE:edge_equivalence_source_order_independent', testMachine_edgeEquivalenceSourceOrderIndependent);
+  runTest('MACHINE:edge_equivalence_different_source_count', testMachine_edgeEquivalenceDifferentSourceCount);
+  runTest('MACHINE:graph_equivalence_same_edges', testMachine_graphEquivalenceSameEdges);
+  runTest('MACHINE:graph_equivalence_reordered_edges', testMachine_graphEquivalenceReorderedEdges);
+  runTest('MACHINE:graph_not_equivalent_different_edge_count', testMachine_graphNotEquivalentDifferentEdgeCount);
+  runTest('MACHINE:graph_not_equivalent_different_cap', testMachine_graphNotEquivalentDifferentCap);
+  runTest('MACHINE:graph_empty', testMachine_graphEmpty);
+  runTest('MACHINE:graph_empty_equivalence', testMachine_graphEmptyEquivalence);
+  runTest('MACHINE:root_sources_linear_chain', testMachine_rootSourcesLinearChain);
+  runTest('MACHINE:leaf_targets_linear_chain', testMachine_leafTargetsLinearChain);
+  runTest('MACHINE:root_sources_fan_in', testMachine_rootSourcesFanIn);
+  runTest('MACHINE:display_edge', testMachine_displayEdge);
+  runTest('MACHINE:display_graph', testMachine_displayGraph);
 
-  // route module: serializer tests (mirrors serializer.rs)
-  console.log('\n--- route/serializer.rs ---');
-  runTest('ROUTE: serialize_single_edge', testMachine_serializeSingleEdge);
-  runTest('ROUTE: serialize_two_edge_chain', testMachine_serializeTwoEdgeChain);
-  runTest('ROUTE: serialize_empty_graph', testMachine_serializeEmptyGraph);
-  runTest('ROUTE: roundtrip_single_edge', testMachine_roundtripSingleEdge);
-  runTest('ROUTE: roundtrip_two_edge_chain', testMachine_roundtripTwoEdgeChain);
-  runTest('ROUTE: roundtrip_fan_out', testMachine_roundtripFanOut);
-  runTest('ROUTE: roundtrip_loop_edge', testMachine_roundtripLoopEdge);
-  runTest('ROUTE: serialization_is_deterministic', testMachine_serializationIsDeterministic);
-  runTest('ROUTE: reordered_edges_produce_same_notation', testMachine_reorderedEdgesProduceSameNotation);
-  runTest('ROUTE: multiline_serialize_format', testMachine_multilineSerializeFormat);
-  runTest('ROUTE: alias_from_op_tag', testMachine_aliasFromOpTag);
-  runTest('ROUTE: alias_fallback_without_op_tag', testMachine_aliasFallbackWithoutOpTag);
-  runTest('ROUTE: duplicate_op_tags_disambiguated', testMachine_duplicateOpTagsDisambiguated);
+  // machine module: serializer tests (mirrors serializer.rs)
+  console.log('\n--- machine/serializer.rs ---');
+  runTest('MACHINE:serialize_single_edge', testMachine_serializeSingleEdge);
+  runTest('MACHINE:serialize_two_edge_chain', testMachine_serializeTwoEdgeChain);
+  runTest('MACHINE:serialize_empty_graph', testMachine_serializeEmptyGraph);
+  runTest('MACHINE:roundtrip_single_edge', testMachine_roundtripSingleEdge);
+  runTest('MACHINE:roundtrip_two_edge_chain', testMachine_roundtripTwoEdgeChain);
+  runTest('MACHINE:roundtrip_fan_out', testMachine_roundtripFanOut);
+  runTest('MACHINE:roundtrip_loop_edge', testMachine_roundtripLoopEdge);
+  runTest('MACHINE:serialization_is_deterministic', testMachine_serializationIsDeterministic);
+  runTest('MACHINE:reordered_edges_produce_same_notation', testMachine_reorderedEdgesProduceSameNotation);
+  runTest('MACHINE:multiline_serialize_format', testMachine_multilineSerializeFormat);
+  runTest('MACHINE:alias_from_op_tag', testMachine_aliasFromOpTag);
+  runTest('MACHINE:alias_fallback_without_op_tag', testMachine_aliasFallbackWithoutOpTag);
+  runTest('MACHINE:duplicate_op_tags_disambiguated', testMachine_duplicateOpTagsDisambiguated);
 
-  // route module: builder tests
-  console.log('\n--- route/builder ---');
-  runTest('ROUTE: builder_single_edge', testMachine_builderSingleEdge);
-  runTest('ROUTE: builder_with_loop', testMachine_builderWithLoop);
-  runTest('ROUTE: builder_chaining', testMachine_builderChaining);
-  runTest('ROUTE: builder_equivalent_to_parsed', testMachine_builderEquivalentToParsed);
-  runTest('ROUTE: builder_round_trip', testMachine_builderRoundTrip);
+  // machine module: builder tests
+  console.log('\n--- machine/builder ---');
+  runTest('MACHINE:builder_single_edge', testMachine_builderSingleEdge);
+  runTest('MACHINE:builder_with_loop', testMachine_builderWithLoop);
+  runTest('MACHINE:builder_chaining', testMachine_builderChaining);
+  runTest('MACHINE:builder_equivalent_to_parsed', testMachine_builderEquivalentToParsed);
+  runTest('MACHINE:builder_round_trip', testMachine_builderRoundTrip);
 
-  // route module: CapUrn.isEquivalent/isComparable
-  console.log('\n--- route/urn_predicates ---');
-  runTest('ROUTE: cap_urn_is_equivalent', testMachine_capUrnIsEquivalent);
-  runTest('ROUTE: cap_urn_is_comparable', testMachine_capUrnIsComparable);
-  runTest('ROUTE: cap_urn_in_media_urn', testMachine_capUrnInMediaUrn);
-  runTest('ROUTE: cap_urn_out_media_urn', testMachine_capUrnOutMediaUrn);
-  runTest('ROUTE: media_urn_is_equivalent', testMachine_mediaUrnIsEquivalent);
-  runTest('ROUTE: media_urn_is_comparable', testMachine_mediaUrnIsComparable);
+  // machine module: CapUrn.isEquivalent/isComparable
+  console.log('\n--- machine/urn_predicates ---');
+  runTest('MACHINE:cap_urn_is_equivalent', testMachine_capUrnIsEquivalent);
+  runTest('MACHINE:cap_urn_is_comparable', testMachine_capUrnIsComparable);
+  runTest('MACHINE:cap_urn_in_media_urn', testMachine_capUrnInMediaUrn);
+  runTest('MACHINE:cap_urn_out_media_urn', testMachine_capUrnOutMediaUrn);
+  runTest('MACHINE:media_urn_is_equivalent', testMachine_mediaUrnIsEquivalent);
+  runTest('MACHINE:media_urn_is_comparable', testMachine_mediaUrnIsComparable);
 
   // Phase 0A: Position tracking
-  console.log('\n--- route/position_tracking ---');
-  runTest('ROUTE: parseMachineWithAST_headerLocation', testMachine_parseMachineWithAST_headerLocation);
-  runTest('ROUTE: parseMachineWithAST_wiringLocation', testMachine_parseMachineWithAST_wiringLocation);
-  runTest('ROUTE: parseMachineWithAST_multilinePositions', testMachine_parseMachineWithAST_multilinePositions);
-  runTest('ROUTE: parseMachineWithAST_fanInSourceLocations', testMachine_parseMachineWithAST_fanInSourceLocations);
-  runTest('ROUTE: parseMachineWithAST_aliasMap', testMachine_parseMachineWithAST_aliasMap);
-  runTest('ROUTE: parseMachineWithAST_nodeMedia', testMachine_parseMachineWithAST_nodeMedia);
-  runTest('ROUTE: errorLocation_parseError', testMachine_errorLocation_parseError);
-  runTest('ROUTE: errorLocation_duplicateAlias', testMachine_errorLocation_duplicateAlias);
-  runTest('ROUTE: errorLocation_undefinedAlias', testMachine_errorLocation_undefinedAlias);
+  console.log('\n--- machine/position_tracking ---');
+  runTest('MACHINE:parseMachineWithAST_headerLocation', testMachine_parseMachineWithAST_headerLocation);
+  runTest('MACHINE:parseMachineWithAST_wiringLocation', testMachine_parseMachineWithAST_wiringLocation);
+  runTest('MACHINE:parseMachineWithAST_multilinePositions', testMachine_parseMachineWithAST_multilinePositions);
+  runTest('MACHINE:parseMachineWithAST_fanInSourceLocations', testMachine_parseMachineWithAST_fanInSourceLocations);
+  runTest('MACHINE:parseMachineWithAST_aliasMap', testMachine_parseMachineWithAST_aliasMap);
+  runTest('MACHINE:parseMachineWithAST_nodeMedia', testMachine_parseMachineWithAST_nodeMedia);
+  runTest('MACHINE:errorLocation_parseError', testMachine_errorLocation_parseError);
+  runTest('MACHINE:errorLocation_duplicateAlias', testMachine_errorLocation_duplicateAlias);
+  runTest('MACHINE:errorLocation_undefinedAlias', testMachine_errorLocation_undefinedAlias);
 
   // Phase 0C: Machine.toMermaid()
-  console.log('\n--- route/mermaid ---');
-  runTest('ROUTE: toMermaid_linearChain', testMachine_toMermaid_linearChain);
-  runTest('ROUTE: toMermaid_loopEdge', testMachine_toMermaid_loopEdge);
-  runTest('ROUTE: toMermaid_emptyGraph', testMachine_toMermaid_emptyGraph);
-  runTest('ROUTE: toMermaid_fanIn', testMachine_toMermaid_fanIn);
-  runTest('ROUTE: toMermaid_fanOut', testMachine_toMermaid_fanOut);
+  console.log('\n--- machine/mermaid ---');
+  runTest('MACHINE:toMermaid_linearChain', testMachine_toMermaid_linearChain);
+  runTest('MACHINE:toMermaid_loopEdge', testMachine_toMermaid_loopEdge);
+  runTest('MACHINE:toMermaid_emptyGraph', testMachine_toMermaid_emptyGraph);
+  runTest('MACHINE:toMermaid_fanIn', testMachine_toMermaid_fanIn);
+  runTest('MACHINE:toMermaid_fanOut', testMachine_toMermaid_fanOut);
 
   // Phase 0B: CapRegistryClient
   console.log('\n--- registry/client ---');
