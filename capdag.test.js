@@ -1072,7 +1072,7 @@ function test104_resolvedIsText() {
 function test105_metadataPropagation() {
   const mediaSpecs = [
     {
-      urn: 'media:custom-setting;setting',
+      urn: 'media:custom-setting',
       media_type: 'text/plain',
       title: 'Custom Setting',
       profile_uri: 'https://example.com/schema',
@@ -1084,7 +1084,7 @@ function test105_metadataPropagation() {
       }
     }
   ];
-  const resolved = resolveMediaUrn('media:custom-setting;setting', mediaSpecs);
+  const resolved = resolveMediaUrn('media:custom-setting', mediaSpecs);
   assert(resolved.metadata !== null, 'Should have metadata');
   assertEqual(resolved.metadata.category_key, 'interface', 'Should propagate category_key');
   assertEqual(resolved.metadata.ui_type, 'SETTING_UI_TYPE_CHECKBOX', 'Should propagate ui_type');
@@ -1095,14 +1095,14 @@ function test105_metadataPropagation() {
 function test106_metadataWithValidation() {
   const mediaSpecs = [
     {
-      urn: 'media:bounded-number;numeric;setting',
+      urn: 'media:bounded-number;numeric',
       media_type: 'text/plain',
       title: 'Bounded Number',
       validation: { min: 0, max: 100 },
       metadata: { category_key: 'inference', ui_type: 'SETTING_UI_TYPE_SLIDER' }
     }
   ];
-  const resolved = resolveMediaUrn('media:bounded-number;numeric;setting', mediaSpecs);
+  const resolved = resolveMediaUrn('media:bounded-number;numeric', mediaSpecs);
   assert(resolved.validation !== null, 'Should have validation');
   assertEqual(resolved.validation.min, 0, 'Should have min');
   assertEqual(resolved.validation.max, 100, 'Should have max');
