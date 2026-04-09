@@ -1781,6 +1781,7 @@ class CapArg {
   constructor(mediaUrn, required, sources, options = {}) {
     this.media_urn = mediaUrn;
     this.required = required;
+    this.is_sequence = options.is_sequence || false;
     this.sources = sources;  // Array of ArgSource
     this.arg_description = options.arg_description || null;
     this.default_value = options.default_value !== undefined ? options.default_value : null;
@@ -1799,6 +1800,7 @@ class CapArg {
       json.required,
       sources,
       {
+        is_sequence: json.is_sequence,
         arg_description: json.arg_description,
         default_value: json.default_value,
         metadata: json.metadata
@@ -1816,6 +1818,7 @@ class CapArg {
       required: this.required,
       sources: this.sources.map(s => s.toJSON())
     };
+    if (this.is_sequence) result.is_sequence = true;
     if (this.arg_description) result.arg_description = this.arg_description;
     if (this.default_value !== null && this.default_value !== undefined) {
       result.default_value = this.default_value;
