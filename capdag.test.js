@@ -2793,6 +2793,117 @@ function testMachine_unterminatedBracketFails() {
   );
 }
 
+// --- Machine parser line-based mode tests ---
+
+function testMachine_lineBasedSimpleChain() {
+  const g = Machine.fromString(
+    'extract cap:in="media:pdf";op=extract;out="media:txt;textable"\n' +
+    'doc -> extract -> text'
+  );
+  assertEqual(g.edgeCount(), 1);
+  const edge = g.edges()[0];
+  assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:pdf')),
+    'Source should be media:pdf');
+  assert(edge.target.isEquivalent(MediaUrn.fromString('media:txt;textable')),
+    'Target should be media:txt;textable');
+}
+
+function testMachine_lineBasedTwoStepChain() {
+  const g = Machine.fromString(
+    'extract cap:in="media:pdf";op=extract;out="media:txt;textable"\n' +
+    'embed cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"\n' +
+    'doc -> extract -> text\n' +
+    'text -> embed -> vectors'
+  );
+  assertEqual(g.edgeCount(), 2);
+}
+
+function testMachine_lineBasedLoop() {
+  const g = Machine.fromString(
+    'p2t cap:in="media:disbound-page;textable";op=page_to_text;out="media:txt;textable"\n' +
+    'pages -> LOOP p2t -> texts'
+  );
+  assertEqual(g.edgeCount(), 1);
+  assertEqual(g.edges()[0].isLoop, true);
+}
+
+function testMachine_lineBasedFanIn() {
+  const g = Machine.fromString(
+    'thumb cap:in="media:pdf";op=generate_thumbnail;out="media:image;png;thumbnail"\n' +
+    'model_dl cap:in="media:model-spec;textable";op=download;out="media:model-spec;textable"\n' +
+    'describe cap:in="media:image;png";op=describe_image;out="media:image-description;textable"\n' +
+    'doc -> thumb -> thumbnail\n' +
+    'spec_input -> model_dl -> model_spec\n' +
+    '(thumbnail, model_spec) -> describe -> description'
+  );
+  assertEqual(g.edgeCount(), 3);
+  assertEqual(g.edges()[2].sources.length, 2);
+}
+
+function testMachine_mixedBracketedAndLineBased() {
+  const g = Machine.fromString(
+    '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]\n' +
+    'doc -> extract -> text'
+  );
+  assertEqual(g.edgeCount(), 1);
+}
+
+function testMachine_lineBasedEquivalentToBracketed() {
+  const g1 = Machine.fromString(
+    '[extract cap:in="media:pdf";op=extract;out="media:txt;textable"]' +
+    '[doc -> extract -> text]'
+  );
+  const g2 = Machine.fromString(
+    'extract cap:in="media:pdf";op=extract;out="media:txt;textable"\n' +
+    'doc -> extract -> text'
+  );
+  assert(g1.isEquivalent(g2), 'Line-based and bracketed must produce equivalent graphs');
+}
+
+function testMachine_lineBasedFormatSerialization() {
+  const g = new Machine([
+    new MachineEdge(
+      [MediaUrn.fromString('media:pdf')],
+      CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
+      MediaUrn.fromString('media:txt;textable'),
+      false
+    ),
+  ]);
+  const lineBased = g.toMachineNotationFormatted('line-based');
+  assert(!lineBased.includes('['), 'Line-based format must not contain brackets');
+  assert(!lineBased.includes(']'), 'Line-based format must not contain brackets');
+  assert(lineBased.includes('extract cap:'), 'Should contain header');
+  assert(lineBased.includes('-> extract ->'), 'Should contain wiring');
+
+  // Round-trip
+  const reparsed = Machine.fromString(lineBased);
+  assert(g.isEquivalent(reparsed), 'Line-based round-trip must produce equivalent graph');
+}
+
+function testMachine_lineBasedAndBracketedParseSameGraph() {
+  const g = new Machine([
+    new MachineEdge(
+      [MediaUrn.fromString('media:pdf')],
+      CapUrn.fromString('cap:in="media:pdf";op=extract;out="media:txt;textable"'),
+      MediaUrn.fromString('media:txt;textable'),
+      false
+    ),
+    new MachineEdge(
+      [MediaUrn.fromString('media:txt;textable')],
+      CapUrn.fromString('cap:in="media:txt;textable";op=embed;out="media:embedding-vector;record;textable"'),
+      MediaUrn.fromString('media:embedding-vector;record;textable'),
+      false
+    ),
+  ]);
+  const bracketed = g.toMachineNotationFormatted('bracketed');
+  const lineBased = g.toMachineNotationFormatted('line-based');
+
+  const gBracketed = Machine.fromString(bracketed);
+  const gLineBased = Machine.fromString(lineBased);
+  assert(gBracketed.isEquivalent(gLineBased),
+    'Bracketed and line-based must parse to equivalent graphs');
+}
+
 // --- Machine graph tests (mirrors graph.rs tests) ---
 
 function testMachine_edgeEquivalenceSameUrns() {
@@ -3807,6 +3918,17 @@ async function runTests() {
   runTest('MACHINE:different_aliases_same_graph', testMachine_differentAliasesSameGraph);
   runTest('MACHINE:malformed_input_fails', testMachine_malformedInputFails);
   runTest('MACHINE:unterminated_bracket_fails', testMachine_unterminatedBracketFails);
+
+  // machine module: line-based mode tests
+  console.log('\n--- machine/parser.rs (line-based) ---');
+  runTest('MACHINE:line_based_simple_chain', testMachine_lineBasedSimpleChain);
+  runTest('MACHINE:line_based_two_step_chain', testMachine_lineBasedTwoStepChain);
+  runTest('MACHINE:line_based_loop', testMachine_lineBasedLoop);
+  runTest('MACHINE:line_based_fan_in', testMachine_lineBasedFanIn);
+  runTest('MACHINE:mixed_bracketed_and_line_based', testMachine_mixedBracketedAndLineBased);
+  runTest('MACHINE:line_based_equivalent_to_bracketed', testMachine_lineBasedEquivalentToBracketed);
+  runTest('MACHINE:line_based_format_serialization', testMachine_lineBasedFormatSerialization);
+  runTest('MACHINE:line_based_and_bracketed_parse_same_graph', testMachine_lineBasedAndBracketedParseSameGraph);
 
   // machine module: graph tests (mirrors graph.rs)
   console.log('\n--- machine/graph.rs ---');

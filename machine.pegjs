@@ -1,17 +1,26 @@
-// Bracket-delimited machine notation grammar for Peggy.
+// Machine notation grammar for Peggy.
 //
 // This grammar mirrors the Rust pest grammar in machine.pest exactly.
 // All actions return location() for LSP position tracking.
 //
-// Examples:
+// Two equally valid statement forms:
+//
+// Bracketed (one or more statements per line, any layout):
 //   [extract cap:in="media:pdf";op=extract;out="media:txt;textable"]
 //   [doc -> extract -> text]
-//   [(thumbnail, model_spec) -> describe -> description]
-//   [pages -> LOOP p2t -> texts]
+//
+// Line-based (one statement per line, no brackets):
+//   extract cap:in="media:pdf";op=extract;out="media:txt;textable"
+//   doc -> extract -> text
+//   (thumbnail, model_spec) -> describe -> description
+//   pages -> LOOP p2t -> texts
+//
+// Both forms can be freely mixed in the same program.
 
 program = _ stmts:stmt* _ { return stmts; }
 
 stmt = "[" _ inner:inner _ "]" _ { return inner; }
+     / inner:inner _ { return inner; }
 
 inner = wiring / header
 
@@ -48,11 +57,14 @@ alias = $( [a-zA-Z_] [a-zA-Z0-9_-]* )
 // Cap URN with location tracking
 cap_urn_loc = c:cap_urn { return { value: c, location: location() }; }
 
-// Cap URN: starts with "cap:", reads until the statement-closing "]",
-// except quoted strings can contain "]".
+// Cap URN: starts with "cap:", reads until a statement terminator:
+// "]" for bracketed mode, or newline for line-based mode.
+// Quoted strings can contain "]" and newlines.
 cap_urn = $( "cap:" cap_urn_body* )
 
-cap_urn_body = quoted_value / ( !"]" . )
+cap_urn_body = quoted_value / ( !"]" !NL . )
+
+NL "newline" = "\r\n" / "\n" / "\r"
 
 // Quoted strings support escaped quotes.
 quoted_value = '"' ( '\\"' / '\\\\' / (!'"' .) )* '"'

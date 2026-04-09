@@ -4649,6 +4649,64 @@ class Machine {
   }
 
   /**
+   * Serialize this machine graph to machine notation in the specified format.
+   *
+   * The output is deterministic: same graph + same format → same string.
+   * @param {'bracketed' | 'line-based'} format - The notation format to use.
+   * @returns {string}
+   */
+  toMachineNotationFormatted(format) {
+    if (this._edges.length === 0) {
+      return '';
+    }
+
+    const { aliases, nodeNames, edgeOrder } = this._buildSerializationMaps();
+    const bracketed = format === 'bracketed';
+    const open = bracketed ? '[' : '';
+    const close = bracketed ? ']' : '';
+    const lines = [];
+
+    // Emit headers in alias-sorted order
+    const sortedAliases = Array.from(aliases.entries()).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+
+    for (const [alias, { edgeIdx }] of sortedAliases) {
+      const edge = this._edges[edgeIdx];
+      lines.push(`${open}${alias} ${edge.capUrn}${close}`);
+    }
+
+    // Emit wirings in edge order
+    for (const edgeIdx of edgeOrder) {
+      const edge = this._edges[edgeIdx];
+      let alias = null;
+      for (const [a, info] of aliases) {
+        if (info.edgeIdx === edgeIdx) {
+          alias = a;
+          break;
+        }
+      }
+
+      const sources = edge.sources.map(s => {
+        const key = s.toString();
+        return nodeNames.get(key);
+      });
+
+      const targetKey = edge.target.toString();
+      const targetName = nodeNames.get(targetKey);
+
+      const loopPrefix = edge.isLoop ? 'LOOP ' : '';
+
+      if (sources.length === 1) {
+        lines.push(`${open}${sources[0]} -> ${loopPrefix}${alias} -> ${targetName}${close}`);
+      } else {
+        const group = sources.join(', ');
+        lines.push(`${open}(${group}) -> ${loopPrefix}${alias} -> ${targetName}${close}`);
+      }
+    }
+
+    return bracketed ? lines.join('') : lines.join('\n');
+  }
+
+  /**
    * Build the alias map, node name map, and edge ordering for serialization.
    *
    * Returns:
