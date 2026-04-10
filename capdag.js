@@ -1222,13 +1222,14 @@ class MediaSpec {
    * @param {string|null} profile - Optional profile URL
    * @param {Object|null} schema - Optional JSON Schema for local validation
    * @param {string|null} title - Optional display-friendly title
-   * @param {string|null} description - Optional description
+   * @param {string|null} description - Optional short plain-text description
    * @param {string|null} mediaUrn - Source media URN for tag-based checks
    * @param {Object|null} validation - Optional validation rules (min, max, min_length, max_length, pattern, allowed_values)
    * @param {Object|null} metadata - Optional metadata (arbitrary key-value pairs for display/categorization)
    * @param {string[]} extensions - File extensions for storing this media type (e.g., ['pdf'], ['jpg', 'jpeg'])
+   * @param {string|null} documentation - Optional long-form markdown documentation. Rendered in media info panels, the cap navigator, capdag-dot-com, and anywhere else a rich-text explanation of the media spec is useful.
    */
-  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null, validation = null, metadata = null, extensions = []) {
+  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null, validation = null, metadata = null, extensions = [], documentation = null) {
     this.contentType = contentType;
     this.profile = profile;
     this.schema = schema;
@@ -1238,6 +1239,7 @@ class MediaSpec {
     this.validation = validation;
     this.metadata = metadata;
     this.extensions = extensions;
+    this.documentation = documentation;
   }
 
   /**
@@ -1387,12 +1389,19 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = []) {
     const def = mediaSpecs.find(spec => spec.urn === mediaUrn);
 
     if (def) {
-      // Object form: { urn, media_type, title, profile_uri?, schema?, description?, validation?, metadata?, extensions? }
+      // Object form: { urn, media_type, title, profile_uri?, schema?, description?, documentation?, validation?, metadata?, extensions? }
       const mediaType = def.media_type || def.mediaType;
       const profileUri = def.profile_uri || def.profileUri || null;
       const schema = def.schema || null;
       const title = def.title || null;
       const description = def.description || null;
+      // Long-form markdown body for rich info panels. Strict
+      // snake_case (`documentation`) to match the JSON schema; no
+      // camelCase fallback because all generator pipelines write the
+      // canonical form.
+      const documentation = typeof def.documentation === 'string' && def.documentation.length > 0
+        ? def.documentation
+        : null;
       const validation = def.validation || null;
       const metadata = def.metadata || null;
       const extensions = Array.isArray(def.extensions) ? def.extensions : [];
@@ -1404,7 +1413,7 @@ function resolveMediaUrn(mediaUrn, mediaSpecs = []) {
         );
       }
 
-      return new MediaSpec(mediaType, profileUri, schema, title, description, mediaUrn, validation, metadata, extensions);
+      return new MediaSpec(mediaType, profileUri, schema, title, description, mediaUrn, validation, metadata, extensions, documentation);
     }
   }
 
@@ -1888,11 +1897,12 @@ class Cap {
    * @param {CapUrn} urn - The capability URN
    * @param {string} title - The human-readable title (required)
    * @param {string} command - The command string
-   * @param {string|null} capDescription - Optional description
+   * @param {string|null} capDescription - Optional short plain-text description
    * @param {Object} metadata - Optional metadata object
    * @param {Object|null} metadataJson - Optional arbitrary metadata as JSON object
+   * @param {string|null} documentation - Optional long-form markdown documentation. Rendered in capability info panels, the cap navigator, capdag-dot-com, and anywhere else a rich-text explanation of the cap is useful.
    */
-  constructor(urn, title, command, capDescription = null, metadata = {}, metadataJson = null) {
+  constructor(urn, title, command, capDescription = null, metadata = {}, metadataJson = null, documentation = null) {
     if (!(urn instanceof CapUrn)) {
       throw new Error('URN must be a CapUrn instance');
     }
@@ -1907,12 +1917,38 @@ class Cap {
     this.title = title;
     this.command = command;
     this.cap_description = capDescription;
+    this.documentation = documentation;
     this.metadata = metadata || {};
     this.mediaSpecs = [];  // Media spec definitions array
     this.args = [];  // Array of CapArg - unified argument format
     this.output = null;
     this.metadata_json = metadataJson;
     this.registered_by = null;  // Registration attribution
+  }
+
+  /**
+   * Get the long-form markdown documentation, if any.
+   * @returns {string|null}
+   */
+  getDocumentation() {
+    return this.documentation;
+  }
+
+  /**
+   * Set the long-form markdown documentation.
+   * @param {string|null} documentation
+   */
+  setDocumentation(documentation) {
+    this.documentation = (typeof documentation === 'string' && documentation.length > 0)
+      ? documentation
+      : null;
+  }
+
+  /**
+   * Clear the long-form markdown documentation.
+   */
+  clearDocumentation() {
+    this.documentation = null;
   }
 
   /**
@@ -2098,6 +2134,7 @@ class Cap {
            this.title === other.title &&
            this.command === other.command &&
            this.cap_description === other.cap_description &&
+           this.documentation === other.documentation &&
            JSON.stringify(this.metadata) === JSON.stringify(other.metadata) &&
            JSON.stringify(this.mediaSpecs) === JSON.stringify(other.mediaSpecs) &&
            JSON.stringify(this.args.map(a => a.toJSON())) === JSON.stringify(other.args.map(a => a.toJSON())) &&
@@ -2122,6 +2159,12 @@ class Cap {
       output: this.output
     };
 
+    // Long-form markdown documentation. Only emitted when set, to match
+    // the Rust serializer which skips this field when None.
+    if (typeof this.documentation === 'string' && this.documentation.length > 0) {
+      result.documentation = this.documentation;
+    }
+
     if (this.metadata_json !== null && this.metadata_json !== undefined) {
       result.metadata_json = this.metadata_json;
     }
@@ -2141,7 +2184,10 @@ class Cap {
     }
     const urn = CapUrn.fromString(json.urn);
 
-    const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.metadata_json);
+    const documentation = (typeof json.documentation === 'string' && json.documentation.length > 0)
+      ? json.documentation
+      : null;
+    const cap = new Cap(urn, json.title, json.command, json.cap_description, json.metadata, json.metadata_json, documentation);
     cap.mediaSpecs = json.media_specs || json.mediaSpecs || [];
     // Parse args (new format)
     if (json.args && Array.isArray(json.args)) {

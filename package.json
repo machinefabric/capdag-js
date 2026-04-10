@@ -37,5 +37,5 @@
     "pretest": "npm run build:parser",
     "test": "node capdag.test.js"
   },
-  "version": "0.100.226"
+  "version": "0.102.232"
 }

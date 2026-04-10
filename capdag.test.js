@@ -1836,6 +1836,86 @@ function testJS_capJSONSerialization() {
   assertEqual(restored.urn.getOutSpec(), MEDIA_OBJECT, 'Should restore outSpec');
 }
 
+// JS round-trip for the documentation field on Cap. Mirrors TEST920 in
+// capdag/src/cap/definition.rs — the body is non-trivial (newlines,
+// backticks, embedded quotes, Unicode) so escaping mismatches between
+// JSON.stringify on this side and the Rust serializer on the other side
+// surface as failures here.
+function testJS_capDocumentationRoundTrip() {
+  const urn = CapUrn.fromString(testUrn('op=documented'));
+  const cap = new Cap(urn, 'Documented Cap', 'documented');
+  const body = '# Documented Cap\r\n\nDoes the thing.\n\n```bash\necho "hi"\n```\n\nSee also: \u2605\n';
+  cap.setDocumentation(body);
+  assertEqual(cap.getDocumentation(), body, 'Setter must store the body verbatim');
+
+  const json = cap.toJSON();
+  assertEqual(json.documentation, body, 'toJSON must include documentation when set');
+
+  // Stringify and parse to simulate writing to disk and reading back.
+  const wireJson = JSON.parse(JSON.stringify(json));
+  const restored = Cap.fromJSON(wireJson);
+  assertEqual(restored.getDocumentation(), body, 'fromJSON must preserve documentation body verbatim');
+  assert(restored.equals(cap), 'Round-tripped cap must equal the original');
+}
+
+// When documentation is null, toJSON must omit the field entirely. This
+// matches the Rust serializer's skip-when-None semantics and the ObjC
+// toDictionary behaviour. A regression where null is emitted as
+// `documentation: null` would break the symmetric round-trip with Rust
+// (which has no null sentinel) and pollute generated JSON.
+function testJS_capDocumentationOmittedWhenNull() {
+  const urn = CapUrn.fromString(testUrn('op=undocumented'));
+  const cap = new Cap(urn, 'Undocumented Cap', 'undocumented');
+  assertEqual(cap.getDocumentation(), null, 'Default documentation must be null');
+
+  const json = cap.toJSON();
+  assert(!('documentation' in json), 'toJSON must omit documentation key when null');
+
+  // fromJSON of a missing key must yield null, not undefined or empty string.
+  const restored = Cap.fromJSON(JSON.parse(JSON.stringify(json)));
+  assertEqual(restored.getDocumentation(), null, 'Missing documentation must round-trip as null');
+
+  // Empty-string body is treated as absent (matches the resolver's
+  // non-empty-string-only rule). This catches code paths that would store
+  // an empty string and then emit it as a literal field.
+  cap.setDocumentation('');
+  assertEqual(cap.getDocumentation(), null, 'Empty string must collapse to null');
+}
+
+// Documentation propagates from a mediaSpecs definition through
+// resolveMediaUrn into the resolved MediaSpec. Mirrors TEST924 on the Rust
+// side. This is the path every UI consumer uses, so a break here makes the
+// new field invisible everywhere downstream.
+function testJS_mediaSpecDocumentationPropagatesThroughResolve() {
+  const body = '## Markdown body\n\nWith `code` and a [link](https://example.com).';
+  const mediaSpecs = [
+    {
+      urn: 'media:doc-test;textable',
+      media_type: 'text/plain',
+      title: 'Documented',
+      description: 'short desc',
+      documentation: body
+    }
+  ];
+
+  const resolved = resolveMediaUrn('media:doc-test;textable', mediaSpecs);
+  assertEqual(resolved.documentation, body, 'documentation must propagate into MediaSpec');
+  // The short description must remain distinct from the long markdown
+  // body — they are different fields with different semantics.
+  assertEqual(resolved.description, 'short desc', 'description must remain distinct from documentation');
+
+  // Missing documentation must collapse to null, not '' or undefined.
+  const noDoc = resolveMediaUrn('media:doc-test;textable', [
+    { urn: 'media:doc-test;textable', media_type: 'text/plain', title: 'No Doc' }
+  ]);
+  assertEqual(noDoc.documentation, null, 'Missing documentation must resolve to null');
+
+  const emptyDoc = resolveMediaUrn('media:doc-test;textable', [
+    { urn: 'media:doc-test;textable', media_type: 'text/plain', title: 'Empty', documentation: '' }
+  ]);
+  assertEqual(emptyDoc.documentation, null, 'Empty documentation string must collapse to null');
+}
+
 function testJS_stdinSourceKindConstants() {
   assert(StdinSourceKind.DATA !== undefined, 'DATA kind should be defined');
   assert(StdinSourceKind.FILE_REFERENCE !== undefined, 'FILE_REFERENCE kind should be defined');
@@ -3830,6 +3910,9 @@ async function runTests() {
   runTest('JS: get_extension_mappings', testJS_getExtensionMappings);
   runTest('JS: cap_with_media_specs', testJS_capWithMediaSpecs);
   runTest('JS: cap_json_serialization', testJS_capJSONSerialization);
+  runTest('JS: cap_documentation_round_trip', testJS_capDocumentationRoundTrip);
+  runTest('JS: cap_documentation_omitted_when_null', testJS_capDocumentationOmittedWhenNull);
+  runTest('JS: media_spec_documentation_propagates_through_resolve', testJS_mediaSpecDocumentationPropagatesThroughResolve);
   runTest('JS: stdin_source_kind_constants', testJS_stdinSourceKindConstants);
   runTest('JS: stdin_source_null_data', testJS_stdinSourceNullData);
   const p1 = runTest('JS: args_passed_to_executeCap', testJS_argsPassedToExecuteCap);
