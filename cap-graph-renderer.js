@@ -919,10 +919,10 @@ function buildStrandGraphData(data) {
   });
 
   // Handle unclosed ForEach after the walk. Mirrors plan_builder.rs:362-428.
-  // An unclosed ForEach with a body is NOT marked as a foreachExit
+  // An unclosed ForEach with a body is NOT marked as `singleCapClosedBody`
   // because there's no Collect closing it — the body "fans out" but
   // never converges. The body entry still gets (1→n) on its incoming
-  // edge (via the foreachEntry flag set in the Cap handler).
+  // edge via the foreachEntry flag set in the Cap handler.
   if (insideForEachBody !== null) {
     const outer = insideForEachBody;
     const hasBodyEntry = bodyEntry !== null;
@@ -974,12 +974,17 @@ function buildStrandGraphData(data) {
 //      the cap's own `input_is_sequence`/`output_is_sequence` would
 //      produce, because visually the transition is the foreach.
 //
-//   3. The last cap edge exiting a ForEach body (the one that feeds
-//      a Collect) is relabeled to `<cap_title> (n→1)` via the
-//      `foreachExit` flag. Standalone Collect steps (not wrapping a
-//      ForEach) collapse to a (1→n) marker on the incoming cap edge
-//      as well since they represent the same list-of-one transition
-//      at the render level.
+//   3. The last cap edge exiting a ForEach body is replaced by a
+//      synthesized bridging edge labeled `<cap_title> (n→1)` — the
+//      symmetric counterpart of the foreach-entry (1→n) label.
+//      For a single-cap body (same cap is entry and exit) the flag
+//      `singleCapClosedBody` collapses both markers into a single
+//      `(n→n)` label on the entry edge, and the exit side becomes
+//      a plain unlabeled connector.
+//
+//   4. Standalone Collect (not wrapping a ForEach) synthesizes a
+//      plain edge labeled `"collect"` — the Collect is rendered
+//      as a transition, not the preceding cap's own label.
 //
 //   4. If the last cap step's `to_spec` is semantically equivalent
 //      to the strand's `target_spec` (via MediaUrn.isEquivalent),
@@ -1350,7 +1355,7 @@ function buildRunGraphData(data) {
   // the per-body replicas visually. The FIRST body cap is retained
   // as the body-entry node so the backbone's foreachEntry edge
   // (`<cap_title> (1→n)`) still has a landing point.
-  const strandBuilt = hasForeach
+  let strandBuilt = hasForeach
     ? stripRunBackboneBodyInterior(strandBuiltCollapsed, steps, foreachStepIdx, collectStepIdx)
     : strandBuiltCollapsed;
 
@@ -1538,6 +1543,29 @@ function buildRunGraphData(data) {
 
   visibleSuccess.forEach((o) => buildBodyReplica(o));
   visibleFailure.forEach((o) => buildBodyReplica(o));
+
+  // If at least one successful replica exists, it bridges the
+  // anchor to the merge node via its own chain — the backbone
+  // foreach-entry edge (the `<cap_title> (1→n)` direct connector)
+  // becomes redundant and visually duplicates the replica path.
+  // Drop it in that case. If ZERO successful replicas exist, keep
+  // the backbone edge so the target stays reachable (failures
+  // alone don't merge, so without the backbone edge the target
+  // would be an orphan).
+  if (hasForeach && successes.length > 0 && visibleSuccess.length > 0) {
+    const backboneForeachEntry = strandBuilt.edges.find(e =>
+      e.edgeClass === 'strand-cap-edge' &&
+      e.source === anchorNodeId &&
+      e.foreachEntry === true);
+    if (backboneForeachEntry) {
+      strandBuilt = {
+        nodes: strandBuilt.nodes,
+        edges: strandBuilt.edges.filter(e => e.id !== backboneForeachEntry.id),
+        sourceSpec: strandBuilt.sourceSpec,
+        targetSpec: strandBuilt.targetSpec,
+      };
+    }
+  }
 
   // Build success and failure "show more" nodes when there are hidden
   // outcomes. Anchored at the ForEach node (or input_slot if none).

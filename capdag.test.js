@@ -4636,6 +4636,111 @@ function testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap() {
   assertEqual(failureNodes, 2, 'trace truncates at cap y via isEquivalent, yielding 2 failure nodes');
 }
 
+function testRenderer_buildRunGraphData_backboneHasNoForeachNode() {
+  // Regression test for the run-mode rendering fix: the backbone
+  // delivered to cytoscape must NOT contain any strand-foreach or
+  // strand-collect nodes. Run mode inherits the same cosmetic
+  // collapse as strand mode so the foreach/collect execution-layer
+  // concepts don't leak into the view as boxed nodes.
+  //
+  // User scenario: [Disbind (1→n), ForEach, make_decision] where
+  // target_spec equals the last cap's to_spec, so the backbone
+  // collapses to 3 nodes: input_slot, step_0 (Text Page),
+  // step_2 (Decision, merged target). No separate `for each` or
+  // `collect` boxes.
+  const strand = {
+    source_spec: 'media:pdf',
+    target_spec: 'media:decision',
+    steps: [
+      makeCapStep('cap:in="media:pdf";op=disbind;out="media:page"', 'Disbind', 'media:pdf', 'media:page', false, true),
+      makeForEachStep('media:page'),
+      makeCapStep('cap:in="media:page";op=decide;out="media:decision"', 'Make a Decision', 'media:page', 'media:decision', false, false),
+    ],
+  };
+  const payload = {
+    resolved_strand: strand,
+    body_outcomes: [],
+    visible_success_count: 0,
+    visible_failure_count: 0,
+    total_body_count: 0,
+  };
+  const built = rendererBuildRunGraphData(payload);
+
+  // Backbone must contain NO foreach/collect nodes.
+  const foreachNodes = built.strandBuilt.nodes.filter(n => n.nodeClass === 'strand-foreach');
+  const collectNodes = built.strandBuilt.nodes.filter(n => n.nodeClass === 'strand-collect');
+  assertEqual(foreachNodes.length, 0, 'run backbone must not contain strand-foreach nodes');
+  assertEqual(collectNodes.length, 0, 'run backbone must not contain strand-collect nodes');
+
+  // The backbone fallback connector is the foreach-entry cap edge
+  // that runs from the pre-foreach node to the body cap. It must
+  // survive collapse so the target stays reachable even with zero
+  // successful bodies.
+  const backboneCapEdges = built.strandBuilt.edges.filter(e => e.edgeClass === 'strand-cap-edge');
+  assert(backboneCapEdges.some(e => e.source === 'step_0' && e.target === 'step_2'),
+    'foreach-entry backbone edge step_0 → step_2 must be present for fallback connectivity');
+
+  // With zero outcomes, no replicas and no show-more nodes.
+  assertEqual(built.replicaNodes.length, 0, 'no replica nodes when body_outcomes is empty');
+  assertEqual(built.showMoreNodes.length, 0, 'no show-more nodes when no hidden outcomes');
+}
+
+function testRenderer_buildRunGraphData_targetReachableWhenAllBodiesFail() {
+  // Regression test for the "dangling target" bug: when every body
+  // fails, successful replicas don't merge into the target. The
+  // backbone fallback edge is responsible for keeping the target
+  // connected. This test feeds an all-failed-bodies payload and
+  // verifies that the collapsed backbone still has a connected
+  // path from input_slot to the strand target.
+  const strand = {
+    source_spec: 'media:pdf',
+    target_spec: 'media:decision',
+    steps: [
+      makeCapStep('cap:in="media:pdf";op=disbind;out="media:page"', 'Disbind', 'media:pdf', 'media:page', false, true),
+      makeForEachStep('media:page'),
+      makeCapStep('cap:in="media:page";op=decide;out="media:decision"', 'Make a Decision', 'media:page', 'media:decision', false, false),
+    ],
+  };
+  const failedCapUrn = 'cap:in="media:page";op=decide;out="media:decision"';
+  const payload = {
+    resolved_strand: strand,
+    body_outcomes: [
+      { body_index: 0, success: false, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0, failed_cap: failedCapUrn, error: 'boom' },
+      { body_index: 1, success: false, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0, failed_cap: failedCapUrn, error: 'boom' },
+    ],
+    visible_success_count: 3,
+    visible_failure_count: 3,
+    total_body_count: 2,
+  };
+  const built = rendererBuildRunGraphData(payload);
+
+  // Walk the backbone edges from input_slot and verify step_2 is
+  // reachable (even though no successful replicas merge there).
+  const backboneEdges = built.strandBuilt.edges;
+  const adj = new Map();
+  for (const e of backboneEdges) {
+    if (!adj.has(e.source)) adj.set(e.source, []);
+    adj.get(e.source).push(e.target);
+  }
+  const visited = new Set();
+  const stack = ['input_slot'];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    const nexts = adj.get(cur) || [];
+    for (const n of nexts) stack.push(n);
+  }
+  assert(visited.has('step_2'),
+    'step_2 (strand target) must be reachable from input_slot via the backbone even when all bodies fail');
+
+  // Failures are rendered as red replica trails that do NOT merge
+  // back. Each failure trace covers bodyCapSteps.length=1 node.
+  const failureNodes = built.replicaNodes.filter(n => n.classes === 'body-failure');
+  assertEqual(failureNodes.length, 2,
+    'two failed bodies render two replica nodes (truncated at failed_cap)');
+}
+
 // ---------------- machine builder ----------------
 
 function testRenderer_validateMachinePayload_rejectsUnknownKind() {
@@ -5077,6 +5182,8 @@ async function runTests() {
   runTest('RENDERER: buildRun_pagesSuccessesAndFailures',     testRenderer_buildRunGraphData_pagesSuccessesAndFailures);
   runTest('RENDERER: buildRun_failureWithoutFailedCap',       testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace);
   runTest('RENDERER: buildRun_usesIsEquivalentForFailedCap',  testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap);
+  runTest('RENDERER: buildRun_backboneHasNoForeachNode',      testRenderer_buildRunGraphData_backboneHasNoForeachNode);
+  runTest('RENDERER: buildRun_targetReachableAllFailed',      testRenderer_buildRunGraphData_targetReachableWhenAllBodiesFail);
 
   console.log('\n--- cap-graph-renderer machine builder ---');
   runTest('RENDERER: validateMachine_unknownKind',            testRenderer_validateMachinePayload_rejectsUnknownKind);
