@@ -761,6 +761,21 @@ function buildStrandGraphData(data) {
     });
     edgeCounter++;
   }
+  // Look up a cap edge that terminates at `nodeId` and flip its
+  // `foreachExit` flag to true. Used when a Collect closes a body
+  // and we need to mark the final cap edge in the body as the
+  // "body exit" for render-time collapse. If the body is empty
+  // (bodyExit == null), this is a no-op.
+  function markForeachExit(nodeId) {
+    if (!nodeId) return;
+    for (let idx = edges.length - 1; idx >= 0; idx--) {
+      const e = edges[idx];
+      if (e.edgeClass === 'strand-cap-edge' && e.target === nodeId) {
+        e.foreachExit = true;
+        return;
+      }
+    }
+  }
 
   // Entry node — the strand's source media spec.
   const inputSlotId = 'input_slot';
@@ -787,6 +802,10 @@ function buildStrandGraphData(data) {
     addNode(outerForEach.nodeId, 'for each', '', 'strand-foreach');
     addEdge(outerForEachInput, outerForEach.nodeId, 'for each', 'for each', '', 'strand-iteration');
     addEdge(outerForEach.nodeId, outerEntry, '', '', '', 'strand-iteration');
+    // Mark the last cap edge inside this body as a foreach-exit so
+    // the render-time collapse can add a (n→1) marker to it. The
+    // marker lives on the cap edge that produced `outerExit`.
+    markForeachExit(outerExit);
     return outerExit;
   }
 
@@ -872,15 +891,23 @@ function buildStrandGraphData(data) {
         addNode(nodeId, 'collect', '', 'strand-collect');
         addEdge(exit, nodeId, 'collect', 'collect', '', 'strand-collection');
 
+        // Mark the last body cap's incoming edge as a foreach-exit
+        // so the render-time collapse adds a (n→1) marker to it.
+        markForeachExit(exit);
+
         insideForEachBody = null;
         bodyEntry = null;
         bodyExit = null;
         prevNodeId = nodeId;
       } else {
         // Standalone Collect — scalar → list-of-one. Mirrors
-        // plan_builder.rs:333-355.
+        // plan_builder.rs:333-355. Render-time collapse drops the
+        // Collect node and marks the last cap edge with (n→1) if
+        // one exists, so the visible semantic is carried on the
+        // cap edge feeding the Collect.
         addNode(nodeId, 'collect', '', 'strand-collect');
         addEdge(prevNodeId, nodeId, 'collect', 'collect', '', 'strand-collection');
+        markForeachExit(prevNodeId);
         prevNodeId = nodeId;
       }
       return;
@@ -890,6 +917,10 @@ function buildStrandGraphData(data) {
   });
 
   // Handle unclosed ForEach after the walk. Mirrors plan_builder.rs:362-428.
+  // An unclosed ForEach with a body is NOT marked as a foreachExit
+  // because there's no Collect closing it — the body "fans out" but
+  // never converges. The body entry still gets (1→n) on its incoming
+  // edge (via the foreachEntry flag set in the Cap handler).
   if (insideForEachBody !== null) {
     const outer = insideForEachBody;
     const hasBodyEntry = bodyEntry !== null;
@@ -924,127 +955,128 @@ function buildStrandGraphData(data) {
   return { nodes, edges, sourceSpec, targetSpec };
 }
 
-// Collapse `strand-foreach` and `strand-collect` nodes into labeled
-// edges and drop the phantom direct cap edges that bypass the ForEach
-// iteration. Pure function on a nodes/edges topology — does NOT touch
-// the plan builder's underlying model; this is cosmetic-only.
+// Transform the plan-builder strand topology into the render shape
+// strand mode actually displays. Pure function; does NOT mutate the
+// input. Run mode bypasses this transform and consumes the raw
+// topology directly (see `runCytoscapeElements`).
 //
-// Rules, applied in order:
+// The display rules (per user spec):
 //
-//   1. For each ForEach node F: F has exactly one incoming
-//      `strand-iteration`-class direct edge `src → F` and one or more
-//      outgoing `strand-iteration` edges `F → body_entry_k`. Any
-//      existing edge `src → body_entry_k` (from the phantom
-//      plan-builder direct cap edge) is redundant — remove it.
+//   1. ForEach and Collect are NOT rendered as nodes. They're
+//      execution-layer concepts; the visible semantic is carried on
+//      the surrounding cap edges.
 //
-//   2. For each ForEach node F: replace the incoming direct edge +
-//      each outgoing iteration edge with a single edge
-//      `src → body_entry_k` labeled "for each". Remove F from nodes.
+//   2. The first cap edge entering a ForEach body is relabeled to
+//      `<cap_title> (1→n)`. The builder flags those edges with
+//      `foreachEntry: true`. The (1→n) overrides whatever cardinality
+//      the cap's own `input_is_sequence`/`output_is_sequence` would
+//      produce, because visually the transition is the foreach.
 //
-//   3. For each Collect node C: C has one or more incoming
-//      `strand-collection` edges `body_exit_k → C` and one outgoing
-//      `strand-cap-edge` or `strand-collection` edge `C → next`.
-//      Replace with edges `body_exit_k → next` labeled "collect".
-//      Remove C from nodes.
+//   3. The last cap edge exiting a ForEach body (the one that feeds
+//      a Collect) is relabeled to `<cap_title> (n→1)` via the
+//      `foreachExit` flag. Standalone Collect steps (not wrapping a
+//      ForEach) collapse to a (1→n) marker on the incoming cap edge
+//      as well since they represent the same list-of-one transition
+//      at the render level.
+//
+//   4. If the last cap step's `to_spec` is semantically equivalent
+//      to the strand's `target_spec` (via MediaUrn.isEquivalent),
+//      the separate `output` target node is dropped and the last
+//      cap edge lands on that merged endpoint. Removes the visible
+//      duplicate node.
 function collapseStrandShapeTransitions(built) {
-  // Work on mutable copies so we can delete as we go.
-  const nodeById = new Map();
-  for (const n of built.nodes) nodeById.set(n.id, n);
-  // Index edges by source and by target for fast lookup.
-  function indexEdges(edgeList) {
-    const bySource = new Map();
-    const byTarget = new Map();
-    for (const e of edgeList) {
-      if (!bySource.has(e.source)) bySource.set(e.source, []);
-      bySource.get(e.source).push(e);
-      if (!byTarget.has(e.target)) byTarget.set(e.target, []);
-      byTarget.get(e.target).push(e);
-    }
-    return { bySource, byTarget };
-  }
+  const MediaUrn = requireHostDependency('MediaUrn');
+  const foreachCardinality = cardinalityLabel(false, true); // "1→n"
+  const collectCardinality = cardinalityLabel(true, false); // "n→1"
 
-  let edges = built.edges.slice();
-
-  // Step 1: drop phantom direct cap edges that bypass a ForEach.
-  // A ForEach node has exactly one incoming direct edge (the
-  // strand-iteration class is reused for both the direct input AND
-  // the iteration-to-body edges in the builder above; distinguish by
-  // direction: the single edge pointing TO the ForEach node is the
-  // "foreach input", edges pointing FROM it are iteration edges).
-  const phantomsToDrop = new Set();
+  // Step 1: drop all ForEach/Collect nodes and every edge that
+  // touches them (direct, iteration, collection). The render never
+  // shows those nodes.
+  const dropNodeIds = new Set();
   for (const node of built.nodes) {
-    if (node.nodeClass !== 'strand-foreach') continue;
-    const idx = indexEdges(edges);
-    const incoming = idx.byTarget.get(node.id) || [];
-    const outgoing = idx.bySource.get(node.id) || [];
-    // Gather all upstream sources (usually one) and all body entries.
-    const sources = incoming.map(e => e.source);
-    const bodyEntries = outgoing.map(e => e.target);
-    for (const src of sources) {
-      for (const entry of bodyEntries) {
-        const bypass = edges.find(e =>
-          e.source === src && e.target === entry && e.edgeClass === 'strand-cap-edge');
-        if (bypass) phantomsToDrop.add(bypass.id);
+    if (node.nodeClass === 'strand-foreach' || node.nodeClass === 'strand-collect') {
+      dropNodeIds.add(node.id);
+    }
+  }
+  let nodes = built.nodes.filter(n => !dropNodeIds.has(n.id));
+  let edges = built.edges.filter(e =>
+    !dropNodeIds.has(e.source) &&
+    !dropNodeIds.has(e.target) &&
+    e.edgeClass !== 'strand-iteration' &&
+    e.edgeClass !== 'strand-collection');
+
+  // Step 2: relabel flagged foreach-entry and foreach-exit cap edges
+  // with the cap title + foreach-context cardinality marker.
+  //
+  // If an edge is BOTH an entry and an exit (single-cap body), the
+  // net cardinality across it is n→n — the outer sequence is
+  // iterated, the cap runs per-item, and the result is collected
+  // back into a sequence. Compute that via `cardinalityLabel(true, true)`.
+  const iterAndCollectCardinality = cardinalityLabel(true, true); // "n→n"
+  edges = edges.map(e => {
+    if (e.edgeClass !== 'strand-cap-edge') return e;
+    if (e.foreachEntry && e.foreachExit) {
+      return Object.assign({}, e, {
+        label: `${e.title} (${iterAndCollectCardinality})`,
+      });
+    }
+    if (e.foreachEntry) {
+      return Object.assign({}, e, {
+        label: `${e.title} (${foreachCardinality})`,
+      });
+    }
+    if (e.foreachExit) {
+      return Object.assign({}, e, {
+        label: `${e.title} (${collectCardinality})`,
+      });
+    }
+    return e;
+  });
+
+  // Step 3: merge the trailing `step_N → output` edge when step_N
+  // and output represent the same media URN. The strand builder
+  // always emits a separate `output` node with a (possibly empty)
+  // connector edge from the last prev; when the URNs coincide the
+  // output is a visible duplicate.
+  //
+  // Find the `strand-target` node and look for a single incoming
+  // edge from a `strand-cap` (or `strand-source`) node. Compare the
+  // endpoints' `fullUrn` semantically.
+  const targetNode = nodes.find(n => n.nodeClass === 'strand-target');
+  if (targetNode) {
+    const incomingToTarget = edges.filter(e => e.target === targetNode.id);
+    if (incomingToTarget.length === 1) {
+      const trailing = incomingToTarget[0];
+      const upstreamNode = nodes.find(n => n.id === trailing.source);
+      if (upstreamNode && upstreamNode.fullUrn && targetNode.fullUrn) {
+        let equivalent = false;
+        try {
+          const a = MediaUrn.fromString(upstreamNode.fullUrn);
+          const b = MediaUrn.fromString(targetNode.fullUrn);
+          equivalent = a.isEquivalent(b);
+        } catch (_) {
+          equivalent = false;
+        }
+        // Merge only if the trailing edge is the unadorned connector
+        // (empty label). A labeled last-cap edge carries meaningful
+        // info and must not be collapsed away.
+        if (equivalent && (!trailing.label || trailing.label.length === 0)) {
+          // Drop the trailing connector edge and the target node.
+          // The upstream node effectively becomes the target visually.
+          // Rename its display label to the target's display to
+          // preserve the user-configured media_display_names entry.
+          edges = edges.filter(e => e.id !== trailing.id);
+          nodes = nodes
+            .filter(n => n.id !== targetNode.id)
+            .map(n => n.id === upstreamNode.id
+              ? Object.assign({}, n, { label: targetNode.label, nodeClass: 'strand-target' })
+              : n);
+        }
       }
     }
   }
-  if (phantomsToDrop.size > 0) {
-    edges = edges.filter(e => !phantomsToDrop.has(e.id));
-  }
 
-  // Step 2: collapse ForEach nodes into "for each"-labeled edges.
-  for (const node of built.nodes.slice()) {
-    if (node.nodeClass !== 'strand-foreach') continue;
-    const idx = indexEdges(edges);
-    const incoming = idx.byTarget.get(node.id) || [];
-    const outgoing = idx.bySource.get(node.id) || [];
-    // Remove the ForEach node's own edges and the node itself.
-    edges = edges.filter(e => e.source !== node.id && e.target !== node.id);
-    nodeById.delete(node.id);
-    // Synthesize replacement edges: one per (src, entry) cartesian.
-    let nextIdSuffix = 0;
-    for (const inEdge of incoming) {
-      for (const outEdge of outgoing) {
-        edges.push({
-          id: `${node.id}-collapsed-${nextIdSuffix++}`,
-          source: inEdge.source,
-          target: outEdge.target,
-          label: 'for each',
-          title: 'for each',
-          fullUrn: '',
-          edgeClass: 'strand-foreach-edge',
-          color: inEdge.color,
-        });
-      }
-    }
-  }
-
-  // Step 3: collapse Collect nodes into "collect"-labeled edges.
-  for (const node of built.nodes.slice()) {
-    if (node.nodeClass !== 'strand-collect') continue;
-    const idx = indexEdges(edges);
-    const incoming = idx.byTarget.get(node.id) || [];
-    const outgoing = idx.bySource.get(node.id) || [];
-    edges = edges.filter(e => e.source !== node.id && e.target !== node.id);
-    nodeById.delete(node.id);
-    let nextIdSuffix = 0;
-    for (const inEdge of incoming) {
-      for (const outEdge of outgoing) {
-        edges.push({
-          id: `${node.id}-collapsed-${nextIdSuffix++}`,
-          source: inEdge.source,
-          target: outEdge.target,
-          label: 'collect',
-          title: 'collect',
-          fullUrn: '',
-          edgeClass: 'strand-collect-edge',
-          color: outEdge.color,
-        });
-      }
-    }
-  }
-
-  return { nodes: Array.from(nodeById.values()), edges };
+  return { nodes, edges };
 }
 
 function strandCytoscapeElements(built, options) {
