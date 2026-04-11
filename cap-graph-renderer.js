@@ -1243,46 +1243,73 @@ function findCapStepIndexByUrn(steps, targetUrnString) {
   return -1;
 }
 
-// Remove body-interior cap nodes from a COLLAPSED strand backbone
-// so that per-body replicas are the only visible path through the
-// foreach body. Nodes outside the body (caps before ForEach or
-// after Collect) stay. The foreachEntry edge `pre_foreach → first
-// body cap` also stays because it's the fallback backbone connector
-// keeping the graph connected when zero bodies succeed — without
-// it, the post-body nodes become orphaned. Interior-body cap edges
-// (between successive body caps) ARE dropped because they'd
-// duplicate the replica chain visually.
+// Remove body-interior cap nodes (caps strictly AFTER the first
+// body cap) from a COLLAPSED strand backbone so that per-body
+// replicas are the only visible path through the foreach body.
+// The FIRST body cap node is retained — its incoming foreachEntry
+// edge is the backbone "fallback connector" that keeps the graph
+// connected when zero bodies succeed.
+//
+// Dropping interior body caps also drops their outgoing edges,
+// including any synthesized collect-exit edge that would have
+// connected the last body cap to the post-collect target. To
+// preserve connectivity, the function replaces those with a
+// plain bridging edge from the first body cap directly to the
+// post-collect target.
 function stripRunBackboneBodyInterior(built, steps, foreachStepIdx, collectStepIdx) {
   if (foreachStepIdx < 0) return built;
   const bodyEnd = collectStepIdx >= 0 ? collectStepIdx : steps.length;
 
-  // Collect every body-interior cap step position. These are the
-  // cap steps strictly between ForEach and Collect (or strand end).
   const interiorStepIdxs = [];
   for (let i = foreachStepIdx + 1; i < bodyEnd; i++) {
     if (Object.keys(steps[i].step_type)[0] === 'Cap') {
       interiorStepIdxs.push(i);
     }
   }
-  if (interiorStepIdxs.length === 0) return built;
+  if (interiorStepIdxs.length <= 1) {
+    // Zero or one body cap — no prototype chain to strip.
+    return built;
+  }
 
-  // First body cap is the one we WANT to keep as the "body entry"
-  // node on the collapsed backbone (its incoming foreachEntry edge
-  // lands here). Subsequent body caps are the prototype chain that
-  // must be dropped.
   const firstBodyStepId = `step_${interiorStepIdxs[0]}`;
+  const lastBodyStepId = `step_${interiorStepIdxs[interiorStepIdxs.length - 1]}`;
   const dropInteriorIds = new Set();
   for (let i = 1; i < interiorStepIdxs.length; i++) {
     dropInteriorIds.add(`step_${interiorStepIdxs[i]}`);
   }
-  if (dropInteriorIds.size === 0) {
-    // Only one body cap → there's no prototype chain to drop.
-    return built;
-  }
+
+  // Find the post-body target: the node that the last body cap's
+  // outgoing edge points at in the collapsed backbone. This is
+  // usually `output` or (after the collect-exit synth) the merged
+  // target node.
+  const postBodyEdge = built.edges.find(e => e.source === lastBodyStepId);
+  const postBodyTarget = postBodyEdge ? postBodyEdge.target : null;
 
   const keptNodes = built.nodes.filter(n => !dropInteriorIds.has(n.id));
-  const keptEdges = built.edges.filter(e =>
+  let keptEdges = built.edges.filter(e =>
     !dropInteriorIds.has(e.source) && !dropInteriorIds.has(e.target));
+
+  // Bridge firstBody → postBodyTarget directly with a plain
+  // unlabeled connector so the graph stays connected. Replicas
+  // will overlay labeled chains alongside this connector.
+  if (postBodyTarget && postBodyTarget !== firstBodyStepId) {
+    const bridgeExists = keptEdges.some(e =>
+      e.source === firstBodyStepId && e.target === postBodyTarget);
+    if (!bridgeExists) {
+      keptEdges = keptEdges.concat([{
+        id: `run-bridge-${firstBodyStepId}-${postBodyTarget}`,
+        source: firstBodyStepId,
+        target: postBodyTarget,
+        label: '',
+        title: '',
+        fullUrn: '',
+        edgeClass: 'strand-cap-edge',
+        color: postBodyEdge ? postBodyEdge.color : edgeHueColor(0),
+        foreachEntry: false,
+        singleCapClosedBody: false,
+      }]);
+    }
+  }
 
   return {
     nodes: keptNodes,
