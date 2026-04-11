@@ -739,7 +739,8 @@ function buildStrandGraphData(data) {
     });
   }
   let edgeCounter = 0;
-  function addEdge(source, target, label, title, fullUrn, edgeClass) {
+  function addEdge(source, target, label, title, fullUrn, edgeClass, meta) {
+    const m = meta || {};
     edges.push({
       id: `strand-edge-${edgeCounter}`,
       source,
@@ -749,6 +750,14 @@ function buildStrandGraphData(data) {
       fullUrn: fullUrn || '',
       edgeClass: edgeClass || '',
       color: edgeHueColor(edgeCounter),
+      // `foreachEntry` flags a cap edge as the first cap entering a
+      // ForEach body (the "phantom direct edge" in plan builder's
+      // terminology). Render-time collapse uses this to relabel the
+      // edge with the cap title + (1→n) marker. Defaults to false.
+      foreachEntry: m.foreachEntry === true,
+      // `foreachExit` flags a cap edge whose target is the last body
+      // cap before a Collect (or strand end). Used for collect labeling.
+      foreachExit: m.foreachExit === true,
     });
     edgeCounter++;
   }
@@ -790,12 +799,27 @@ function buildStrandGraphData(data) {
       const toCanonical = canonicalMediaUrn(step.to_spec);
       addNode(nodeId, displayNameFor(toCanonical), toCanonical, 'strand-cap');
 
+      // The first cap inside a ForEach body is the "foreach entry"
+      // — its incoming edge crosses the foreach boundary. Strand
+      // mode's render collapse relabels that edge with a (1→n)
+      // cardinality marker regardless of the cap's own sequence
+      // flags, because visually the transition IS the foreach.
+      const isForeachEntry = insideForEachBody !== null && bodyEntry === null;
+
       let label = body.title;
       const cardinality = cardinalityLabel(body.input_is_sequence, body.output_is_sequence);
       if (cardinality !== '1\u21921') {
         label = `${label} (${cardinality})`;
       }
-      addEdge(prevNodeId, nodeId, label, body.title, body.cap_urn, 'strand-cap-edge');
+      addEdge(
+        prevNodeId,
+        nodeId,
+        label,
+        body.title,
+        body.cap_urn,
+        'strand-cap-edge',
+        { foreachEntry: isForeachEntry }
+      );
 
       if (insideForEachBody !== null) {
         if (bodyEntry === null) bodyEntry = nodeId;
