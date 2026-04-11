@@ -4685,13 +4685,12 @@ function testRenderer_buildRunGraphData_backboneHasNoForeachNode() {
   assertEqual(built.showMoreNodes.length, 0, 'no show-more nodes when no hidden outcomes');
 }
 
-function testRenderer_buildRunGraphData_targetReachableWhenAllBodiesFail() {
-  // Regression test for the "dangling target" bug: when every body
-  // fails, successful replicas don't merge into the target. The
-  // backbone fallback edge is responsible for keeping the target
-  // connected. This test feeds an all-failed-bodies payload and
-  // verifies that the collapsed backbone still has a connected
-  // path from input_slot to the strand target.
+function testRenderer_buildRunGraphData_allFailedDropsTargetPlaceholder() {
+  // When every body fails, the strand target node was never
+  // reached by any execution. The render drops BOTH the backbone
+  // foreach-entry edge AND the orphaned target node so the user
+  // doesn't see a stale "Decision" placeholder alongside their
+  // failed replicas.
   const strand = {
     source_spec: 'media:pdf',
     target_spec: 'media:decision',
@@ -4714,31 +4713,77 @@ function testRenderer_buildRunGraphData_targetReachableWhenAllBodiesFail() {
   };
   const built = rendererBuildRunGraphData(payload);
 
-  // Walk the backbone edges from input_slot and verify step_2 is
-  // reachable (even though no successful replicas merge there).
-  const backboneEdges = built.strandBuilt.edges;
-  const adj = new Map();
-  for (const e of backboneEdges) {
-    if (!adj.has(e.source)) adj.set(e.source, []);
-    adj.get(e.source).push(e.target);
-  }
-  const visited = new Set();
-  const stack = ['input_slot'];
-  while (stack.length > 0) {
-    const cur = stack.pop();
-    if (visited.has(cur)) continue;
-    visited.add(cur);
-    const nexts = adj.get(cur) || [];
-    for (const n of nexts) stack.push(n);
-  }
-  assert(visited.has('step_2'),
-    'step_2 (strand target) must be reachable from input_slot via the backbone even when all bodies fail');
+  // The dropped placeholder: step_2 (the merged strand target
+  // "Decision") is absent from the backbone because all bodies
+  // failed and the replicas didn't reach it.
+  const hasStep2 = built.strandBuilt.nodes.some(n => n.id === 'step_2');
+  assertEqual(hasStep2, false,
+    'strand target placeholder must be dropped when zero successful replicas reach it');
 
-  // Failures are rendered as red replica trails that do NOT merge
-  // back. Each failure trace covers bodyCapSteps.length=1 node.
+  // The backbone foreach-entry edge is also gone — replicas
+  // replaced it and there's no orphan target to connect.
+  const foreachEntry = built.strandBuilt.edges.find(e =>
+    e.edgeClass === 'strand-cap-edge' && e.foreachEntry === true);
+  assertEqual(foreachEntry, undefined,
+    'backbone foreach-entry edge must be dropped when replicas exist');
+
+  // Failures are rendered as red replica trails that don't merge.
   const failureNodes = built.replicaNodes.filter(n => n.classes === 'body-failure');
   assertEqual(failureNodes.length, 2,
     'two failed bodies render two replica nodes (truncated at failed_cap)');
+
+  // The pre-foreach cap node (step_0, "Disbind") is still present
+  // along with its incoming edge — only the post-body parts were
+  // dropped.
+  const hasStep0 = built.strandBuilt.nodes.some(n => n.id === 'step_0');
+  assertEqual(hasStep0, true, 'pre-foreach cap node survives');
+  const disbindEdge = built.strandBuilt.edges.find(e =>
+    e.source === 'input_slot' && e.target === 'step_0');
+  assert(disbindEdge !== undefined, 'pre-foreach cap edge (Disbind) survives');
+}
+
+function testRenderer_buildRunGraphData_backboneDroppedWhenSuccessful() {
+  // When at least one successful replica merges into the target,
+  // the backbone foreach-entry edge is dropped — the replica's
+  // own chain represents the execution and the backbone would
+  // otherwise duplicate the path.
+  const strand = {
+    source_spec: 'media:pdf',
+    target_spec: 'media:decision',
+    steps: [
+      makeCapStep('cap:in="media:pdf";op=disbind;out="media:page"', 'Disbind', 'media:pdf', 'media:page', false, true),
+      makeForEachStep('media:page'),
+      makeCapStep('cap:in="media:page";op=decide;out="media:decision"', 'Make a Decision', 'media:page', 'media:decision', false, false),
+    ],
+  };
+  const payload = {
+    resolved_strand: strand,
+    body_outcomes: [
+      { body_index: 0, success: true, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0 },
+    ],
+    visible_success_count: 3,
+    visible_failure_count: 3,
+    total_body_count: 1,
+  };
+  const built = rendererBuildRunGraphData(payload);
+
+  // The backbone foreach-entry edge is gone.
+  const foreachEntry = built.strandBuilt.edges.find(e =>
+    e.edgeClass === 'strand-cap-edge' && e.foreachEntry === true);
+  assertEqual(foreachEntry, undefined,
+    'foreach-entry backbone edge dropped when at least one success exists');
+
+  // step_2 (target) stays because the replica merge edge lands on it.
+  const hasStep2 = built.strandBuilt.nodes.some(n => n.id === 'step_2');
+  assertEqual(hasStep2, true,
+    'strand target node survives when successful replicas merge into it');
+
+  // Exactly one successful replica node and one merge edge.
+  const successNodes = built.replicaNodes.filter(n => n.classes === 'body-success');
+  assertEqual(successNodes.length, 1, 'one replica node for one successful body');
+  const mergeEdges = built.replicaEdges.filter(e =>
+    e.data && e.data.target === 'step_2' && e.classes === 'body-success');
+  assertEqual(mergeEdges.length, 1, 'one merge edge from replica to target');
 }
 
 // ---------------- machine builder ----------------
@@ -5183,7 +5228,8 @@ async function runTests() {
   runTest('RENDERER: buildRun_failureWithoutFailedCap',       testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace);
   runTest('RENDERER: buildRun_usesIsEquivalentForFailedCap',  testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap);
   runTest('RENDERER: buildRun_backboneHasNoForeachNode',      testRenderer_buildRunGraphData_backboneHasNoForeachNode);
-  runTest('RENDERER: buildRun_targetReachableAllFailed',      testRenderer_buildRunGraphData_targetReachableWhenAllBodiesFail);
+  runTest('RENDERER: buildRun_allFailedDropsPlaceholder',     testRenderer_buildRunGraphData_allFailedDropsTargetPlaceholder);
+  runTest('RENDERER: buildRun_backboneDroppedWhenSuccessful', testRenderer_buildRunGraphData_backboneDroppedWhenSuccessful);
 
   console.log('\n--- cap-graph-renderer machine builder ---');
   runTest('RENDERER: validateMachine_unknownKind',            testRenderer_validateMachinePayload_rejectsUnknownKind);

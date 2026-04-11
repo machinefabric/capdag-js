@@ -1508,7 +1508,12 @@ function buildRunGraphData(data) {
           id: `${bodyKey}-e-${i}`,
           source: prevBodyNodeId,
           target: replicaNodeId,
-          label: i === 0 ? body.title : '',
+          // Replica edges carry no inline label — the cap title is
+          // identical across every visible replica and would just
+          // pile up as unreadable rotated text over the fan-out.
+          // Hover tooltip exposes the title via `title`; the edge
+          // color + the replica node identify the body.
+          label: '',
           title: body.title,
           fullUrn: body.cap_urn,
           color: `var(${colorVar})`,
@@ -1544,27 +1549,42 @@ function buildRunGraphData(data) {
   visibleSuccess.forEach((o) => buildBodyReplica(o));
   visibleFailure.forEach((o) => buildBodyReplica(o));
 
-  // If at least one successful replica exists, it bridges the
-  // anchor to the merge node via its own chain — the backbone
-  // foreach-entry edge (the `<cap_title> (1→n)` direct connector)
-  // becomes redundant and visually duplicates the replica path.
-  // Drop it in that case. If ZERO successful replicas exist, keep
-  // the backbone edge so the target stays reachable (failures
-  // alone don't merge, so without the backbone edge the target
-  // would be an orphan).
-  if (hasForeach && successes.length > 0 && visibleSuccess.length > 0) {
+  // Once any replicas are rendered (success or failure), the
+  // backbone foreach-entry edge becomes a stale placeholder — the
+  // replicas ARE the actual execution traces, so the user
+  // shouldn't see a duplicate labeled "1→n" edge alongside them.
+  // Drop the backbone foreach-entry edge whenever we emit
+  // replicas, AND if there were zero successful replicas also
+  // drop the orphaned merge node: nothing reached it, and
+  // showing a disconnected node misleads the user into thinking
+  // the target was reached.
+  if (hasForeach && (visibleSuccess.length > 0 || visibleFailure.length > 0)) {
     const backboneForeachEntry = strandBuilt.edges.find(e =>
       e.edgeClass === 'strand-cap-edge' &&
       e.source === anchorNodeId &&
       e.foreachEntry === true);
+    let newEdges = strandBuilt.edges;
+    let newNodes = strandBuilt.nodes;
     if (backboneForeachEntry) {
-      strandBuilt = {
-        nodes: strandBuilt.nodes,
-        edges: strandBuilt.edges.filter(e => e.id !== backboneForeachEntry.id),
-        sourceSpec: strandBuilt.sourceSpec,
-        targetSpec: strandBuilt.targetSpec,
-      };
+      newEdges = newEdges.filter(e => e.id !== backboneForeachEntry.id);
     }
+    // If no successful replica will merge into `mergeNodeId`, and
+    // the merge node is now only reachable via the (just-dropped)
+    // backbone edge, drop the merge node itself.
+    if (visibleSuccess.length === 0 && mergeNodeId) {
+      const stillIncoming = newEdges.some(e => e.target === mergeNodeId);
+      const replicaIncoming = replicaEdges.some(e => e.data && e.data.target === mergeNodeId);
+      if (!stillIncoming && !replicaIncoming) {
+        newNodes = newNodes.filter(n => n.id !== mergeNodeId);
+        newEdges = newEdges.filter(e => e.source !== mergeNodeId && e.target !== mergeNodeId);
+      }
+    }
+    strandBuilt = {
+      nodes: newNodes,
+      edges: newEdges,
+      sourceSpec: strandBuilt.sourceSpec,
+      targetSpec: strandBuilt.targetSpec,
+    };
   }
 
   // Build success and failure "show more" nodes when there are hidden
