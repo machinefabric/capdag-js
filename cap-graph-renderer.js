@@ -989,9 +989,62 @@ function collapseStrandShapeTransitions(built) {
   const foreachCardinality = cardinalityLabel(false, true); // "1→n"
   const collectCardinality = cardinalityLabel(true, false); // "n→1"
 
-  // Step 1: drop all ForEach/Collect nodes and every edge that
-  // touches them (direct, iteration, collection). The render never
-  // shows those nodes.
+  // Index for lookups.
+  const nodeById = new Map();
+  for (const n of built.nodes) nodeById.set(n.id, n);
+
+  // Step 1: before dropping Collect nodes, synthesize the
+  // "body-exit cap edge" that the collapse needs. For a Collect
+  // node C inside a closed body, plan builder produced:
+  //   body_exit → C   (strand-collection, label="collect")
+  //   C → next        (strand-cap-edge, label="")
+  // The collapse drops C and its two touching edges. To preserve
+  // the flow from body_exit to `next`, synthesize a new cap edge
+  // body_exit → next, copying the body-exit cap's title + a
+  // (n→1) collect cardinality marker.
+  //
+  // Single-cap-body special case: if the body_exit cap is ALSO
+  // the body entry (bodyEntry === bodyExit), the cap's own
+  // incoming cap edge already carries both `foreachEntry` and
+  // `foreachExit` flags and will be relabeled with a combined
+  // (n→n) marker in step 2. In that case we emit a plain
+  // unlabeled connector edge for the exit side so the flow
+  // reaches the next node without a duplicate label.
+  const synthesizedExitEdges = [];
+  for (const node of built.nodes) {
+    if (node.nodeClass !== 'strand-collect') continue;
+    const incoming = built.edges.filter(e =>
+      e.target === node.id && e.edgeClass === 'strand-collection');
+    const outgoing = built.edges.filter(e =>
+      e.source === node.id && e.edgeClass === 'strand-cap-edge');
+    for (const inEdge of incoming) {
+      for (const outEdge of outgoing) {
+        const bodyExitNodeId = inEdge.source;
+        const bodyExitCapEdge = built.edges.find(e =>
+          e.edgeClass === 'strand-cap-edge' && e.target === bodyExitNodeId);
+        const title = bodyExitCapEdge ? bodyExitCapEdge.title : '';
+        const isSingleCapBody = bodyExitCapEdge
+          && bodyExitCapEdge.foreachEntry === true
+          && bodyExitCapEdge.foreachExit === true;
+        synthesizedExitEdges.push({
+          id: `${node.id}-collapsed-exit-${synthesizedExitEdges.length}`,
+          source: bodyExitNodeId,
+          target: outEdge.target,
+          label: isSingleCapBody ? '' : `${title} (${collectCardinality})`,
+          title: isSingleCapBody ? '' : title,
+          fullUrn: bodyExitCapEdge ? bodyExitCapEdge.fullUrn : '',
+          edgeClass: 'strand-cap-edge',
+          color: bodyExitCapEdge ? bodyExitCapEdge.color : inEdge.color,
+          foreachEntry: false,
+          foreachExit: false,
+        });
+      }
+    }
+  }
+
+  // Drop all ForEach/Collect nodes and every edge that touches
+  // them (direct, iteration, collection, and the trailing collect
+  // cap-edge connector). The render never shows those nodes.
   const dropNodeIds = new Set();
   for (const node of built.nodes) {
     if (node.nodeClass === 'strand-foreach' || node.nodeClass === 'strand-collect') {
@@ -1004,6 +1057,7 @@ function collapseStrandShapeTransitions(built) {
     !dropNodeIds.has(e.target) &&
     e.edgeClass !== 'strand-iteration' &&
     e.edgeClass !== 'strand-collection');
+  edges = edges.concat(synthesizedExitEdges);
 
   // Step 2: relabel flagged foreach-entry and foreach-exit cap edges
   // with the cap title + foreach-context cardinality marker.
