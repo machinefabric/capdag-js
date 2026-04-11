@@ -271,7 +271,11 @@ function buildStylesheet() {
     {
       selector: 'node.show-more',
       style: {
-        'background-color': getCssVar('--graph-bg'),
+        // Use the normal node fill; the dashed border is what
+        // distinguishes a show-more node from a regular cap.
+        // The renderer never reads `--graph-bg` — the graph
+        // canvas background is entirely the host's concern.
+        'background-color': nodeBg,
         'border-style': 'dashed',
         'border-width': '2px',
         'border-color': nodeBorderHighlighted,
