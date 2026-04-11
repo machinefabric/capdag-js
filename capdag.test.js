@@ -4030,61 +4030,16 @@ function testRenderer_classifyStrandCapSteps_nestedForks() {
   assert(!capFlags.get(5).prevForEach && capFlags.get(5).nextCollect, 'cap3 outer exit');
 }
 
-function testRenderer_buildStrandGraphData_labelsForkBoundaries() {
-  // End-to-end: a foreach strand in which source_spec (media:pdf;list)
-  // differs from the first cap's from_spec (media:pdf) produces an
-  // explicit fix-up edge source→firstCap.from labeled "for each". The
-  // cap edge carries only the cap title. The topology is
-  //   media:pdf;list --[for each]--> media:pdf --[extract text]--> media:txt
-  // Only two edges — ForEach is NOT a separate node, Collect is absent
-  // because the strand's target_spec already matches the last cap's
-  // to_spec (no fan-in fix-up needed).
-  const payload = {
-    source_spec: 'media:pdf;list',
-    target_spec: 'media:txt',
-    steps: [
-      makeForEachStep('media:pdf;list'),
-      makeCapStep('cap:in="media:pdf";op=extract;out="media:txt"', 'extract text', 'media:pdf', 'media:txt', false, false),
-    ],
-  };
-  const built = rendererBuildStrandGraphData(payload);
-  assertEqual(built.edges.length, 2, 'one fix-up edge + one cap edge');
-  const forEachEdge = built.edges[0];
-  assertEqual(forEachEdge.label, 'for each', 'first edge is the for-each fan-out');
-  assertEqual(forEachEdge.source, 'media:pdf;list', 'for-each sources from source_spec');
-  assertEqual(forEachEdge.target, 'media:pdf', 'for-each targets first cap.from_spec');
-  const capEdge = built.edges[1];
-  assertEqual(capEdge.label, 'extract text', 'cap edge carries only the cap title');
-  assertEqual(capEdge.source, 'media:pdf', 'cap sources from its from_spec');
-  assertEqual(capEdge.target, 'media:txt', 'cap targets its to_spec');
+// Helper: find an edge with the given source/target ids.
+function findEdge(edges, source, target) {
+  return edges.find(e => e.source === source && e.target === target);
 }
 
-function testRenderer_buildStrandGraphData_collectFixupEdge() {
-  // When the strand's target_spec (media:pdf;list) differs from the
-  // last cap's to_spec (media:pdf), the builder emits an explicit
-  // fix-up edge lastCap.to → target labeled "collect".
-  const payload = {
-    source_spec: 'media:a',
-    target_spec: 'media:pdf;list',
-    steps: [
-      makeCapStep('cap:in="media:a";op=x;out="media:pdf"', 'x', 'media:a', 'media:pdf', false, false),
-      makeCollectStep('media:pdf'),
-    ],
-  };
-  const built = rendererBuildStrandGraphData(payload);
-  assertEqual(built.edges.length, 2, 'one cap edge + one collect fix-up');
-  const capEdge = built.edges[0];
-  assertEqual(capEdge.label, 'x', 'cap edge plain title');
-  const collectEdge = built.edges[1];
-  assertEqual(collectEdge.label, 'collect', 'collect fix-up labeled "collect"');
-  assertEqual(collectEdge.source, 'media:pdf', 'collect sources from last cap.to_spec');
-  assertEqual(collectEdge.target, 'media:pdf;list', 'collect targets target_spec');
-}
-
-function testRenderer_buildStrandGraphData_plainCapNoMarker() {
-  // A plain 1→1 cap step (no ForEach/Collect adjacency, no sequence)
-  // must not emit any cardinality marker in the label. This catches a
-  // regression where "1→1" was accidentally appended to every edge.
+function testRenderer_buildStrandGraphData_singleCapPlain() {
+  // Minimal strand with one plain 1→1 cap. Plan builder produces:
+  //   input_slot → step_0 (cap) → output
+  // (two edges, three nodes). No cardinality marker in the cap label
+  // because input_is_sequence == output_is_sequence == false.
   const payload = {
     source_spec: 'media:a',
     target_spec: 'media:b',
@@ -4093,12 +4048,20 @@ function testRenderer_buildStrandGraphData_plainCapNoMarker() {
     ],
   };
   const built = rendererBuildStrandGraphData(payload);
-  assertEqual(built.edges.length, 1, 'one edge');
-  assertEqual(built.edges[0].label, 'x', 'plain cap has no cardinality suffix');
+  const nodeIds = built.nodes.map(n => n.id).sort();
+  assertEqual(JSON.stringify(nodeIds), JSON.stringify(['input_slot', 'output', 'step_0']),
+    'nodes are input_slot + step_0 + output (positional ids)');
+  assertEqual(built.edges.length, 2, 'two edges: input_slot→step_0 and step_0→output');
+  const capEdge = findEdge(built.edges, 'input_slot', 'step_0');
+  assert(capEdge !== undefined, 'cap edge from input_slot to step_0 exists');
+  assertEqual(capEdge.label, 'x', 'plain cap edge label is the cap title with no cardinality marker');
+  const outEdge = findEdge(built.edges, 'step_0', 'output');
+  assert(outEdge !== undefined, 'output edge from step_0 to output exists');
 }
 
 function testRenderer_buildStrandGraphData_sequenceShowsCardinality() {
-  // A cap with input_is_sequence=true MUST emit "(n→1)" on the label.
+  // A cap with input_is_sequence=true MUST emit "(n→1)" on its edge
+  // label.
   const payload = {
     source_spec: 'media:a;list',
     target_spec: 'media:b',
@@ -4107,9 +4070,138 @@ function testRenderer_buildStrandGraphData_sequenceShowsCardinality() {
     ],
   };
   const built = rendererBuildStrandGraphData(payload);
-  assertEqual(built.edges.length, 1, 'one edge');
-  assert(built.edges[0].label.includes('(n\u21921)'),
-    `edge label must include (n\u21921) marker; got: ${built.edges[0].label}`);
+  const capEdge = findEdge(built.edges, 'input_slot', 'step_0');
+  assert(capEdge !== undefined, 'cap edge exists');
+  assert(capEdge.label.includes('(n\u21921)'),
+    `cap edge label must include (n\u21921) marker; got: ${capEdge.label}`);
+}
+
+function testRenderer_buildStrandGraphData_foreachCollectSpan() {
+  // Strand: [ForEach, Cap, Collect]. Plan builder produces:
+  //   input_slot (source) →direct→ step_1 (cap) — cap emits its own
+  //                                              direct edge from prev
+  //   input_slot →direct→ step_0 (foreach)      — created when Collect
+  //   step_0 →iteration→ step_1                 — iteration edge
+  //   step_1 →collection→ step_2 (collect)      — collection edge
+  //   step_2 →direct→ output                    — output connector
+  //
+  // (six nodes: input_slot, step_0, step_1, step_2, output; five
+  // edges.) ForEach and Collect are REAL nodes in the graph, not
+  // labels on cap edges — they're distinct processing units in the
+  // plan. This mirrors capdag's plan_builder.rs exactly.
+  const payload = {
+    source_spec: 'media:pdf;list',
+    target_spec: 'media:txt;list',
+    steps: [
+      makeForEachStep('media:pdf;list'),
+      makeCapStep('cap:in="media:pdf";op=extract;out="media:txt"', 'extract', 'media:pdf', 'media:txt', false, false),
+      makeCollectStep('media:txt'),
+    ],
+  };
+  const built = rendererBuildStrandGraphData(payload);
+  const nodeIds = built.nodes.map(n => n.id).sort();
+  assertEqual(JSON.stringify(nodeIds),
+    JSON.stringify(['input_slot', 'output', 'step_0', 'step_1', 'step_2']),
+    'positional nodes for source, foreach, cap, collect, output');
+
+  // The five edges the plan builder would produce:
+  assert(findEdge(built.edges, 'input_slot', 'step_1') !== undefined,
+    'cap direct edge input_slot→step_1 (prev wasn\'t advanced by ForEach)');
+  assert(findEdge(built.edges, 'input_slot', 'step_0') !== undefined,
+    'foreach input edge input_slot→step_0');
+  assert(findEdge(built.edges, 'step_0', 'step_1') !== undefined,
+    'iteration edge step_0→step_1 (body entry)');
+  assert(findEdge(built.edges, 'step_1', 'step_2') !== undefined,
+    'collection edge step_1→step_2 (body exit → collect)');
+  assert(findEdge(built.edges, 'step_2', 'output') !== undefined,
+    'output edge step_2→output');
+
+  // ForEach and Collect nodes carry their canonical labels.
+  const foreachNode = built.nodes.find(n => n.id === 'step_0');
+  assertEqual(foreachNode.label, 'for each', 'ForEach node labeled "for each"');
+  const collectNode = built.nodes.find(n => n.id === 'step_2');
+  assertEqual(collectNode.label, 'collect', 'Collect node labeled "collect"');
+}
+
+function testRenderer_buildStrandGraphData_standaloneCollect() {
+  // Strand with a standalone Collect (no enclosing ForEach). Plan
+  // builder creates a Collect node consuming prev directly — plain
+  // direct edge, no iteration/collection semantics.
+  const payload = {
+    source_spec: 'media:a',
+    target_spec: 'media:b;list',
+    steps: [
+      makeCapStep('cap:in="media:a";op=x;out="media:b"', 'x', 'media:a', 'media:b', false, false),
+      makeCollectStep('media:b'),
+    ],
+  };
+  const built = rendererBuildStrandGraphData(payload);
+  assert(findEdge(built.edges, 'input_slot', 'step_0') !== undefined,
+    'cap edge input_slot → step_0');
+  assert(findEdge(built.edges, 'step_0', 'step_1') !== undefined,
+    'standalone collect edge step_0 → step_1 (Collect node)');
+  assert(findEdge(built.edges, 'step_1', 'output') !== undefined,
+    'output edge step_1 → output');
+  const collectNode = built.nodes.find(n => n.id === 'step_1');
+  assertEqual(collectNode.label, 'collect', 'Collect node labeled "collect"');
+}
+
+function testRenderer_buildStrandGraphData_unclosedForEachBody() {
+  // Strand: [Cap_a, ForEach, Cap_b] with no closing Collect. The plan
+  // builder's "unclosed ForEach" branch creates a ForEach node
+  // connecting Cap_a to Cap_b via iteration, with prev becoming the
+  // body exit (Cap_b).
+  const payload = {
+    source_spec: 'media:a',
+    target_spec: 'media:c',
+    steps: [
+      makeCapStep('cap:in="media:a";op=a;out="media:b"', 'a', 'media:a', 'media:b', false, false),
+      makeForEachStep('media:b'),
+      makeCapStep('cap:in="media:b";op=b;out="media:c"', 'b', 'media:b', 'media:c', false, false),
+    ],
+  };
+  const built = rendererBuildStrandGraphData(payload);
+  // Cap_a connects from input_slot.
+  assert(findEdge(built.edges, 'input_slot', 'step_0') !== undefined,
+    'cap_a edge input_slot → step_0');
+  // Cap_b still connects directly from step_0 (the ForEach didn't
+  // advance prev). This mirrors plan_builder.
+  assert(findEdge(built.edges, 'step_0', 'step_2') !== undefined,
+    'cap_b direct edge step_0 → step_2');
+  // ForEach node at step_1 with direct edge from step_0 and iteration
+  // edge to step_2.
+  assert(findEdge(built.edges, 'step_0', 'step_1') !== undefined,
+    'foreach input edge step_0 → step_1');
+  assert(findEdge(built.edges, 'step_1', 'step_2') !== undefined,
+    'iteration edge step_1 → step_2 (body entry)');
+  // Output connects from step_2 (body exit).
+  assert(findEdge(built.edges, 'step_2', 'output') !== undefined,
+    'output edge step_2 → output');
+}
+
+function testRenderer_buildStrandGraphData_nestedForEachThrows() {
+  // Nested ForEach without an intervening body cap in the outer
+  // ForEach is an illegal nesting per plan_builder. The renderer
+  // must throw the same error to surface the issue rather than
+  // render a malformed graph.
+  const payload = {
+    source_spec: 'media:a;list;list',
+    target_spec: 'media:a',
+    steps: [
+      makeForEachStep('media:a;list;list'),
+      makeForEachStep('media:a;list'),
+      makeCapStep('cap:in="media:a";op=x;out="media:a"', 'x', 'media:a', 'media:a', false, false),
+    ],
+  };
+  let threw = false;
+  try {
+    rendererBuildStrandGraphData(payload);
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('nested ForEach'),
+      'error must name the nested-ForEach violation');
+  }
+  assert(threw, 'nested ForEach without outer body cap must throw');
 }
 
 function testRenderer_validateStrandPayload_missingSourceSpec() {
@@ -4702,10 +4794,12 @@ async function runTests() {
   runTest('RENDERER: validateStrandStep_booleanIsSequence',   testRenderer_validateStrandStep_requiresBooleanIsSequence);
   runTest('RENDERER: classifyStrandCapSteps_simple',          testRenderer_classifyStrandCapSteps_capFlags);
   runTest('RENDERER: classifyStrandCapSteps_nested',          testRenderer_classifyStrandCapSteps_nestedForks);
-  runTest('RENDERER: buildStrand_labelsForkBoundaries',       testRenderer_buildStrandGraphData_labelsForkBoundaries);
-  runTest('RENDERER: buildStrand_collectFixupEdge',           testRenderer_buildStrandGraphData_collectFixupEdge);
-  runTest('RENDERER: buildStrand_plainCapNoMarker',           testRenderer_buildStrandGraphData_plainCapNoMarker);
+  runTest('RENDERER: buildStrand_singleCapPlain',             testRenderer_buildStrandGraphData_singleCapPlain);
   runTest('RENDERER: buildStrand_sequenceShowsCardinality',   testRenderer_buildStrandGraphData_sequenceShowsCardinality);
+  runTest('RENDERER: buildStrand_foreachCollectSpan',         testRenderer_buildStrandGraphData_foreachCollectSpan);
+  runTest('RENDERER: buildStrand_standaloneCollect',          testRenderer_buildStrandGraphData_standaloneCollect);
+  runTest('RENDERER: buildStrand_unclosedForEachBody',        testRenderer_buildStrandGraphData_unclosedForEachBody);
+  runTest('RENDERER: buildStrand_nestedForEachThrows',        testRenderer_buildStrandGraphData_nestedForEachThrows);
   runTest('RENDERER: validateStrand_missingSourceSpec',       testRenderer_validateStrandPayload_missingSourceSpec);
 
   console.log('\n--- cap-graph-renderer run builder ---');

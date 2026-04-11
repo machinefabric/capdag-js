@@ -663,22 +663,38 @@ function classifyStrandCapSteps(steps) {
   return { capStepIndices, capFlags };
 }
 
-// Build the strand graph. Every Cap step becomes an edge
-// (`from_spec` → `to_spec`). ForEach / Collect are NOT rendered as nodes
-// — they are transitions that annotate the adjacent cap edges:
+// Build the strand graph by mirroring capdag's plan builder
+// (`capdag/src/planner/plan_builder.rs::build_plan_from_path`). The plan
+// builder is the authoritative source of truth for how strand steps
+// translate into a DAG of nodes and edges:
 //
-//   * A Cap whose previous step is ForEach gets the prefix "for each"
-//     on its edge label (the first-body entry edge).
-//   * A Cap whose next step is Collect gets the suffix "collect" on its
-//     edge label (the last-body exit edge).
+//   * Node IDs are positional: `input_slot`, `step_0`, `step_1`, …,
+//     `output`. They are NOT media URN strings — URN comparisons for
+//     graph topology are wrong because the planner connects steps by
+//     the order-theoretic `conformsTo` relation, not by string equality.
+//   * `prev_node_id` is a single running pointer, only advanced by Cap
+//     steps. ForEach steps mark the start of a body span without
+//     advancing prev; the body's first Cap still connects to whatever
+//     was before the ForEach.
+//   * Cap inside a ForEach body connects from `prev_node_id` like any
+//     other cap, AND tracks `body_entry` (first cap in body) and
+//     `body_exit` (most recent cap in body).
+//   * Collect after a ForEach body creates a ForEach node with
+//     boundaries, an iteration edge to body_entry, a Collect node, and
+//     a collection edge from body_exit to Collect. prev_node_id becomes
+//     the Collect node.
+//   * Standalone Collect (no enclosing ForEach) creates a Collect node
+//     consuming prev_node_id directly.
+//   * Unclosed ForEach with no body caps is a terminal unwrap — the
+//     ForEach node is skipped; prev_node_id stays as-is.
+//   * Unclosed ForEach WITH body caps gets a ForEach node, iteration
+//     edge to body_entry, and prev_node_id becomes body_exit.
 //
-// Source-to-body and body-to-target continuity is guaranteed by the
-// strand structure itself: consecutive cap steps satisfy
-// `stepN.to_spec == stepN+1.from_spec`, and fix-up edges are added
-// explicitly when the strand's `source_spec` differs from the first cap
-// step's `from_spec` (the ForEach shape transition) or when the strand's
-// `target_spec` differs from the last cap step's `to_spec` (the Collect
-// shape transition).
+// Node labels come from the `media_display_names` map keyed by the
+// step's canonical URN (or source_spec/target_spec for the boundary
+// nodes). ForEach and Collect nodes display "for each" / "collect".
+// Cap edges carry the cap title plus cardinality marker when either
+// input or output is a sequence.
 function buildStrandGraphData(data) {
   validateStrandPayload(data);
 
@@ -686,143 +702,197 @@ function buildStrandGraphData(data) {
   const sourceSpec = canonicalMediaUrn(data.source_spec);
   const targetSpec = canonicalMediaUrn(data.target_spec);
 
-  const canonicalDisplayLookup = new Map();
+  // Look up a display name for a media URN via the host-supplied map.
+  // Uses `MediaUrn.isEquivalent` so tag-order variation doesn't defeat
+  // the lookup — URNs are compared semantically, never as raw strings.
+  const MediaUrn = requireHostDependency('MediaUrn');
+  const displayEntries = [];
   for (const [urn, display] of Object.entries(mediaDisplayNames)) {
-    if (typeof display === 'string' && display.length > 0) {
-      canonicalDisplayLookup.set(canonicalMediaUrn(urn), display);
+    if (typeof display !== 'string' || display.length === 0) continue;
+    try {
+      displayEntries.push({ media: MediaUrn.fromString(urn), display });
+    } catch (_) {
+      // Skip entries with unparseable URN keys — the host payload is
+      // trusted, but malformed keys are not fatal.
     }
   }
-
-  const nodesMap = new Map();
-  function ensureNode(canonicalUrn) {
-    if (!nodesMap.has(canonicalUrn)) {
-      const displayName = canonicalDisplayLookup.get(canonicalUrn);
-      nodesMap.set(canonicalUrn, {
-        id: canonicalUrn,
-        label: displayName !== undefined ? displayName : mediaNodeLabel(canonicalUrn),
-        fullUrn: canonicalUrn,
-      });
+  function displayNameFor(canonicalUrn) {
+    const candidate = MediaUrn.fromString(canonicalUrn);
+    for (const entry of displayEntries) {
+      if (candidate.isEquivalent(entry.media)) return entry.display;
     }
-    return canonicalUrn;
+    return mediaNodeLabel(canonicalUrn);
   }
 
-  ensureNode(sourceSpec);
-  ensureNode(targetSpec);
-
-  const { capStepIndices } = classifyStrandCapSteps(data.steps);
-  const firstCapIdx = capStepIndices.length > 0 ? capStepIndices[0] : -1;
-  const lastCapIdx = capStepIndices.length > 0 ? capStepIndices[capStepIndices.length - 1] : -1;
-  const hasLeadingForEach = data.steps.some((s, i) =>
-    Object.keys(s.step_type)[0] === 'ForEach' && i < (firstCapIdx === -1 ? Infinity : firstCapIdx));
-  const hasTrailingCollect = data.steps.some((s, i) =>
-    Object.keys(s.step_type)[0] === 'Collect' && i > (lastCapIdx === -1 ? -Infinity : lastCapIdx));
-
+  const nodes = [];
   const edges = [];
-  let capEdgeIdx = 0;
+  const nodeIds = new Set();
 
-  // Prepend a fix-up edge from source_spec to the first cap step's
-  // from_spec when they differ. This is the ForEach shape transition
-  // rendered as an explicit edge.
-  if (firstCapIdx >= 0) {
-    const firstCap = data.steps[firstCapIdx];
-    const firstCapFrom = canonicalMediaUrn(firstCap.from_spec);
-    if (firstCapFrom !== sourceSpec) {
-      ensureNode(firstCapFrom);
-      const label = hasLeadingForEach ? 'for each' : '';
-      edges.push({
-        id: `strand-edge-${capEdgeIdx}`,
-        source: sourceSpec,
-        target: firstCapFrom,
-        title: label || 'fan-out',
-        label,
-        cardinality: '',
-        capUrn: '',
-        color: edgeHueColor(capEdgeIdx),
-      });
-      capEdgeIdx++;
-    }
+  function addNode(id, label, fullUrn, nodeClass) {
+    if (nodeIds.has(id)) return;
+    nodeIds.add(id);
+    nodes.push({
+      id,
+      label,
+      fullUrn: fullUrn || '',
+      nodeClass: nodeClass || '',
+    });
+  }
+  let edgeCounter = 0;
+  function addEdge(source, target, label, title, fullUrn, edgeClass) {
+    edges.push({
+      id: `strand-edge-${edgeCounter}`,
+      source,
+      target,
+      label: label || '',
+      title: title || '',
+      fullUrn: fullUrn || '',
+      edgeClass: edgeClass || '',
+      color: edgeHueColor(edgeCounter),
+    });
+    edgeCounter++;
   }
 
-  // Cap step edges. Each Cap's edge connects its from_spec to its
-  // to_spec. Adjacent cap edges are continuous because the planner
-  // guarantees stepN.to_spec == stepN+1.from_spec. "for each" and
-  // "collect" labels belong on the fix-up edges around the cap chain,
-  // not on the cap edges themselves — those labels describe shape
-  // transitions between the source list and the first body scalar (and
-  // between the last body scalar and the target list), which are the
-  // fix-up edges.
-  data.steps.forEach((step) => {
-    const variant = Object.keys(step.step_type)[0];
-    if (variant !== 'Cap') return;
-    const body = step.step_type.Cap;
-    const fromCanonical = canonicalMediaUrn(step.from_spec);
-    const toCanonical = canonicalMediaUrn(step.to_spec);
-    ensureNode(fromCanonical);
-    ensureNode(toCanonical);
+  // Entry node — the strand's source media spec.
+  const inputSlotId = 'input_slot';
+  addNode(inputSlotId, displayNameFor(sourceSpec), sourceSpec, 'strand-source');
 
-    let label = body.title;
-    const cardinality = cardinalityLabel(body.input_is_sequence, body.output_is_sequence);
-    if (cardinality !== '1\u21921') {
-      label = `${label} (${cardinality})`;
+  let prevNodeId = inputSlotId;
+
+  // Track ForEach body membership. `insideForEachBody = { index, nodeId }`
+  // records which ForEach step we're inside and the id we'll give its
+  // eventual node. `bodyEntry`/`bodyExit` track the first and most
+  // recent Cap step inside that body.
+  let insideForEachBody = null;
+  let bodyEntry = null;
+  let bodyExit = null;
+
+  // Finalize an outer ForEach body when a nested ForEach starts before
+  // the outer's Collect. Mirrors plan_builder.rs:238-289.
+  function finalizeOuterForEach(outerForEach, outerEntry, outerExit) {
+    const outerForEachInput = outerForEach.index === 0
+      ? inputSlotId
+      : `step_${outerForEach.index - 1}`;
+    // Create the ForEach node + direct edge from its input + iteration
+    // edge into the body's first cap.
+    addNode(outerForEach.nodeId, 'for each', '', 'strand-foreach');
+    addEdge(outerForEachInput, outerForEach.nodeId, 'for each', 'for each', '', 'strand-iteration');
+    addEdge(outerForEach.nodeId, outerEntry, '', '', '', 'strand-iteration');
+    return outerExit;
+  }
+
+  data.steps.forEach((step, i) => {
+    const variant = Object.keys(step.step_type)[0];
+    const nodeId = `step_${i}`;
+
+    if (variant === 'Cap') {
+      const body = step.step_type.Cap;
+      const toCanonical = canonicalMediaUrn(step.to_spec);
+      addNode(nodeId, displayNameFor(toCanonical), toCanonical, 'strand-cap');
+
+      let label = body.title;
+      const cardinality = cardinalityLabel(body.input_is_sequence, body.output_is_sequence);
+      if (cardinality !== '1\u21921') {
+        label = `${label} (${cardinality})`;
+      }
+      addEdge(prevNodeId, nodeId, label, body.title, body.cap_urn, 'strand-cap-edge');
+
+      if (insideForEachBody !== null) {
+        if (bodyEntry === null) bodyEntry = nodeId;
+        bodyExit = nodeId;
+      }
+
+      prevNodeId = nodeId;
+      return;
     }
 
-    edges.push({
-      id: `strand-edge-${capEdgeIdx}`,
-      source: fromCanonical,
-      target: toCanonical,
-      title: body.title,
-      label,
-      cardinality,
-      capUrn: body.cap_urn,
-      color: edgeHueColor(capEdgeIdx),
-    });
-    capEdgeIdx++;
+    if (variant === 'ForEach') {
+      // If we're already inside a ForEach body when another ForEach
+      // starts, finalize the outer one first.
+      if (insideForEachBody !== null) {
+        const outer = insideForEachBody;
+        const entry = bodyEntry !== null ? bodyEntry : prevNodeId;
+        const exit = bodyExit !== null ? bodyExit : prevNodeId;
+        if (bodyEntry === null) {
+          // Outer ForEach with no body caps is an illegal nesting; the
+          // plan builder throws. Mirror that.
+          throw new Error(
+            `CapGraphRenderer strand: nested ForEach at step[${i}] but outer ForEach at step[${outer.index}] has no body caps`
+          );
+        }
+        prevNodeId = finalizeOuterForEach(outer, entry, exit);
+        bodyEntry = null;
+        bodyExit = null;
+      }
+      insideForEachBody = { index: i, nodeId };
+      bodyEntry = null;
+      bodyExit = null;
+      // Do NOT advance prevNodeId — the body's first cap will connect
+      // to whatever was before the ForEach.
+      return;
+    }
+
+    if (variant === 'Collect') {
+      if (insideForEachBody !== null) {
+        const outer = insideForEachBody;
+        const entry = bodyEntry !== null ? bodyEntry : prevNodeId;
+        const exit = bodyExit !== null ? bodyExit : prevNodeId;
+        const outerForEachInput = outer.index === 0
+          ? inputSlotId
+          : `step_${outer.index - 1}`;
+
+        addNode(outer.nodeId, 'for each', '', 'strand-foreach');
+        addEdge(outerForEachInput, outer.nodeId, 'for each', 'for each', '', 'strand-iteration');
+        addEdge(outer.nodeId, entry, '', '', '', 'strand-iteration');
+
+        addNode(nodeId, 'collect', '', 'strand-collect');
+        addEdge(exit, nodeId, 'collect', 'collect', '', 'strand-collection');
+
+        insideForEachBody = null;
+        bodyEntry = null;
+        bodyExit = null;
+        prevNodeId = nodeId;
+      } else {
+        // Standalone Collect — scalar → list-of-one. Mirrors
+        // plan_builder.rs:333-355.
+        addNode(nodeId, 'collect', '', 'strand-collect');
+        addEdge(prevNodeId, nodeId, 'collect', 'collect', '', 'strand-collection');
+        prevNodeId = nodeId;
+      }
+      return;
+    }
+
+    throw new Error(`CapGraphRenderer strand: unknown step_type variant '${variant}' at step[${i}]`);
   });
 
-  // Append a fix-up edge from the last cap's to_spec to target_spec
-  // when they differ. This is the Collect shape transition as an
-  // explicit edge.
-  if (lastCapIdx >= 0) {
-    const lastCap = data.steps[lastCapIdx];
-    const lastCapTo = canonicalMediaUrn(lastCap.to_spec);
-    if (lastCapTo !== targetSpec) {
-      const label = hasTrailingCollect ? 'collect' : '';
-      edges.push({
-        id: `strand-edge-${capEdgeIdx}`,
-        source: lastCapTo,
-        target: targetSpec,
-        title: label || 'fan-in',
-        label,
-        cardinality: '',
-        capUrn: '',
-        color: edgeHueColor(capEdgeIdx),
-      });
-      capEdgeIdx++;
+  // Handle unclosed ForEach after the walk. Mirrors plan_builder.rs:362-428.
+  if (insideForEachBody !== null) {
+    const outer = insideForEachBody;
+    const hasBodyEntry = bodyEntry !== null;
+    if (hasBodyEntry) {
+      const entry = bodyEntry;
+      const exit = bodyExit;
+      const outerForEachInput = outer.index === 0
+        ? inputSlotId
+        : `step_${outer.index - 1}`;
+      addNode(outer.nodeId, 'for each', '', 'strand-foreach');
+      addEdge(outerForEachInput, outer.nodeId, 'for each', 'for each', '', 'strand-iteration');
+      addEdge(outer.nodeId, entry, '', '', '', 'strand-iteration');
+      prevNodeId = exit;
     }
+    // hasBodyEntry === false is a terminal unwrap — skip the ForEach
+    // node entirely, prev_node_id stays as-is.
+    insideForEachBody = null;
+    bodyEntry = null;
+    bodyExit = null;
   }
 
-  // Edge case: if there are no Cap steps at all, still connect source
-  // to target directly so the graph has at least one edge. This handles
-  // degenerate strands (e.g. identity).
-  if (firstCapIdx === -1 && sourceSpec !== targetSpec) {
-    edges.push({
-      id: `strand-edge-${capEdgeIdx}`,
-      source: sourceSpec,
-      target: targetSpec,
-      title: '',
-      label: '',
-      cardinality: '',
-      capUrn: '',
-      color: edgeHueColor(capEdgeIdx),
-    });
-  }
+  // Final output node. Mirrors plan_builder.rs:430-432.
+  const outputId = 'output';
+  addNode(outputId, displayNameFor(targetSpec), targetSpec, 'strand-target');
+  addEdge(prevNodeId, outputId, '', '', '', 'strand-cap-edge');
 
-  return {
-    nodes: Array.from(nodesMap.values()),
-    edges,
-    sourceSpec,
-    targetSpec,
-  };
+  return { nodes, edges, sourceSpec, targetSpec };
 }
 
 function strandCytoscapeElements(built) {
@@ -833,9 +903,7 @@ function strandCytoscapeElements(built) {
       label: node.label,
       fullUrn: node.fullUrn,
     },
-    classes: node.id === built.sourceSpec ? 'strand-source'
-           : node.id === built.targetSpec ? 'strand-target'
-           : '',
+    classes: node.nodeClass || '',
   }));
   const edgeElements = built.edges.map(edge => ({
     group: 'edges',
@@ -845,10 +913,10 @@ function strandCytoscapeElements(built) {
       target: edge.target,
       label: edge.label,
       title: edge.title,
-      cardinality: edge.cardinality,
-      fullUrn: edge.capUrn,
+      fullUrn: edge.fullUrn,
       color: edge.color,
     },
+    classes: edge.edgeClass || '',
   }));
   return nodeElements.concat(edgeElements);
 }
@@ -870,6 +938,39 @@ function findCapStepIndexByUrn(steps, targetUrnString) {
   return -1;
 }
 
+// Remove nodes and edges belonging to the ForEach body's interior cap
+// steps from a strand backbone. In run mode, these are replaced by
+// per-body replicas; keeping the prototype chain alongside the
+// replicas produces a confusing double-render. The ForEach and Collect
+// nodes themselves, plus their iteration/collection edges, stay.
+function stripBodyInteriorFromStrandBackbone(built, steps, foreachStepIdx, collectStepIdx) {
+  const bodyEnd = collectStepIdx >= 0 ? collectStepIdx : steps.length;
+  // Collect the positional IDs of body-interior cap steps (the caps
+  // strictly between ForEach and Collect).
+  const interiorIds = new Set();
+  for (let i = foreachStepIdx + 1; i < bodyEnd; i++) {
+    if (Object.keys(steps[i].step_type)[0] === 'Cap') {
+      interiorIds.add(`step_${i}`);
+    }
+  }
+  if (interiorIds.size === 0) return built;
+
+  const keptNodes = built.nodes.filter(n => !interiorIds.has(n.id));
+  const keptEdges = built.edges.filter(e =>
+    !interiorIds.has(e.source) && !interiorIds.has(e.target));
+
+  // After stripping, the ForEach node and the Collect node (or the
+  // output node if no Collect) may become disconnected — the body
+  // replicas will bridge them. That's fine; cytoscape's ELK layout
+  // handles disconnected subgraphs.
+  return {
+    nodes: keptNodes,
+    edges: keptEdges,
+    sourceSpec: built.sourceSpec,
+    targetSpec: built.targetSpec,
+  };
+}
+
 function buildRunGraphData(data) {
   validateRunPayload(data);
 
@@ -879,11 +980,14 @@ function buildRunGraphData(data) {
   const strandInput = Object.assign({}, data.resolved_strand, {
     media_display_names: data.media_display_names,
   });
-  const strandBuilt = buildStrandGraphData(strandInput);
+  const strandBuiltRaw = buildStrandGraphData(strandInput);
 
   // Locate the ForEach/Collect span in the backbone for body-replica
-  // placement. We anchor body replicas to the first Cap step after a
-  // ForEach (the fan-out point) and merge back at the first Collect.
+  // placement. The strand builder uses positional node IDs mirroring
+  // the plan builder (`step_0`, `step_1`, …). The ForEach node at
+  // step index i has id `step_i`; body replicas fan out from that
+  // ForEach node and (when a Collect closes the body) merge into the
+  // Collect node at `step_j`.
   const steps = data.resolved_strand.steps;
   let foreachStepIdx = -1;
   let collectStepIdx = -1;
@@ -894,6 +998,17 @@ function buildRunGraphData(data) {
   }
   const hasForeach = foreachStepIdx >= 0;
 
+  // In run mode we want per-body replicas to REPLACE the prototype cap
+  // chain inside the ForEach body, not sit alongside it. Strip the
+  // backbone nodes and edges that correspond to body-interior Cap
+  // steps and their direct edges, keeping only the input slot, the
+  // ForEach node, the Collect node (if any), the output node, and any
+  // caps OUTSIDE the body span. Body replicas will connect from the
+  // ForEach node and merge at the Collect node.
+  const strandBuilt = hasForeach
+    ? stripBodyInteriorFromStrandBackbone(strandBuiltRaw, steps, foreachStepIdx, collectStepIdx)
+    : strandBuiltRaw;
+
   // Filter and bound the outcomes.
   const allOutcomes = data.body_outcomes.slice().sort((a, b) => a.body_index - b.body_index);
   const successes = allOutcomes.filter(o => o.success);
@@ -903,10 +1018,8 @@ function buildRunGraphData(data) {
   const hiddenSuccessCount = successes.length - visibleSuccess.length;
   const hiddenFailureCount = failures.length - visibleFailure.length;
 
-  // Map each displayed body to its per-body chain. The chain starts at
-  // the first Cap step's from_spec (the node immediately after the
-  // ForEach) and extends through either all body caps (success) or up to
-  // the failed_cap (failure).
+  // Collect the Cap steps inside the ForEach body. Each body replica
+  // chains through these caps.
   const bodyCapSteps = [];
   const bodyStart = hasForeach ? foreachStepIdx + 1 : 0;
   const bodyEnd = collectStepIdx >= 0 ? collectStepIdx : steps.length;
@@ -916,19 +1029,24 @@ function buildRunGraphData(data) {
     }
   }
 
-  // Replica node/edge ids are prefixed to avoid collision with backbone
-  // ids.
+  // Body replicas fan out from the ForEach node. If no ForEach, fall
+  // back to the input_slot. When the strand closes the body with a
+  // Collect, replicas merge into that Collect node; otherwise
+  // (unclosed ForEach) they merge into the `output` node.
+  const anchorNodeId = hasForeach ? `step_${foreachStepIdx}` : 'input_slot';
+  const mergeNodeId = collectStepIdx >= 0 ? `step_${collectStepIdx}` : 'output';
+
   const replicaNodes = [];
   const replicaEdges = [];
 
-  function buildBodyReplica(outcome, groupIndex) {
+  function buildBodyReplica(outcome) {
     const success = outcome.success;
     const successClass = success ? 'body-success' : 'body-failure';
     const edgeClass = success ? 'body-success' : 'body-failure';
     const colorVar = success ? '--graph-body-edge-success' : '--graph-body-edge-failure';
 
-    // Find the trace end (failed_cap stops the trace for failed
-    // bodies). Comparison uses CapUrn.isEquivalent.
+    // Trace end: failures stop at failed_cap. `CapUrn.isEquivalent`
+    // is used for the match — never string equality.
     let traceEnd = bodyCapSteps.length;
     if (!success && typeof outcome.failed_cap === 'string' && outcome.failed_cap.length > 0) {
       const CapUrn = requireHostDependency('CapUrn');
@@ -941,12 +1059,9 @@ function buildRunGraphData(data) {
         }
       }
     }
-    if (traceEnd === 0) return; // Nothing to render for this body.
+    if (traceEnd === 0) return;
 
-    // Anchor to the first body cap's from_spec, which equals the
-    // ForEach's from_spec (fan-out from the same source node).
-    const anchorCanonical = canonicalMediaUrn(bodyCapSteps[0].step.from_spec);
-    let prevBodyNodeId = anchorCanonical;
+    let prevBodyNodeId = anchorNodeId;
     const bodyKey = `body-${outcome.body_index}`;
     const titleLabel = typeof outcome.title === 'string' && outcome.title.length > 0
       ? outcome.title
@@ -973,7 +1088,7 @@ function buildRunGraphData(data) {
           id: `${bodyKey}-e-${i}`,
           source: prevBodyNodeId,
           target: replicaNodeId,
-          label: '',
+          label: i === 0 ? body.title : '',
           title: body.title,
           fullUrn: body.cap_urn,
           color: `var(${colorVar})`,
@@ -984,16 +1099,17 @@ function buildRunGraphData(data) {
       prevBodyNodeId = replicaNodeId;
     }
 
-    // If the collect exists and the body succeeded, attach the replica
-    // tail to the collect's to_spec node so the graph visibly fans in.
-    if (success && collectStepIdx >= 0) {
-      const collectTo = canonicalMediaUrn(steps[collectStepIdx].to_spec);
+    // Successful bodies merge their replica tail back into the Collect
+    // node (or `output` if the ForEach is unclosed) so the graph
+    // visibly fans in. Failed bodies do NOT merge — the trace
+    // terminates at the failed cap.
+    if (success) {
       replicaEdges.push({
         group: 'edges',
         data: {
           id: `${bodyKey}-merge`,
           source: prevBodyNodeId,
-          target: collectTo,
+          target: mergeNodeId,
           label: '',
           title: 'collect',
           fullUrn: '',
@@ -1005,14 +1121,13 @@ function buildRunGraphData(data) {
     }
   }
 
-  visibleSuccess.forEach((o, i) => buildBodyReplica(o, i));
-  visibleFailure.forEach((o, i) => buildBodyReplica(o, i));
+  visibleSuccess.forEach((o) => buildBodyReplica(o));
+  visibleFailure.forEach((o) => buildBodyReplica(o));
 
   // Build success and failure "show more" nodes when there are hidden
-  // outcomes. Anchored at the same ForEach fan-out source.
+  // outcomes. Anchored at the ForEach node (or input_slot if none).
   const showMoreNodes = [];
   if (hasForeach && bodyCapSteps.length > 0) {
-    const anchorCanonical = canonicalMediaUrn(bodyCapSteps[0].step.from_spec);
     if (hiddenSuccessCount > 0) {
       const nodeId = 'show-more-success';
       showMoreNodes.push({
@@ -1030,7 +1145,7 @@ function buildRunGraphData(data) {
         group: 'edges',
         data: {
           id: 'show-more-success-edge',
-          source: anchorCanonical,
+          source: anchorNodeId,
           target: nodeId,
           label: '',
           title: '',
@@ -1057,7 +1172,7 @@ function buildRunGraphData(data) {
         group: 'edges',
         data: {
           id: 'show-more-failure-edge',
-          source: anchorCanonical,
+          source: anchorNodeId,
           target: nodeId,
           label: '',
           title: '',
