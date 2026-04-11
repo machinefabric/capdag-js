@@ -222,6 +222,16 @@ function buildStylesheet() {
   const bodyEdgeSuccess = getCssVar('--graph-body-edge-success');
   const bodyEdgeFailure = getCssVar('--graph-body-edge-failure');
 
+  // Machine mode uses a dedicated palette exposed by the notation
+  // editor's CSS (`--graph-node-color`, `--graph-loop-color`,
+  // `--graph-edge-color`, `--graph-text`, `--graph-muted`). Caps
+  // are collapsed into edges so there's no cap-node color.
+  const machineNodeColor = getCssVar('--graph-node-color');
+  const machineLoopColor = getCssVar('--graph-loop-color');
+  const machineEdgeColor = getCssVar('--graph-edge-color');
+  const machineText = getCssVar('--graph-text');
+  const machineMuted = getCssVar('--graph-muted');
+
   return [
     {
       selector: 'node',
@@ -290,11 +300,14 @@ function buildStylesheet() {
         'font-weight': '500',
         'color': 'data(color)',
         'text-background-color': edgeTextBg,
-        'text-background-opacity': edgeTextBgOpacity,
-        'text-background-padding': '3px',
+        'text-background-opacity': 1,
+        'text-background-padding': '4px',
         'text-background-shape': 'roundrectangle',
-        'text-rotation': 'autorotate',
-        'text-margin-y': -8,
+        // Keep labels horizontal — autorotate clips along
+        // fan-out edges and rotates labels into unreadable
+        // angles when multiple edges share a source.
+        'text-rotation': 0,
+        'text-margin-y': 0,
         'curve-style': 'bezier',
         'control-point-step-size': 40,
         'width': 1.5,
@@ -320,11 +333,21 @@ function buildStylesheet() {
     },
     {
       selector: 'edge.body-success',
-      style: { 'line-color': bodyEdgeSuccess, 'target-arrow-color': bodyEdgeSuccess },
+      style: {
+        'line-color': bodyEdgeSuccess,
+        'target-arrow-color': bodyEdgeSuccess,
+        // Label text uses the resolved success color too, not the
+        // unresolved `var(...)` string stored in `data.color`.
+        'color': bodyEdgeSuccess,
+      },
     },
     {
       selector: 'edge.body-failure',
-      style: { 'line-color': bodyEdgeFailure, 'target-arrow-color': bodyEdgeFailure },
+      style: {
+        'line-color': bodyEdgeFailure,
+        'target-arrow-color': bodyEdgeFailure,
+        'color': bodyEdgeFailure,
+      },
     },
     {
       selector: 'node.path-highlighted',
@@ -333,6 +356,42 @@ function buildStylesheet() {
     {
       selector: 'edge.path-highlighted',
       style: { 'width': 3, 'z-index': 999, 'line-style': 'solid' },
+    },
+
+    // -------- Machine mode ---------------------------------------------
+    // Used by the notation editor's live graph. The machine-mode
+    // builder collapses each cap application into a single
+    // labeled edge between its input and output data slots —
+    // caps do NOT appear as separate nodes. Only data slots are
+    // nodes; cap semantics are carried on edges.
+    //
+    // Reads the editor's dedicated palette so nodes, edges and
+    // loop markers match the text theme.
+    {
+      selector: 'node.machine-node',
+      style: {
+        'background-color': machineNodeColor || nodeBg,
+        'border-color': machineNodeColor || nodeBorder,
+        'color': machineText || nodeText,
+        'border-opacity': 1,
+      },
+    },
+    {
+      selector: 'edge.machine-edge',
+      style: {
+        'line-color': machineEdgeColor || 'data(color)',
+        'target-arrow-color': machineEdgeColor || 'data(color)',
+        'color': machineMuted || nodeText,
+      },
+    },
+    {
+      selector: 'edge.machine-loop',
+      style: {
+        'line-color': machineLoopColor || nodeBorderActive,
+        'target-arrow-color': machineLoopColor || nodeBorderActive,
+        'color': machineLoopColor || nodeBorderActive,
+        'line-style': 'dashed',
+      },
     },
   ];
 }
@@ -447,6 +506,9 @@ function validateStrandPayload(data) {
   if (data.media_display_names !== undefined
       && (data.media_display_names === null || typeof data.media_display_names !== 'object')) {
     throw new Error('CapGraphRenderer strand mode: data.media_display_names must be an object when present');
+  }
+  if (data.source_display !== undefined && typeof data.source_display !== 'string') {
+    throw new Error('CapGraphRenderer strand mode: data.source_display must be a string when present');
   }
 }
 
@@ -759,26 +821,8 @@ function buildStrandGraphData(data) {
       // terminology). Render-time collapse uses this to relabel the
       // edge with the cap title + (1→n) marker. Defaults to false.
       foreachEntry: m.foreachEntry === true,
-      // `singleCapClosedBody` flags a foreach-entry cap edge whose
-      // body is closed by a Collect AND contains exactly one cap.
-      // Such a cap is both the body entry and the body exit; the
-      // render labels the edge with (n→n) to combine iterate+collect.
-      singleCapClosedBody: m.singleCapClosedBody === true,
     });
     edgeCounter++;
-  }
-  // Find the most recently added cap edge whose target is `nodeId`
-  // and stamp it with `singleCapClosedBody=true`. Used by the Collect
-  // handler when a closed body has exactly one cap (bodyEntry === bodyExit).
-  function markSingleCapClosedBody(nodeId) {
-    if (!nodeId) return;
-    for (let idx = edges.length - 1; idx >= 0; idx--) {
-      const e = edges[idx];
-      if (e.edgeClass === 'strand-cap-edge' && e.target === nodeId) {
-        e.singleCapClosedBody = true;
-        return;
-      }
-    }
   }
 
   // Entry node — the strand's source media spec.
@@ -892,15 +936,6 @@ function buildStrandGraphData(data) {
         addNode(nodeId, 'collect', '', 'strand-collect');
         addEdge(exit, nodeId, 'collect', 'collect', '', 'strand-collection');
 
-        // Single-cap closed body: the single cap serves as both the
-        // body entry and the body exit. The render collapse uses
-        // this flag to pick the (n→n) combined cardinality marker
-        // for the entry edge and emit a plain unlabeled connector
-        // for the synthesized exit edge.
-        if (bodyEntry !== null && bodyEntry === bodyExit) {
-          markSingleCapClosedBody(bodyEntry);
-        }
-
         insideForEachBody = null;
         bodyEntry = null;
         bodyExit = null;
@@ -923,10 +958,10 @@ function buildStrandGraphData(data) {
   });
 
   // Handle unclosed ForEach after the walk. Mirrors plan_builder.rs:362-428.
-  // An unclosed ForEach with a body is NOT marked as `singleCapClosedBody`
-  // because there's no Collect closing it — the body "fans out" but
-  // never converges. The body entry still gets (1→n) on its incoming
-  // edge via the foreachEntry flag set in the Cap handler.
+  // An unclosed ForEach with a body just creates the synthetic
+  // ForEach node + iteration edge and leaves `prev_node_id` at
+  // the last body cap. The render collapse drops the ForEach node;
+  // the cap edges inside the body keep their own labels verbatim.
   if (insideForEachBody !== null) {
     const outer = insideForEachBody;
     const hasBodyEntry = bodyEntry !== null;
@@ -974,21 +1009,18 @@ function buildStrandGraphData(data) {
 //
 //   2. The first cap edge entering a ForEach body is relabeled to
 //      `<cap_title> (1→n)`. The builder flags those edges with
-//      `foreachEntry: true`. The (1→n) overrides whatever cardinality
-//      the cap's own `input_is_sequence`/`output_is_sequence` would
-//      produce, because visually the transition is the foreach.
+//      `foreachEntry: true`. The collapse does NOT relabel this
+//      edge — the cap's own cardinality marker (from its
+//      `input_is_sequence`/`output_is_sequence`) is the single
+//      source of truth. A `(1→n)` marker on a strand edge means
+//      the cap on that edge produces a sequence, and that's
+//      already reflected in the builder's label.
 //
-//   3. The last cap edge exiting a ForEach body is replaced by a
-//      synthesized bridging edge labeled `<cap_title> (n→1)` — the
-//      symmetric counterpart of the foreach-entry (1→n) label.
-//      For a single-cap body (same cap is entry and exit) the flag
-//      `singleCapClosedBody` collapses both markers into a single
-//      `(n→n)` label on the entry edge, and the exit side becomes
-//      a plain unlabeled connector.
-//
-//   4. Standalone Collect (not wrapping a ForEach) synthesizes a
-//      plain edge labeled `"collect"` — the Collect is rendered
-//      as a transition, not the preceding cap's own label.
+//   3. Every Collect (whether closing a body or standalone) is
+//      replaced by a plain unlabeled bridging edge from the
+//      body-exit node to the post-collect target. Any cardinality
+//      shift introduced by the collect is already visible on the
+//      post-collect cap's `input_is_sequence=true` flag.
 //
 //   4. If the last cap step's `to_spec` is semantically equivalent
 //      to the strand's `target_spec` (via MediaUrn.isEquivalent),
@@ -997,40 +1029,20 @@ function buildStrandGraphData(data) {
 //      duplicate node.
 function collapseStrandShapeTransitions(built) {
   const MediaUrn = requireHostDependency('MediaUrn');
-  const foreachCardinality = cardinalityLabel(false, true); // "1→n"
-  const collectCardinality = cardinalityLabel(true, false); // "n→1"
 
   // Index for lookups.
   const nodeById = new Map();
   for (const n of built.nodes) nodeById.set(n.id, n);
 
-  // Step 1: before dropping Collect nodes, synthesize the
+  // Step 1: before dropping Collect nodes, synthesize a plain
   // bridging edge that replaces each dropped Collect. For a
   // Collect node C the plan builder produced:
   //   body_exit → C   (strand-collection, label="collect")
   //   C → next        (strand-cap-edge, label="")
-  // The collapse drops C and its two touching edges. To preserve
-  // the flow from body_exit to `next`, we synthesize a new edge
-  // body_exit → next. Its label depends on the Collect's
-  // context (determined by inspecting the body_exit cap's own
-  // incoming edge):
-  //
-  //   * Standalone Collect (no enclosing foreach; body_exit is a
-  //     plain cap with no foreach markers): synthesize a plain
-  //     edge labeled "collect" — the Collect itself is the
-  //     transition the user sees.
-  //
-  //   * Closed-body Collect with a single-cap body (the body_exit
-  //     cap edge is flagged `singleCapClosedBody`): synthesize an
-  //     unlabeled connector. The single cap's own entry edge is
-  //     relabeled with (n→n) in step 2 and carries both the
-  //     iterate and collect semantics at once.
-  //
-  //   * Closed-body Collect with a multi-cap body (body_exit cap
-  //     edge is a plain cap edge inside the body, NOT marked as
-  //     foreachEntry or singleCapClosedBody): label the synth
-  //     edge with the body-exit cap's title + (n→1) — the
-  //     symmetric counterpart of the foreach-entry (1→n) label.
+  // The collapse drops C and its two touching edges. We emit an
+  // unlabeled `body_exit → next` cap edge in their place. The
+  // Collect transition itself is invisible — any cardinality
+  // shift is already on the post-collect cap's own label.
   const synthesizedExitEdges = [];
   for (const node of built.nodes) {
     if (node.nodeClass !== 'strand-collect') continue;
@@ -1043,69 +1055,22 @@ function collapseStrandShapeTransitions(built) {
         const bodyExitNodeId = inEdge.source;
         const bodyExitCapEdge = built.edges.find(e =>
           e.edgeClass === 'strand-cap-edge' && e.target === bodyExitNodeId);
-        // Is the Collect part of a closed foreach body? A Collect
-        // is "closed" when the body_exit cap is reachable from the
-        // same foreach that the Collect closes. We detect this by
-        // checking whether the Collect's target node has any
-        // incoming iteration edge (i.e. there's a strand-foreach
-        // node whose outgoing iteration reaches the body_exit or
-        // one of its upstream cap nodes). Simpler heuristic that
-        // works for every shape we emit: the body_exit has an
-        // ancestor that is a strand-foreach node.
-        let hasEnclosingForeach = false;
-        {
-          const visited = new Set();
-          const stack = [bodyExitNodeId];
-          while (stack.length > 0) {
-            const cur = stack.pop();
-            if (visited.has(cur)) continue;
-            visited.add(cur);
-            const curNode = built.nodes.find(n => n.id === cur);
-            if (curNode && curNode.nodeClass === 'strand-foreach') {
-              hasEnclosingForeach = true;
-              break;
-            }
-            for (const up of built.edges) {
-              if (up.target === cur) stack.push(up.source);
-            }
-          }
-        }
-        let synthLabel;
-        let synthTitle;
-        let synthFullUrn;
-        if (!hasEnclosingForeach) {
-          // Standalone Collect.
-          synthLabel = 'collect';
-          synthTitle = 'collect';
-          synthFullUrn = '';
-        } else if (bodyExitCapEdge && bodyExitCapEdge.singleCapClosedBody) {
-          // Single-cap closed body. The cap's own entry edge is
-          // relabeled with (n→n) in step 2; the exit side is just
-          // a connector with no duplicate label.
-          synthLabel = '';
-          synthTitle = '';
-          synthFullUrn = '';
-        } else {
-          // Multi-cap closed body. The body_exit cap's own
-          // incoming edge stays unmodified (carrying just the
-          // cap title, no cardinality markers). The synthesized
-          // exit edge carries the (n→1) collect marker.
-          const title = bodyExitCapEdge ? bodyExitCapEdge.title : '';
-          synthLabel = `${title} (${collectCardinality})`;
-          synthTitle = title;
-          synthFullUrn = bodyExitCapEdge ? bodyExitCapEdge.fullUrn : '';
-        }
+        // The Collect transition is invisible in the render.
+        // Every Collect becomes a plain unlabeled bridge edge
+        // from the body-exit node to the post-collect target.
+        // Any cardinality shift is already visible on the
+        // body-exit cap's own label (via its input/output
+        // sequence flags) or on the post-collect cap's label.
         synthesizedExitEdges.push({
           id: `${node.id}-collapsed-exit-${synthesizedExitEdges.length}`,
           source: bodyExitNodeId,
           target: outEdge.target,
-          label: synthLabel,
-          title: synthTitle,
-          fullUrn: synthFullUrn,
+          label: '',
+          title: '',
+          fullUrn: '',
           edgeClass: 'strand-cap-edge',
           color: bodyExitCapEdge ? bodyExitCapEdge.color : inEdge.color,
           foreachEntry: false,
-          singleCapClosedBody: false,
         });
       }
     }
@@ -1128,29 +1093,15 @@ function collapseStrandShapeTransitions(built) {
     e.edgeClass !== 'strand-collection');
   edges = edges.concat(synthesizedExitEdges);
 
-  // Step 2: relabel flagged foreach-entry cap edges with the
-  // cap title + cardinality marker.
-  //
-  // When the body is a single cap (bodyEntry === bodyExit under a
-  // closed Collect), the cap edge has `singleCapClosedBody: true`
-  // and we use (n→n) — the outer sequence is iterated, the cap
-  // runs per-item, and the result is collected back into a
-  // sequence. Otherwise we use plain (1→n) for the foreach entry.
-  const iterAndCollectCardinality = cardinalityLabel(true, true); // "n→n"
-  edges = edges.map(e => {
-    if (e.edgeClass !== 'strand-cap-edge') return e;
-    if (e.foreachEntry && e.singleCapClosedBody) {
-      return Object.assign({}, e, {
-        label: `${e.title} (${iterAndCollectCardinality})`,
-      });
-    }
-    if (e.foreachEntry) {
-      return Object.assign({}, e, {
-        label: `${e.title} (${foreachCardinality})`,
-      });
-    }
-    return e;
-  });
+  // Step 2: foreach-entry cap edges keep whatever label the
+  // strand builder emitted — the cap's own cardinality marker
+  // (from input_is_sequence/output_is_sequence) is the single
+  // source of truth for which edge carries a (1→n) / (n→1) /
+  // (n→n) annotation. The ForEach/Collect shape transitions
+  // themselves are invisible in the render; the cap preceding a
+  // ForEach (with output_is_sequence=true) already produces the
+  // (1→n) marker, and the cap following a Collect (with
+  // input_is_sequence=true) produces (n→1). No relabeling.
 
   // Step 3: merge the trailing `step_N → output` edge when step_N
   // and output represent the same media URN. The strand builder
@@ -1252,74 +1203,21 @@ function findCapStepIndexByUrn(steps, targetUrnString) {
   return -1;
 }
 
-// Remove body-interior cap nodes (caps strictly AFTER the first
-// body cap) from a COLLAPSED strand backbone so that per-body
-// replicas are the only visible path through the foreach body.
-// The FIRST body cap node is retained — its incoming foreachEntry
-// edge is the backbone "fallback connector" that keeps the graph
-// connected when zero bodies succeed.
+// Remove backbone cap nodes that will be replaced by per-body
+// replicas from the collapsed strand backbone. Every step_id in
+// `dropStepIds` is erased along with its incoming and outgoing
+// edges. Replicas own the per-body rendering of those nodes.
 //
-// Dropping interior body caps also drops their outgoing edges,
-// including any synthesized collect-exit edge that would have
-// connected the last body cap to the post-collect target. To
-// preserve connectivity, the function replaces those with a
-// plain bridging edge from the first body cap directly to the
-// post-collect target.
-function stripRunBackboneBodyInterior(built, steps, foreachStepIdx, collectStepIdx) {
-  if (foreachStepIdx < 0) return built;
-  const bodyEnd = collectStepIdx >= 0 ? collectStepIdx : steps.length;
-
-  const interiorStepIdxs = [];
-  for (let i = foreachStepIdx + 1; i < bodyEnd; i++) {
-    if (Object.keys(steps[i].step_type)[0] === 'Cap') {
-      interiorStepIdxs.push(i);
-    }
-  }
-  if (interiorStepIdxs.length <= 1) {
-    // Zero or one body cap — no prototype chain to strip.
-    return built;
-  }
-
-  const firstBodyStepId = `step_${interiorStepIdxs[0]}`;
-  const lastBodyStepId = `step_${interiorStepIdxs[interiorStepIdxs.length - 1]}`;
-  const dropInteriorIds = new Set();
-  for (let i = 1; i < interiorStepIdxs.length; i++) {
-    dropInteriorIds.add(`step_${interiorStepIdxs[i]}`);
-  }
-
-  // Find the post-body target: the node that the last body cap's
-  // outgoing edge points at in the collapsed backbone. This is
-  // usually `output` or (after the collect-exit synth) the merged
-  // target node.
-  const postBodyEdge = built.edges.find(e => e.source === lastBodyStepId);
-  const postBodyTarget = postBodyEdge ? postBodyEdge.target : null;
-
-  const keptNodes = built.nodes.filter(n => !dropInteriorIds.has(n.id));
-  let keptEdges = built.edges.filter(e =>
-    !dropInteriorIds.has(e.source) && !dropInteriorIds.has(e.target));
-
-  // Bridge firstBody → postBodyTarget directly with a plain
-  // unlabeled connector so the graph stays connected. Replicas
-  // will overlay labeled chains alongside this connector.
-  if (postBodyTarget && postBodyTarget !== firstBodyStepId) {
-    const bridgeExists = keptEdges.some(e =>
-      e.source === firstBodyStepId && e.target === postBodyTarget);
-    if (!bridgeExists) {
-      keptEdges = keptEdges.concat([{
-        id: `run-bridge-${firstBodyStepId}-${postBodyTarget}`,
-        source: firstBodyStepId,
-        target: postBodyTarget,
-        label: '',
-        title: '',
-        fullUrn: '',
-        edgeClass: 'strand-cap-edge',
-        color: postBodyEdge ? postBodyEdge.color : edgeHueColor(0),
-        foreachEntry: false,
-        singleCapClosedBody: false,
-      }]);
-    }
-  }
-
+// The function does NOT try to stitch the backbone back together —
+// the replicas are responsible for connecting the anchor to the
+// merge target, and the "no outcomes yet" case is handled by
+// `buildRunGraphData`'s backbone-drop logic which also removes the
+// now-dangling target node when there are zero successful replicas.
+function stripRunBackboneReplicaNodes(built, dropStepIds) {
+  if (dropStepIds.size === 0) return built;
+  const keptNodes = built.nodes.filter(n => !dropStepIds.has(n.id));
+  const keptEdges = built.edges.filter(e =>
+    !dropStepIds.has(e.source) && !dropStepIds.has(e.target));
   return {
     nodes: keptNodes,
     edges: keptEdges,
@@ -1331,19 +1229,34 @@ function stripRunBackboneBodyInterior(built, steps, foreachStepIdx, collectStepI
 function buildRunGraphData(data) {
   validateRunPayload(data);
 
-  // Build the raw strand topology and then apply the cosmetic
-  // collapse — run mode uses the SAME cleaned-up backbone that
-  // strand mode uses (no ForEach/Collect nodes). Replicas are an
-  // additional overlay on top of that collapsed backbone.
+  // Build the raw strand topology and then apply the strand
+  // collapse so the run backbone inherits the same cosmetic
+  // transform (no ForEach/Collect nodes, fix-up edges for
+  // foreach-entry, merged trailing target).
   const strandInput = Object.assign({}, data.resolved_strand, {
     media_display_names: data.media_display_names,
   });
   const strandBuiltRaw = buildStrandGraphData(strandInput);
-  const strandBuiltCollapsed = collapseStrandShapeTransitions(strandBuiltRaw);
+  let strandBuiltCollapsed = collapseStrandShapeTransitions(strandBuiltRaw);
 
-  // Locate the ForEach/Collect span in the raw steps. Positional IDs
-  // survive the collapse (node IDs are `step_${i}` from the builder),
-  // so we can still identify which collapsed nodes are the body caps.
+  // Run mode overrides the input_slot node's label with the
+  // host-supplied `source_display` (runtime input filename).
+  // Strand mode ignores this field so the abstract graph shows
+  // the media spec's title from `media_display_names`.
+  if (typeof data.source_display === 'string' && data.source_display.length > 0) {
+    strandBuiltCollapsed = {
+      nodes: strandBuiltCollapsed.nodes.map(n =>
+        n.id === 'input_slot' ? Object.assign({}, n, { label: data.source_display }) : n),
+      edges: strandBuiltCollapsed.edges,
+      sourceSpec: strandBuiltCollapsed.sourceSpec,
+      targetSpec: strandBuiltCollapsed.targetSpec,
+    };
+  }
+
+  // Locate the ForEach/Collect span in the raw steps. Positional
+  // IDs survive the collapse (node IDs are `step_${i}` from the
+  // builder), so we can still identify which collapsed nodes
+  // correspond to body-interior caps.
   const steps = data.resolved_strand.steps;
   let foreachStepIdx = -1;
   let collectStepIdx = -1;
@@ -1353,15 +1266,7 @@ function buildRunGraphData(data) {
     if (variant === 'Collect' && collectStepIdx < 0) collectStepIdx = i;
   }
   const hasForeach = foreachStepIdx >= 0;
-
-  // Drop interior body-cap nodes (caps 2..N inside the body) from
-  // the collapsed backbone so the prototype chain doesn't duplicate
-  // the per-body replicas visually. The FIRST body cap is retained
-  // as the body-entry node so the backbone's foreachEntry edge
-  // (`<cap_title> (1→n)`) still has a landing point.
-  let strandBuilt = hasForeach
-    ? stripRunBackboneBodyInterior(strandBuiltCollapsed, steps, foreachStepIdx, collectStepIdx)
-    : strandBuiltCollapsed;
+  const hasCollect = collectStepIdx >= 0;
 
   // Filter and bound the outcomes.
   const allOutcomes = data.body_outcomes.slice().sort((a, b) => a.body_index - b.body_index);
@@ -1371,97 +1276,180 @@ function buildRunGraphData(data) {
   const visibleFailure = failures.slice(0, data.visible_failure_count);
   const hiddenSuccessCount = successes.length - visibleSuccess.length;
   const hiddenFailureCount = failures.length - visibleFailure.length;
+  const visibleOutcomes = visibleSuccess.concat(visibleFailure);
 
-  // Collect the Cap steps inside the ForEach body. Each body replica
-  // chains through these caps.
+  // Per-body replicas only fire when there's a ForEach AND at
+  // least one visible outcome. Without outcomes, the strand
+  // backbone renders the "plan preview" unchanged.
+  const shouldExpand = hasForeach && visibleOutcomes.length > 0;
+
+  // Body-interior Cap steps — each body iteration chains through
+  // these caps once. Only valid when `shouldExpand` is true.
   const bodyCapSteps = [];
-  const bodyStart = hasForeach ? foreachStepIdx + 1 : 0;
-  const bodyEnd = collectStepIdx >= 0 ? collectStepIdx : steps.length;
-  for (let i = bodyStart; i < bodyEnd; i++) {
-    if (Object.keys(steps[i].step_type)[0] === 'Cap') {
-      bodyCapSteps.push({ globalIndex: i, step: steps[i] });
+  if (hasForeach) {
+    const bodyStart = foreachStepIdx + 1;
+    const bodyEnd = hasCollect ? collectStepIdx : steps.length;
+    for (let i = bodyStart; i < bodyEnd; i++) {
+      if (Object.keys(steps[i].step_type)[0] === 'Cap') {
+        bodyCapSteps.push({ globalIndex: i, step: steps[i] });
+      }
     }
   }
 
-  // Body replicas fan out from the node BEFORE the foreach (which,
-  // in the collapsed backbone, is the source of the foreachEntry
-  // edge). For a foreach at step index k, the pre-foreach node is
-  // `step_${k-1}` when k > 0, or `input_slot` when k == 0. This
-  // node survives the collapse as a regular `strand-cap` or
-  // `strand-source` node.
-  //
-  // Replicas merge back at the node AFTER the body. After collapse,
-  // this is the FIRST body cap node (`step_${bodyCapSteps[0]}`)
-  // when the ForEach has a single-cap body, or the post-collect
-  // node for multi-cap bodies. The post-collect node is whatever
-  // the plan builder's Collect step connected to downstream, which
-  // after collapse is either the next cap (`step_${collectStepIdx+1}`)
-  // or the target/output node (possibly merged into the last body
-  // cap if their URNs are equivalent).
-  const anchorNodeId = hasForeach && foreachStepIdx > 0
-    ? `step_${foreachStepIdx - 1}`
-    : 'input_slot';
+  // Short-circuit: no outcomes → the backbone IS the render.
+  // `anchorNodeId` and `mergeNodeId` are unused in this path.
+  if (!shouldExpand) {
+    return {
+      strandBuilt: strandBuiltCollapsed,
+      replicaNodes: [],
+      replicaEdges: [],
+      showMoreNodes: [],
+      totals: {
+        hiddenSuccessCount,
+        hiddenFailureCount,
+        totalBodyCount: data.total_body_count,
+        visibleSuccessCount: visibleSuccess.length,
+        visibleFailureCount: visibleFailure.length,
+      },
+    };
+  }
 
-  // Find the merge node by scanning the collapsed backbone for the
-  // node the body reaches after the foreach body. Start from the
-  // first body cap node and follow forward edges until we leave
-  // the body. For a single-body-cap strand where the body cap IS
-  // the merged target, `mergeNodeId` resolves to that node.
-  let mergeNodeId;
-  {
-    // Find body cap step indices in the resolved strand so we can
-    // identify which step IDs are "inside body" (should be skipped
-    // when finding the merge target).
-    const bodyInteriorSet = new Set();
-    const bodyEnd = collectStepIdx >= 0 ? collectStepIdx : steps.length;
-    for (let i = foreachStepIdx + 1; i < bodyEnd; i++) {
-      if (Object.keys(steps[i].step_type)[0] === 'Cap') {
-        bodyInteriorSet.add(`step_${i}`);
+  // Expanding. The plan mirrors the working
+  // `machfab-mac/.scrap/working_graph/.../RunGraphViewer.html`:
+  //
+  //   pre-foreach backbone ... → [anchor]
+  //                                 │
+  //                                 │ (Disbind PDF Into Pages, fork)
+  //                                 ▼
+  //             body_N_entry (per-body page, e.g. "page_3")
+  //                   │ (Make a Decision)
+  //                   ▼
+  //             body_N_step_0 (per-body Decision output)
+  //                   │
+  //                   ▼  (if Collect exists) → shared collect target
+  //                      (else terminal leaf)
+  //
+  // If the cap immediately before the ForEach has
+  // `output_is_sequence=true`, THAT cap is the fan-out point:
+  // its output IS the sequence the ForEach iterates. Its
+  // backbone output node is dropped (replicas own the per-body
+  // rendering), and its step becomes the "fork cap" whose title
+  // labels the anchor→entry edge on the first body.
+  //
+  // Without such a preceding sequence cap, the source itself is
+  // already a list (e.g. `media:pdf;list` source_spec) and the
+  // ForEach iterates it directly.
+  let seqProducerStepIdx = -1;
+  let seqProducerStep = null;
+  if (hasForeach && foreachStepIdx > 0) {
+    const preStep = steps[foreachStepIdx - 1];
+    if (Object.keys(preStep.step_type)[0] === 'Cap'
+        && preStep.step_type.Cap.output_is_sequence === true) {
+      seqProducerStepIdx = foreachStepIdx - 1;
+      seqProducerStep = preStep;
+    }
+  }
+
+  // The anchor is the node BEFORE the sequence producer (or
+  // before the ForEach if there is none). Every body iteration
+  // shares this node as its starting point; per-body entries fan
+  // out from here.
+  let anchorNodeId;
+  if (seqProducerStepIdx >= 0) {
+    anchorNodeId = seqProducerStepIdx > 0
+      ? `step_${seqProducerStepIdx - 1}`
+      : 'input_slot';
+  } else {
+    anchorNodeId = foreachStepIdx > 0
+      ? `step_${foreachStepIdx - 1}`
+      : 'input_slot';
+  }
+
+  // Strip nodes whose per-body replicas will replace them:
+  // the sequence producer's backbone output (if any) AND every
+  // body-interior cap. The foreach-entry edge is dropped
+  // automatically because its source/target is in this set.
+  const dropStepIds = new Set(bodyCapSteps.map(b => `step_${b.globalIndex}`));
+  if (seqProducerStepIdx >= 0) {
+    dropStepIds.add(`step_${seqProducerStepIdx}`);
+  }
+  let strandBuilt = stripRunBackboneReplicaNodes(strandBuiltCollapsed, dropStepIds);
+
+  // If there's a Collect, find the post-collect target in the
+  // backbone — the node successful replicas merge into. This is
+  // the first node reachable forward from the last body cap that
+  // isn't itself a body cap. Walk the pre-strip backbone so we
+  // can cross over the now-dropped body cap nodes.
+  let collectTargetId = null;
+  if (hasCollect && bodyCapSteps.length > 0) {
+    const lastBodyStepId = `step_${bodyCapSteps[bodyCapSteps.length - 1].globalIndex}`;
+    let cursor = lastBodyStepId;
+    let guard = 64;
+    while (guard-- > 0) {
+      const out = strandBuiltCollapsed.edges.find(e => e.source === cursor);
+      if (!out) break;
+      cursor = out.target;
+      if (!dropStepIds.has(cursor)) {
+        collectTargetId = cursor;
+        break;
       }
     }
-    // Start from the first body cap and walk forward.
-    const firstBodyCapIdx = (() => {
-      for (let i = foreachStepIdx + 1; i < bodyEnd; i++) {
-        if (Object.keys(steps[i].step_type)[0] === 'Cap') return i;
-      }
-      return -1;
-    })();
-    if (firstBodyCapIdx < 0) {
-      mergeNodeId = 'output';
-    } else {
-      // Walk the collapsed strand's edges starting from the first
-      // body cap node; the merge target is the first node reached
-      // that isn't inside the body.
-      let cursor = `step_${firstBodyCapIdx}`;
-      let guard = 64;
-      const collapsedNodeIds = new Set(strandBuilt.nodes.map(n => n.id));
-      while (guard-- > 0) {
-        // If the cursor is itself outside the body, we've found it.
-        if (!bodyInteriorSet.has(cursor) && collapsedNodeIds.has(cursor)) {
-          mergeNodeId = cursor;
-          break;
-        }
-        // Otherwise follow the cursor's outgoing edge.
-        const out = strandBuilt.edges.find(e => e.source === cursor);
-        if (!out) {
-          // Nothing to follow — the body cap IS the end of the
-          // strand. Use the cursor as the merge point (it's
-          // typically the merged target node).
-          mergeNodeId = cursor;
-          break;
-        }
-        cursor = out.target;
-      }
-      if (mergeNodeId === undefined) {
-        // Guard exhausted — fall back to output. This is impossible
-        // for any well-formed strand but keeps the runtime safe.
-        mergeNodeId = 'output';
-      }
-    }
+    // If the last-body-step is itself the merged terminal (no
+    // outgoing edge), there's no separate collect target —
+    // replicas simply don't merge and the terminal node stays
+    // dropped.
   }
 
   const replicaNodes = [];
   const replicaEdges = [];
+  let replicasBuiltCount = 0;
+
+  // Look up a display name for a media URN via the host-supplied
+  // `media_display_names` map. Uses `MediaUrn.isEquivalent` for
+  // semantic URN equality.
+  const MediaUrn = requireHostDependency('MediaUrn');
+  const mediaDisplayNames = data.media_display_names || {};
+  const displayEntries = [];
+  for (const [urn, display] of Object.entries(mediaDisplayNames)) {
+    if (typeof display !== 'string' || display.length === 0) continue;
+    try {
+      displayEntries.push({ media: MediaUrn.fromString(urn), display });
+    } catch (_) { /* ignore malformed keys */ }
+  }
+  function displayNameFor(canonicalUrn) {
+    const candidate = MediaUrn.fromString(canonicalUrn);
+    for (const entry of displayEntries) {
+      if (candidate.isEquivalent(entry.media)) return entry.display;
+    }
+    return mediaNodeLabel(canonicalUrn);
+  }
+
+  // The per-body "entry" node represents one item of the
+  // sequence being iterated. Its URN is:
+  //   * the sequence producer cap's `to_spec` (if such a cap
+  //     precedes the ForEach) — this is what Disbind produces,
+  //     one-per-body.
+  //   * otherwise the ForEach step's own `to_spec` — used when
+  //     the source spec is already a list.
+  // Its label defaults to the display name of that URN and is
+  // overridden by the host's per-body `outcome.title` (e.g.
+  // "page_3") when provided.
+  const entryUrn = seqProducerStep
+    ? canonicalMediaUrn(seqProducerStep.to_spec)
+    : canonicalMediaUrn(steps[foreachStepIdx].to_spec);
+  const entryDefaultLabel = displayNameFor(entryUrn);
+
+  // Label shown on the anchor → first-body-entry edge. When the
+  // fan-out is caused by a sequence-producing cap, its title
+  // (e.g. "Disbind PDF Into Pages") labels that edge. The label
+  // appears on the FIRST body's fork edge only to avoid N copies
+  // of the same title cluttering the fan.
+  const forkEdgeTitle = seqProducerStep
+    ? seqProducerStep.step_type.Cap.title
+    : '';
+  const forkEdgeFullUrn = seqProducerStep
+    ? seqProducerStep.step_type.Cap.cap_urn
+    : '';
 
   function buildBodyReplica(outcome) {
     const success = outcome.success;
@@ -1469,7 +1457,7 @@ function buildRunGraphData(data) {
     const edgeClass = success ? 'body-success' : 'body-failure';
     const colorVar = success ? '--graph-body-edge-success' : '--graph-body-edge-failure';
 
-    // Trace end: failures stop at failed_cap. `CapUrn.isEquivalent`
+    // Trace end: failures stop at `failed_cap`. `CapUrn.isEquivalent`
     // is used for the match — never string equality.
     let traceEnd = bodyCapSteps.length;
     if (!success && typeof outcome.failed_cap === 'string' && outcome.failed_cap.length > 0) {
@@ -1483,13 +1471,48 @@ function buildRunGraphData(data) {
         }
       }
     }
-    if (traceEnd === 0) return;
 
-    let prevBodyNodeId = anchorNodeId;
     const bodyKey = `body-${outcome.body_index}`;
     const titleLabel = typeof outcome.title === 'string' && outcome.title.length > 0
       ? outcome.title
-      : `body ${outcome.body_index}`;
+      : entryDefaultLabel;
+
+    // Per-body entry node: one item from the iterated sequence.
+    const entryNodeId = `${bodyKey}-entry`;
+    replicaNodes.push({
+      group: 'nodes',
+      data: {
+        id: entryNodeId,
+        label: titleLabel,
+        fullUrn: entryUrn,
+        bodyIndex: outcome.body_index,
+        bodyTitle: titleLabel,
+      },
+      classes: successClass,
+    });
+
+    // Fan-out edge from the pre-foreach anchor to this body's
+    // entry. The fork label (cap title) shows on the FIRST body
+    // only to avoid N copies of the same title cluttering the
+    // fan. The `title` tooltip always exposes the cap title.
+    const isFirstReplica = replicasBuiltCount === 0;
+    const forkLabel = (forkEdgeTitle && isFirstReplica) ? forkEdgeTitle : '';
+    replicaEdges.push({
+      group: 'edges',
+      data: {
+        id: `${bodyKey}-fork`,
+        source: anchorNodeId,
+        target: entryNodeId,
+        label: forkLabel,
+        title: forkEdgeTitle || `body ${outcome.body_index}`,
+        fullUrn: forkEdgeFullUrn,
+        color: `var(${colorVar})`,
+        bodyIndex: outcome.body_index,
+      },
+      classes: edgeClass,
+    });
+
+    let prevBodyNodeId = entryNodeId;
 
     for (let i = 0; i < traceEnd; i++) {
       const body = bodyCapSteps[i].step.step_type.Cap;
@@ -1499,7 +1522,7 @@ function buildRunGraphData(data) {
         group: 'nodes',
         data: {
           id: replicaNodeId,
-          label: mediaNodeLabel(targetCanonical),
+          label: displayNameFor(targetCanonical),
           fullUrn: targetCanonical,
           bodyIndex: outcome.body_index,
           bodyTitle: titleLabel,
@@ -1513,10 +1536,9 @@ function buildRunGraphData(data) {
           source: prevBodyNodeId,
           target: replicaNodeId,
           // Replica edges carry no inline label — the cap title is
-          // identical across every visible replica and would just
-          // pile up as unreadable rotated text over the fan-out.
-          // Hover tooltip exposes the title via `title`; the edge
-          // color + the replica node identify the body.
+          // identical across every visible replica and would pile
+          // up as unreadable rotated text across the fan-out. The
+          // hover tooltip exposes the title via `title`.
           label: '',
           title: body.title,
           fullUrn: body.cap_urn,
@@ -1528,17 +1550,18 @@ function buildRunGraphData(data) {
       prevBodyNodeId = replicaNodeId;
     }
 
-    // Successful bodies merge their replica tail back into the Collect
-    // node (or `output` if the ForEach is unclosed) so the graph
-    // visibly fans in. Failed bodies do NOT merge — the trace
-    // terminates at the failed cap.
-    if (success) {
+    // Successful bodies merge into the collect target ONLY when a
+    // Collect closes the foreach body. Without a Collect (the
+    // common "unclosed foreach" case in machfab realize_strand),
+    // replicas terminate at their last body step — each body has
+    // its own separate output, no shared merge.
+    if (success && hasCollect && collectTargetId) {
       replicaEdges.push({
         group: 'edges',
         data: {
-          id: `${bodyKey}-merge`,
+          id: `${bodyKey}-collect`,
           source: prevBodyNodeId,
-          target: mergeNodeId,
+          target: collectTargetId,
           label: '',
           title: 'collect',
           fullUrn: '',
@@ -1548,48 +1571,11 @@ function buildRunGraphData(data) {
         classes: edgeClass,
       });
     }
+
+    replicasBuiltCount++;
   }
 
-  visibleSuccess.forEach((o) => buildBodyReplica(o));
-  visibleFailure.forEach((o) => buildBodyReplica(o));
-
-  // Once any replicas are rendered (success or failure), the
-  // backbone foreach-entry edge becomes a stale placeholder — the
-  // replicas ARE the actual execution traces, so the user
-  // shouldn't see a duplicate labeled "1→n" edge alongside them.
-  // Drop the backbone foreach-entry edge whenever we emit
-  // replicas, AND if there were zero successful replicas also
-  // drop the orphaned merge node: nothing reached it, and
-  // showing a disconnected node misleads the user into thinking
-  // the target was reached.
-  if (hasForeach && (visibleSuccess.length > 0 || visibleFailure.length > 0)) {
-    const backboneForeachEntry = strandBuilt.edges.find(e =>
-      e.edgeClass === 'strand-cap-edge' &&
-      e.source === anchorNodeId &&
-      e.foreachEntry === true);
-    let newEdges = strandBuilt.edges;
-    let newNodes = strandBuilt.nodes;
-    if (backboneForeachEntry) {
-      newEdges = newEdges.filter(e => e.id !== backboneForeachEntry.id);
-    }
-    // If no successful replica will merge into `mergeNodeId`, and
-    // the merge node is now only reachable via the (just-dropped)
-    // backbone edge, drop the merge node itself.
-    if (visibleSuccess.length === 0 && mergeNodeId) {
-      const stillIncoming = newEdges.some(e => e.target === mergeNodeId);
-      const replicaIncoming = replicaEdges.some(e => e.data && e.data.target === mergeNodeId);
-      if (!stillIncoming && !replicaIncoming) {
-        newNodes = newNodes.filter(n => n.id !== mergeNodeId);
-        newEdges = newEdges.filter(e => e.source !== mergeNodeId && e.target !== mergeNodeId);
-      }
-    }
-    strandBuilt = {
-      nodes: newNodes,
-      edges: newEdges,
-      sourceSpec: strandBuilt.sourceSpec,
-      targetSpec: strandBuilt.targetSpec,
-    };
-  }
+  visibleOutcomes.forEach((o) => buildBodyReplica(o));
 
   // Build success and failure "show more" nodes when there are hidden
   // outcomes. Anchored at the ForEach node (or input_slot if none).
@@ -1667,9 +1653,10 @@ function buildRunGraphData(data) {
 }
 
 function runCytoscapeElements(built) {
-  // Do NOT collapse ForEach/Collect nodes in run mode — body replicas
-  // anchor at the ForEach node (fan-out) and merge at the Collect
-  // node (fan-in). Those junctions must stay visible.
+  // Run mode's `buildRunGraphData` already applied the strand
+  // collapse to its backbone (and dropped body-interior caps
+  // that are replaced by per-body replicas). Emit the backbone
+  // verbatim — `{ collapse: false }` prevents a second pass.
   const strandElements = strandCytoscapeElements(built.strandBuilt, { collapse: false });
   return strandElements
     .concat(built.replicaNodes)
@@ -1679,56 +1666,139 @@ function runCytoscapeElements(built) {
 
 // --------- Machine mode builder ---------------------------------------------
 
+// The notation analyzer emits a bipartite graph where each cap
+// application is a 3-element chain:
+//
+//   data_node → [argument edge] → cap_node → [argument edge] → data_node
+//
+// The render collapses that chain into a single labeled data→data
+// edge carrying the cap's name (and cardinality marker derived
+// from the source/target data nodes' `is_sequence` flags). Cap
+// nodes and argument edges are dropped. The result is a clean
+// abstract-machine view that matches strand mode's rendering
+// style: one edge per cap application, labeled with the cap
+// title, with cardinality markers where relevant.
 function buildMachineGraphData(data) {
   validateMachinePayload(data);
-  const nodes = [];
-  const edges = [];
-  let capEdgeIdx = 0;
+
+  // Index elements by kind for quick lookup.
+  const dataNodes = new Map(); // graph_id → element
+  const capNodes = new Map();  // graph_id → element
+  const argEdges = [];         // list of edge elements
   for (const el of data.elements) {
     if (el.kind === 'node') {
-      nodes.push({
-        group: 'nodes',
-        data: {
-          id: el.graph_id,
-          label: el.label || '',
-          fullUrn: el.detail || el.label || '',
-          tokenId: el.token_id || '',
-          kind: 'node',
-        },
-        classes: 'machine-node',
-      });
+      dataNodes.set(el.graph_id, el);
     } else if (el.kind === 'cap') {
-      nodes.push({
-        group: 'nodes',
-        data: {
-          id: el.graph_id,
-          label: el.label || '',
-          fullUrn: el.detail || el.label || '',
-          tokenId: el.token_id || '',
-          kind: 'cap',
-        },
-        classes: 'machine-cap' + (el.is_loop ? ' machine-loop' : ''),
-      });
+      capNodes.set(el.graph_id, el);
     } else if (el.kind === 'edge') {
-      edges.push({
-        group: 'edges',
-        data: {
-          id: el.graph_id,
-          source: el.source_graph_id,
-          target: el.target_graph_id,
-          label: el.label || '',
-          title: el.label || '',
-          fullUrn: el.detail || '',
-          tokenId: el.token_id || '',
-          color: el.is_loop
-            ? 'var(--graph-node-border-highlighted)'
-            : edgeHueColor(capEdgeIdx),
-        },
-        classes: 'machine-edge' + (el.is_loop ? ' machine-loop' : ''),
-      });
-      capEdgeIdx++;
+      argEdges.push(el);
     }
   }
+
+  // For each cap, identify its incoming and outgoing argument
+  // edges. Incoming edges connect a data-slot source → this cap.
+  // Outgoing edges connect this cap → a data-slot target.
+  const capIncoming = new Map(); // capId → [argEdge, ...]
+  const capOutgoing = new Map(); // capId → [argEdge, ...]
+  for (const e of argEdges) {
+    if (capNodes.has(e.target_graph_id)) {
+      if (!capIncoming.has(e.target_graph_id)) capIncoming.set(e.target_graph_id, []);
+      capIncoming.get(e.target_graph_id).push(e);
+    }
+    if (capNodes.has(e.source_graph_id)) {
+      if (!capOutgoing.has(e.source_graph_id)) capOutgoing.set(e.source_graph_id, []);
+      capOutgoing.get(e.source_graph_id).push(e);
+    }
+  }
+
+  const nodes = [];
+  const edges = [];
+
+  // Emit the data slot nodes verbatim.
+  for (const el of dataNodes.values()) {
+    nodes.push({
+      group: 'nodes',
+      data: {
+        id: el.graph_id,
+        label: el.label || '',
+        fullUrn: el.detail || el.label || '',
+        tokenId: el.token_id || '',
+        kind: 'node',
+        isSequence: el.is_sequence === true,
+      },
+      classes: 'machine-node',
+    });
+  }
+
+  // Collapse each cap into one labeled edge per (input, output)
+  // data-slot pair. For a simple single-input single-output cap
+  // that's one edge. Multi-arg caps emit one edge per combination,
+  // preserving the argument structure while still using a single
+  // visual target per cap application.
+  let capEdgeIdx = 0;
+  for (const [capId, capEl] of capNodes) {
+    const incoming = capIncoming.get(capId) || [];
+    const outgoing = capOutgoing.get(capId) || [];
+
+    // Degenerate cases: a cap with no incoming or no outgoing
+    // argument edges (e.g. partially-written notation). Render
+    // nothing for it — the user sees a missing edge where they
+    // need to complete the notation.
+    if (incoming.length === 0 || outgoing.length === 0) continue;
+
+    // Cardinality of the cap's visual edge comes from the
+    // source-side and target-side data-slot `is_sequence` flags.
+    // When a cap has multiple inputs/outputs, use the MOST
+    // restrictive reading (any seq input → `is_sequence=true` on
+    // that side). This mirrors how cardinalityLabel collapses
+    // multi-arg caps in the strand/browse builders.
+    const inputIsSequence = incoming.some(e => {
+      const src = dataNodes.get(e.source_graph_id);
+      return src && src.is_sequence === true;
+    });
+    const outputIsSequence = outgoing.some(e => {
+      const tgt = dataNodes.get(e.target_graph_id);
+      return tgt && tgt.is_sequence === true;
+    });
+    const cardinality = cardinalityLabel(inputIsSequence, outputIsSequence);
+    const capTitle = capEl.label || '';
+    const label = cardinality === '1\u21921'
+      ? capTitle
+      : `${capTitle} (${cardinality})`;
+
+    const color = capEl.is_loop
+      ? 'var(--graph-loop-color)'
+      : edgeHueColor(capEdgeIdx);
+    const baseClasses = capEl.is_loop ? 'machine-edge machine-loop' : 'machine-edge';
+
+    // Cartesian over incoming × outgoing.  For the common case
+    // of one incoming + one outgoing, that's exactly one emitted
+    // edge.
+    for (const inEdge of incoming) {
+      for (const outEdge of outgoing) {
+        edges.push({
+          group: 'edges',
+          data: {
+            id: `${capId}-${inEdge.graph_id}-${outEdge.graph_id}`,
+            source: inEdge.source_graph_id,
+            target: outEdge.target_graph_id,
+            label,
+            title: capTitle,
+            fullUrn: capEl.linked_cap_urn || capEl.detail || '',
+            // The cap node's token id is what the editor uses
+            // for cross-highlighting; prefer that over the arg
+            // edge token ids so clicking the rendered edge
+            // selects the cap in the source text.
+            tokenId: capEl.token_id || '',
+            color: color,
+          },
+          classes: baseClasses,
+        });
+      }
+    }
+    capEdgeIdx++;
+  }
+
   return { nodes, edges };
 }
 

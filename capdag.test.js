@@ -4205,20 +4205,20 @@ function testRenderer_buildStrandGraphData_nestedForEachThrows() {
   assert(threw, 'nested ForEach without outer body cap must throw');
 }
 
-function testRenderer_collapseStrand_singleCapBodyShowsCapTitleWithIterCollectMarker() {
-  // User spec: ForEach/Collect are NOT rendered as nodes. The
-  // transition is labeled with the enclosed cap's title + a
-  // cardinality marker. For a single-cap body the marker is n→n
-  // (iterate + collect combined) because the same cap is both
-  // the body entry and the body exit.
+function testRenderer_collapseStrand_singleCapBodyKeepsCapOwnLabel() {
+  // User spec: ForEach/Collect are NOT rendered as nodes, and
+  // the collapse does NOT relabel cap edges. Each cap edge
+  // carries whatever label the strand builder emitted — the
+  // cap's own cardinality marker (from its input/output sequence
+  // flags) is the only source of truth.
   //
-  // Strand [ForEach, Cap(extract), Collect], source=pdf;list,
-  // target=txt;list — target is NOT equivalent to cap's to_spec
-  // media:txt so the output node is retained.
+  // Strand [ForEach, Cap(extract, in=1, out=1), Collect],
+  // source=pdf;list, target=txt;list. The extract cap itself is
+  // 1→1, so its edge label has NO cardinality marker.
   //
   // Expected render shape: 3 nodes (input_slot, step_1, output),
-  // with the entry edge labeled "extract (n→n)" and a plain
-  // unlabeled connector to the output.
+  // with the entry edge labeled "extract" and an unlabeled
+  // connector bridge to the output.
   const payload = {
     source_spec: 'media:pdf;list',
     target_spec: 'media:txt;list',
@@ -4236,44 +4236,32 @@ function testRenderer_collapseStrand_singleCapBodyShowsCapTitleWithIterCollectMa
     JSON.stringify(['input_slot', 'output', 'step_1']),
     'collapse removes the ForEach and Collect nodes; the remaining nodes are source + cap + target');
 
-  // Exactly one edge from input_slot → step_1, carrying the cap
-  // title + iterate+collect cardinality marker.
+  // Exactly one edge input_slot → step_1 carrying just the cap
+  // title — no (1→n) or (n→n) marker because the cap's own
+  // cardinality is 1→1.
   const entryEdges = collapsed.edges.filter(e => e.source === 'input_slot' && e.target === 'step_1');
   assertEqual(entryEdges.length, 1,
     'phantom duplicate cap edge must be gone — exactly one edge from source to cap');
-  assertEqual(entryEdges[0].label, 'extract (n\u2192n)',
-    'single-cap-body edge is labeled "<cap_title> (n→n)"');
+  assertEqual(entryEdges[0].label, 'extract',
+    'entry edge carries just the cap title (cap is 1→1, no marker)');
 
-  // The exit side is a plain unlabeled connector — the cap title
-  // is already shown on the entry edge.
+  // The collect bridge is an unlabeled connector.
   const exitEdges = collapsed.edges.filter(e => e.source === 'step_1' && e.target === 'output');
   assertEqual(exitEdges.length, 1,
     'there is exactly one exit edge step_1 → output');
   assertEqual(exitEdges[0].label, '',
-    'exit connector for a single-cap body is unlabeled (cap title already shown on entry edge)');
+    'collect bridge is unlabeled');
 }
 
 function testRenderer_collapseStrand_unclosedForEachBodyCollapses() {
-  // [Cap_a, ForEach, Cap_b] with no Collect, source=media:a,
-  // target=media:c. Cap_b's to_spec is media:c which is
-  // equivalent to target_spec, so the output node is merged
-  // into step_2.
+  // [Cap_a(1→1), ForEach, Cap_b(1→1)] with no Collect,
+  // source=media:a, target=media:c. Cap_b's to_spec is media:c
+  // which is equivalent to target_spec, so the output node is
+  // merged into step_2.
   //
-  // Raw topology:
-  //   input_slot → step_0 (cap_a) — normal, not in any body
-  //   step_0 → step_2 (cap_b, foreachEntry=true — phantom under
-  //                   plan builder, but the foreach body entry
-  //                   under the render model)
-  //   step_0 → step_1 (foreach direct)
-  //   step_1 → step_2 (iteration)
-  //   step_2 → output (trailing connector, empty label)
-  //
-  // Collapse:
-  //   - step_1 (foreach) removed with its iteration edges.
-  //   - step_0 → step_2 relabeled "b (1→n)" via foreachEntry.
-  //   - step_2 → output merged because upstream.fullUrn equivalent
-  //     to target_spec (both media:c); step_2 takes the target
-  //     display label.
+  // Since both caps are 1→1, neither carries a cardinality
+  // marker in the render. The foreach step is just dropped;
+  // no relabeling.
   //
   // Final: 3 nodes (input_slot, step_0, step_2), 2 edges.
   const payload = {
@@ -4293,18 +4281,19 @@ function testRenderer_collapseStrand_unclosedForEachBodyCollapses() {
     JSON.stringify(['input_slot', 'step_0', 'step_2']),
     'foreach node removed and output merged into step_2 (same URN as target)');
 
-  // Exactly one edge from step_0 to step_2, labeled with cap_b's
-  // title + (1→n) marker.
+  // Exactly one edge from step_0 to step_2, labeled with just
+  // cap_b's title — no foreach marker because cap_b is 1→1 and
+  // the collapse doesn't relabel cap edges.
   const step0ToStep2 = collapsed.edges.filter(e => e.source === 'step_0' && e.target === 'step_2');
   assertEqual(step0ToStep2.length, 1,
     'exactly one step_0 → step_2 edge after dropping the foreach iteration');
-  assertEqual(step0ToStep2[0].label, 'b (1\u2192n)',
-    'the foreach-entry edge is labeled "<cap_b_title> (1→n)"');
+  assertEqual(step0ToStep2[0].label, 'b',
+    'cap_b edge carries just its title (1→1 cap, no marker)');
 
-  // Cap_a's edge is unchanged (not inside a foreach body).
+  // Cap_a's edge is unchanged.
   const capA = collapsed.edges.find(e => e.source === 'input_slot' && e.target === 'step_0');
   assert(capA !== undefined, 'cap_a edge input_slot → step_0 exists');
-  assertEqual(capA.label, 'a', 'cap_a edge carries just its title (no cardinality marker since 1→1)');
+  assertEqual(capA.label, 'a', 'cap_a edge carries just its title');
 
   // After merging, step_2 becomes the render target — no separate
   // output node exists.
@@ -4351,8 +4340,8 @@ function testRenderer_collapseStrand_standaloneCollectCollapses() {
 
   const collectEdge = collapsed.edges.find(e => e.source === 'step_0' && e.target === 'output');
   assert(collectEdge !== undefined, 'step_0 → output edge synthesized by collect collapse');
-  assertEqual(collectEdge.label, 'collect',
-    'the synthesized bridging edge for a standalone Collect is labeled "collect"');
+  assertEqual(collectEdge.label, '',
+    'the synthesized bridging edge for a standalone Collect is an unlabeled connector (cap labels carry all cardinality info)');
 }
 
 function testRenderer_collapseStrand_sequenceProducingCapBeforeForeach() {
@@ -4362,18 +4351,16 @@ function testRenderer_collapseStrand_sequenceProducingCapBeforeForeach() {
   // the last cap's to_spec).
   //
   // Expected render shape after collapse:
-  //   input_slot → step_0 labeled "Disbind (1→n)" — from Disbind's
-  //       own output_is_sequence flag, computed at build time.
-  //   step_0 → step_2 labeled "Make a Decision (1→n)" — because
-  //       make_decision is the first cap inside an unclosed
-  //       ForEach body (foreachEntry=true).
+  //   input_slot → step_0 labeled "Disbind PDF Into Pages (1→n)"
+  //       — from Disbind's own output_is_sequence flag, computed
+  //       at build time by the strand builder.
+  //   step_0 → step_2 labeled "Make a Decision" — no marker
+  //       because make_decision is 1→1. The collapse does NOT
+  //       add a (1→n) marker on this edge — the (1→n) belongs
+  //       to the cap that actually produces the sequence
+  //       (Disbind), NOT the cap that consumes one item from it.
   //   No separate output node because step_2's to_spec equals the
   //       strand target.
-  //
-  // If this test fails, the runtime bug would manifest as either
-  // (a) a duplicate target node, (b) a "for each" labeled edge
-  // where the cap title should be, or (c) the phantom direct cap
-  // edge not being relabeled.
   const payload = {
     source_spec: 'media:pdf',
     target_spec: 'media:decision',
@@ -4398,14 +4385,18 @@ function testRenderer_collapseStrand_sequenceProducingCapBeforeForeach() {
   assertEqual(disbind.label, 'Disbind (1\u2192n)',
     'Disbind edge reflects its own output_is_sequence=true cardinality');
 
-  // make_decision cap edge is the foreach entry — the plan-builder
-  // phantom direct edge becomes the render-visible cap edge with
-  // (1→n) appended to the cap title.
+  // make_decision cap edge — the plan-builder phantom direct
+  // edge becomes the render-visible cap edge, carrying just the
+  // cap title. No (1→n) marker: make_decision is 1→1, and the
+  // collapse does NOT add cardinality markers based on foreach
+  // context. The fan-out semantics come from Disbind's own
+  // output_is_sequence flag, which is already visible on the
+  // Disbind edge.
   const makeDecision = collapsed.edges.filter(e => e.source === 'step_0' && e.target === 'step_2');
   assertEqual(makeDecision.length, 1,
     'exactly one edge from Text Page to Decision (phantom not duplicated)');
-  assertEqual(makeDecision[0].label, 'Make a Decision (1\u2192n)',
-    'the foreach entry edge is labeled "<cap_title> (1→n)", not "for each"');
+  assertEqual(makeDecision[0].label, 'Make a Decision',
+    'the make_decision edge carries just its title — 1→1 cap, no marker');
 
   // Duplicate target must be gone.
   const outputNode = collapsed.nodes.find(n => n.id === 'output');
@@ -4492,12 +4483,16 @@ function testRenderer_validateBodyOutcome_rejectsNegativeIndex() {
 }
 
 function testRenderer_buildRunGraphData_pagesSuccessesAndFailures() {
-  // 6 successes, 4 failures. visible_success_count=3, visible_failure_count=2,
-  // total_body_count=10. The builder must:
-  //  - render exactly 3 success replicas (one node per cap step per body)
-  //  - render exactly 2 failure replicas
-  //  - emit a success show-more node with hidden count 3
-  //  - emit a failure show-more node with hidden count 2
+  // 6 successes, 4 failures. visible=3+2, total=10. Body has 2
+  // caps (a, b). Each body replica is a chain of:
+  //   entry node + body_step_0 (cap a) + body_step_1 (cap b)
+  // = 3 nodes per body. Failed bodies truncate at failed_cap
+  // (cap b, idx=1) so `traceEnd=2` — same 3-node chain.
+  //
+  // Total replica nodes: (3 success × 3) + (2 failure × 3) = 15.
+  //
+  // Show-more nodes: one for 3 hidden successes, one for 2 hidden
+  // failures.
   const strand = {
     source_spec: 'media:pdf;list',
     target_spec: 'media:txt',
@@ -4533,17 +4528,14 @@ function testRenderer_buildRunGraphData_pagesSuccessesAndFailures() {
   };
   const built = rendererBuildRunGraphData(payload);
 
-  // Count replica nodes by classes.
   let successNodes = 0;
   let failureNodes = 0;
   for (const n of built.replicaNodes) {
     if (n.classes === 'body-success') successNodes++;
     if (n.classes === 'body-failure') failureNodes++;
   }
-  assertEqual(successNodes, 3 * 2, 'three successful bodies × two cap steps each = 6 success nodes');
-  // Failed bodies truncate at failed_cap (cap b = second cap), so trace
-  // length includes both cap a and cap b → 2 nodes per failed body.
-  assertEqual(failureNodes, 2 * 2, 'two failed bodies × two nodes each (trace truncated at failed_cap)');
+  assertEqual(successNodes, 3 * 3, '3 success bodies × (1 entry + 2 body caps) = 9 success replica nodes');
+  assertEqual(failureNodes, 2 * 3, '2 failure bodies × (1 entry + 2 body caps) = 6 failure replica nodes');
 
   // Show-more nodes: one for success (hidden 3), one for failure (hidden 2).
   const successShowMore = built.showMoreNodes.find(n => n.data.showMoreGroup === 'success');
@@ -4555,9 +4547,12 @@ function testRenderer_buildRunGraphData_pagesSuccessesAndFailures() {
 }
 
 function testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace() {
-  // A failure without failed_cap (e.g. infrastructure failure) must still
-  // render the full body trace — the builder must not crash or produce
-  // zero replicas.
+  // A failure without failed_cap (infrastructure failure) must
+  // still render the full body trace — the builder must not
+  // crash or produce zero replicas.
+  //
+  // Strand [ForEach, Cap, Collect] → body has 1 cap. Each body
+  // replica emits 1 entry node + 1 body cap node = 2 nodes.
   const strand = {
     source_spec: 'media:pdf;list',
     target_spec: 'media:txt',
@@ -4581,7 +4576,7 @@ function testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace(
   for (const n of built.replicaNodes) {
     if (n.classes === 'body-failure') failureNodes++;
   }
-  assertEqual(failureNodes, 1, 'full trace (one cap) renders as one failure node');
+  assertEqual(failureNodes, 2, 'entry + body cap = 2 failure replica nodes');
 }
 
 function testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap() {
@@ -4632,8 +4627,9 @@ function testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap() {
   for (const n of built.replicaNodes) {
     if (n.classes === 'body-failure') failureNodes++;
   }
-  // cap x + cap y = 2 nodes for a body trace that terminates at cap y.
-  assertEqual(failureNodes, 2, 'trace truncates at cap y via isEquivalent, yielding 2 failure nodes');
+  // 1 entry + 2 body step nodes (cap x and cap y, truncated
+  // at cap y) = 3 failure replica nodes.
+  assertEqual(failureNodes, 3, 'trace truncates at cap y via isEquivalent, yielding entry + 2 cap nodes');
 }
 
 function testRenderer_buildRunGraphData_backboneHasNoForeachNode() {
@@ -4727,26 +4723,35 @@ function testRenderer_buildRunGraphData_allFailedDropsTargetPlaceholder() {
   assertEqual(foreachEntry, undefined,
     'backbone foreach-entry edge must be dropped when replicas exist');
 
-  // Failures are rendered as red replica trails that don't merge.
+  // Each failed body renders as an entry node + N body-step
+  // nodes. Body has 1 cap (make_decision), so 2 nodes per body.
+  // 2 failed bodies × 2 nodes = 4 failure replica nodes.
   const failureNodes = built.replicaNodes.filter(n => n.classes === 'body-failure');
-  assertEqual(failureNodes.length, 2,
-    'two failed bodies render two replica nodes (truncated at failed_cap)');
+  assertEqual(failureNodes.length, 4,
+    'two failed bodies × (entry + 1 body cap) = 4 failure replica nodes');
 
-  // The pre-foreach cap node (step_0, "Disbind") is still present
-  // along with its incoming edge — only the post-body parts were
-  // dropped.
+  // Disbind is the sequence producer, so its backbone node
+  // (step_0) is ALSO dropped — the per-body entry nodes own
+  // the per-item rendering. The only surviving backbone node
+  // is the input_slot (avid-optic source PDF).
   const hasStep0 = built.strandBuilt.nodes.some(n => n.id === 'step_0');
-  assertEqual(hasStep0, true, 'pre-foreach cap node survives');
-  const disbindEdge = built.strandBuilt.edges.find(e =>
-    e.source === 'input_slot' && e.target === 'step_0');
-  assert(disbindEdge !== undefined, 'pre-foreach cap edge (Disbind) survives');
+  assertEqual(hasStep0, false,
+    'sequence producer backbone node (Disbind output) is dropped; replicas own the per-body rendering');
+  const hasInputSlot = built.strandBuilt.nodes.some(n => n.id === 'input_slot');
+  assertEqual(hasInputSlot, true, 'input_slot survives as the shared source');
 }
 
-function testRenderer_buildRunGraphData_backboneDroppedWhenSuccessful() {
-  // When at least one successful replica merges into the target,
-  // the backbone foreach-entry edge is dropped — the replica's
-  // own chain represents the execution and the backbone would
-  // otherwise duplicate the path.
+function testRenderer_buildRunGraphData_unclosedForeachSuccessNoMerge() {
+  // Strand without a Collect: [Disbind, ForEach, make_decision].
+  // Under the machfab realize_strand semantics there's no Collect,
+  // so each body produces its OWN terminal output. Successful
+  // replicas do NOT merge into a shared target — each body has
+  // its own separate decision.
+  //
+  // Expected replica shape per body:
+  //   anchorNode (pre-foreach backbone) → entry (per-body Text Page)
+  //                                    → body_n_0 (per-body Decision)
+  //   (no merge edge back into the backbone)
   const strand = {
     source_spec: 'media:pdf',
     target_spec: 'media:decision',
@@ -4767,23 +4772,76 @@ function testRenderer_buildRunGraphData_backboneDroppedWhenSuccessful() {
   };
   const built = rendererBuildRunGraphData(payload);
 
-  // The backbone foreach-entry edge is gone.
-  const foreachEntry = built.strandBuilt.edges.find(e =>
-    e.edgeClass === 'strand-cap-edge' && e.foreachEntry === true);
-  assertEqual(foreachEntry, undefined,
-    'foreach-entry backbone edge dropped when at least one success exists');
-
-  // step_2 (target) stays because the replica merge edge lands on it.
+  // step_2 (the merged strand target) was dropped because it's
+  // a body cap step and there's no Collect to merge into.
   const hasStep2 = built.strandBuilt.nodes.some(n => n.id === 'step_2');
-  assertEqual(hasStep2, true,
-    'strand target node survives when successful replicas merge into it');
+  assertEqual(hasStep2, false,
+    'body cap node dropped; without Collect there is no shared merge target');
 
-  // Exactly one successful replica node and one merge edge.
+  // Each body produces its own entry + body cap chain: 2 nodes.
   const successNodes = built.replicaNodes.filter(n => n.classes === 'body-success');
-  assertEqual(successNodes.length, 1, 'one replica node for one successful body');
+  assertEqual(successNodes.length, 2,
+    'one successful body × (entry + 1 body cap) = 2 replica nodes');
+
+  // No replica edge targets the (now non-existent) step_2.
   const mergeEdges = built.replicaEdges.filter(e =>
-    e.data && e.data.target === 'step_2' && e.classes === 'body-success');
-  assertEqual(mergeEdges.length, 1, 'one merge edge from replica to target');
+    e.data && e.data.target === 'step_2');
+  assertEqual(mergeEdges.length, 0,
+    'no merge edges to step_2 because there is no Collect');
+
+  // The fork edge from anchor (input_slot, because Disbind IS
+  // the sequence producer whose backbone node is dropped) to
+  // the per-body entry IS present.
+  const forkEdges = built.replicaEdges.filter(e =>
+    e.data && e.data.source === 'input_slot' && e.classes === 'body-success');
+  assertEqual(forkEdges.length, 1, 'fork edge input_slot → body-0-entry exists');
+}
+
+function testRenderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget() {
+  // With a Collect closing the body, successful replicas DO merge
+  // into the post-collect target so the flow converges.
+  // Strand: [Disbind, ForEach, Cap_a, Cap_b, Collect] with a
+  // downstream cap after Collect to make the post-collect target
+  // a real separate node.
+  //
+  // Actually simpler: [ForEach, Cap_a, Collect] with source=list
+  // and target=list.
+  const strand = {
+    source_spec: 'media:pdf;list',
+    target_spec: 'media:txt;list',
+    steps: [
+      makeForEachStep('media:pdf;list'),
+      makeCapStep('cap:in="media:pdf";op=extract;out="media:txt"', 'extract', 'media:pdf', 'media:txt', false, false),
+      makeCollectStep('media:txt'),
+    ],
+  };
+  const payload = {
+    resolved_strand: strand,
+    body_outcomes: [
+      { body_index: 0, success: true, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0 },
+    ],
+    visible_success_count: 3,
+    visible_failure_count: 3,
+    total_body_count: 1,
+  };
+  const built = rendererBuildRunGraphData(payload);
+
+  // The post-collect target (output) is still present — it's the
+  // strand target. Successful replicas merge into it.
+  const hasOutput = built.strandBuilt.nodes.some(n => n.id === 'output');
+  assertEqual(hasOutput, true,
+    'post-collect target (output) stays because successful replicas merge into it');
+
+  // One body × (entry + 1 body cap) = 2 replica nodes.
+  const successNodes = built.replicaNodes.filter(n => n.classes === 'body-success');
+  assertEqual(successNodes.length, 2,
+    'one successful body × (entry + 1 body cap) = 2 replica nodes');
+
+  // One merge edge from the last body cap to the output node.
+  const mergeEdges = built.replicaEdges.filter(e =>
+    e.data && e.data.target === 'output' && e.classes === 'body-success');
+  assertEqual(mergeEdges.length, 1,
+    'one merge edge from body cap replica to collect target');
 }
 
 // ---------------- machine builder ----------------
@@ -4802,26 +4860,96 @@ function testRenderer_validateMachinePayload_rejectsUnknownKind() {
   assert(threw, 'unknown element kind must throw');
 }
 
-function testRenderer_buildMachineGraphData_preservesTokenIds() {
-  // Token IDs are the bridge for editor cross-highlighting. Every
-  // element MUST carry its tokenId through into the cytoscape data.
+function testRenderer_buildMachineGraphData_collapsesCapsIntoLabeledEdges() {
+  // The notation analyzer emits a bipartite chain per cap
+  // application: data_node → arg_edge → cap_node → arg_edge →
+  // data_node. The machine builder collapses each cap into a
+  // single labeled edge between the input and output data slots.
+  // Cap nodes do NOT appear as cytoscape nodes. Cap tokenIds are
+  // carried on the synthesized edge so editor cross-highlight
+  // still resolves from the rendered edge to the cap's source
+  // text.
   const data = {
     elements: [
-      { kind: 'node', graph_id: 'n1', label: 'a', token_id: 't-node-a' },
-      { kind: 'cap',  graph_id: 'c1', label: 'fn', token_id: 't-cap-fn' },
-      { kind: 'edge', graph_id: 'e1', source_graph_id: 'n1', target_graph_id: 'c1', label: '', token_id: 't-edge-1' },
+      { kind: 'node', graph_id: 'n_src', label: 'n0', token_id: 't-src' },
+      { kind: 'node', graph_id: 'n_dst', label: 'n1', token_id: 't-dst' },
+      { kind: 'cap',  graph_id: 'c1',    label: 'my_cap', token_id: 't-cap', linked_cap_urn: 'cap:...' },
+      { kind: 'edge', graph_id: 'e_in',  source_graph_id: 'n_src', target_graph_id: 'c1', label: 'in', token_id: 't-ein' },
+      { kind: 'edge', graph_id: 'e_out', source_graph_id: 'c1', target_graph_id: 'n_dst', label: 'out', token_id: 't-eout' },
     ],
   };
   const built = rendererBuildMachineGraphData(data);
-  const nodeTokens = built.nodes.map(n => n.data.tokenId).sort();
-  assertEqual(JSON.stringify(nodeTokens), JSON.stringify(['t-cap-fn', 't-node-a']),
-    'node tokenIds must round-trip');
-  assertEqual(built.edges.length, 1, 'one edge');
-  assertEqual(built.edges[0].data.tokenId, 't-edge-1', 'edge tokenId must round-trip');
-  // Kinds are carried as element data for editor-side filtering.
-  const kinds = built.nodes.map(n => n.data.kind).sort();
-  assertEqual(JSON.stringify(kinds), JSON.stringify(['cap', 'node']),
-    'element kinds must be preserved');
+
+  // Only data-slot nodes survive. Cap is NOT a node.
+  assertEqual(built.nodes.length, 2, 'only data-slot nodes are rendered');
+  const nodeIds = built.nodes.map(n => n.data.id).sort();
+  assertEqual(JSON.stringify(nodeIds), JSON.stringify(['n_dst', 'n_src']),
+    'data-slot nodes preserved verbatim');
+  assertEqual(built.nodes.every(n => n.data.kind === 'node'), true,
+    'every surviving node has kind=node (no cap nodes)');
+
+  // The cap is collapsed to a single labeled edge.
+  assertEqual(built.edges.length, 1, 'one collapsed edge per cap application');
+  const edge = built.edges[0];
+  assertEqual(edge.data.source, 'n_src', 'edge source is the cap input data slot');
+  assertEqual(edge.data.target, 'n_dst', 'edge target is the cap output data slot');
+  assertEqual(edge.data.label, 'my_cap', 'edge label is the cap title');
+  assertEqual(edge.data.tokenId, 't-cap',
+    'edge carries the cap node tokenId so editor cross-highlight points to the cap in source text');
+}
+
+function testRenderer_buildMachineGraphData_loopMarkedEdgeGetsLoopClass() {
+  // A cap marked `is_loop: true` must produce a `machine-loop`
+  // edge so the stylesheet's dashed amber rule applies.
+  const data = {
+    elements: [
+      { kind: 'node', graph_id: 'a', label: 'a', token_id: 't-a' },
+      { kind: 'node', graph_id: 'b', label: 'b', token_id: 't-b' },
+      { kind: 'cap',  graph_id: 'c', label: 'looped', token_id: 't-c', is_loop: true },
+      { kind: 'edge', graph_id: 'e1', source_graph_id: 'a', target_graph_id: 'c', token_id: 't-e1' },
+      { kind: 'edge', graph_id: 'e2', source_graph_id: 'c', target_graph_id: 'b', token_id: 't-e2' },
+    ],
+  };
+  const built = rendererBuildMachineGraphData(data);
+  assertEqual(built.edges.length, 1, 'one collapsed edge');
+  assert(built.edges[0].classes.indexOf('machine-loop') >= 0,
+    'loop-marked cap emits machine-loop class on the collapsed edge');
+}
+
+function testRenderer_buildMachineGraphData_cardinalityFromDataSlotSequenceFlags() {
+  // Cardinality markers come from the source and target data
+  // slots' `is_sequence` flags. A cap whose output data slot has
+  // `is_sequence=true` shows "(1→n)" on its collapsed edge.
+  const data = {
+    elements: [
+      { kind: 'node', graph_id: 'a', label: 'pdf',   token_id: 't-a', is_sequence: false },
+      { kind: 'node', graph_id: 'b', label: 'pages', token_id: 't-b', is_sequence: true },
+      { kind: 'cap',  graph_id: 'c', label: 'disbind', token_id: 't-c' },
+      { kind: 'edge', graph_id: 'e1', source_graph_id: 'a', target_graph_id: 'c', token_id: 't-e1' },
+      { kind: 'edge', graph_id: 'e2', source_graph_id: 'c', target_graph_id: 'b', token_id: 't-e2' },
+    ],
+  };
+  const built = rendererBuildMachineGraphData(data);
+  assertEqual(built.edges.length, 1, 'one collapsed edge');
+  assertEqual(built.edges[0].data.label, 'disbind (1\u2192n)',
+    'cardinality marker "(1→n)" derived from output data slot is_sequence=true');
+}
+
+function testRenderer_buildMachineGraphData_capWithoutCompleteArgsIsDropped() {
+  // A cap with no incoming or no outgoing argument edges (e.g.
+  // the user is mid-typing) contributes nothing to the render.
+  // The data slots are still emitted.
+  const data = {
+    elements: [
+      { kind: 'node', graph_id: 'a', label: 'a', token_id: 't-a' },
+      { kind: 'cap',  graph_id: 'c', label: 'halfway', token_id: 't-c' },
+      { kind: 'edge', graph_id: 'e1', source_graph_id: 'a', target_graph_id: 'c', token_id: 't-e1' },
+    ],
+  };
+  const built = rendererBuildMachineGraphData(data);
+  assertEqual(built.nodes.length, 1, 'data slot emitted');
+  assertEqual(built.edges.length, 0,
+    'incomplete cap (no outgoing argument) drops out of the render');
 }
 
 function testRenderer_buildMachineGraphData_rejectsEdgeWithMissingSource() {
@@ -5229,11 +5357,15 @@ async function runTests() {
   runTest('RENDERER: buildRun_usesIsEquivalentForFailedCap',  testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap);
   runTest('RENDERER: buildRun_backboneHasNoForeachNode',      testRenderer_buildRunGraphData_backboneHasNoForeachNode);
   runTest('RENDERER: buildRun_allFailedDropsPlaceholder',     testRenderer_buildRunGraphData_allFailedDropsTargetPlaceholder);
-  runTest('RENDERER: buildRun_backboneDroppedWhenSuccessful', testRenderer_buildRunGraphData_backboneDroppedWhenSuccessful);
+  runTest('RENDERER: buildRun_unclosedForeachNoMerge',        testRenderer_buildRunGraphData_unclosedForeachSuccessNoMerge);
+  runTest('RENDERER: buildRun_closedForeachMerges',           testRenderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget);
 
   console.log('\n--- cap-graph-renderer machine builder ---');
   runTest('RENDERER: validateMachine_unknownKind',            testRenderer_validateMachinePayload_rejectsUnknownKind);
-  runTest('RENDERER: buildMachine_preservesTokenIds',         testRenderer_buildMachineGraphData_preservesTokenIds);
+  runTest('RENDERER: buildMachine_collapsesCapsIntoEdges',    testRenderer_buildMachineGraphData_collapsesCapsIntoLabeledEdges);
+  runTest('RENDERER: buildMachine_loopMarkedEdgeGetsClass',   testRenderer_buildMachineGraphData_loopMarkedEdgeGetsLoopClass);
+  runTest('RENDERER: buildMachine_cardinalityFromIsSeq',      testRenderer_buildMachineGraphData_cardinalityFromDataSlotSequenceFlags);
+  runTest('RENDERER: buildMachine_incompleteCapDropped',      testRenderer_buildMachineGraphData_capWithoutCompleteArgsIsDropped);
   runTest('RENDERER: buildMachine_rejectsEdgeMissingSource',  testRenderer_buildMachineGraphData_rejectsEdgeWithMissingSource);
 
   // Summary
