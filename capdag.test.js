@@ -3744,6 +3744,595 @@ function assertThrowsWithCode(fn, expectedCode) {
 }
 
 // ============================================================================
+// cap-graph-renderer helpers — pure functions that do not require a DOM.
+// The renderer class itself needs cytoscape + DOM and is exercised by hand
+// in the browser; these tests cover the pure data transforms underneath it.
+// ============================================================================
+
+const {
+  cardinalityLabel: rendererCardinalityLabel,
+  cardinalityFromCap: rendererCardinalityFromCap,
+  canonicalMediaUrn: rendererCanonicalMediaUrn,
+  mediaNodeLabel: rendererMediaNodeLabel,
+  buildStrandGraphData: rendererBuildStrandGraphData,
+  buildRunGraphData: rendererBuildRunGraphData,
+  buildMachineGraphData: rendererBuildMachineGraphData,
+  classifyStrandCapSteps: rendererClassifyStrandCapSteps,
+  validateStrandPayload: rendererValidateStrandPayload,
+  validateRunPayload: rendererValidateRunPayload,
+  validateMachinePayload: rendererValidateMachinePayload,
+  validateStrandStep: rendererValidateStrandStep,
+  validateBodyOutcome: rendererValidateBodyOutcome,
+} = require('./cap-graph-renderer.js');
+
+// The renderer module reads its dependencies off `window` or `global` at
+// call time (it is browser-first). Node has no window, so we install the
+// needed capdag-js classes on `global` before the tests run. Every
+// renderer path exercised by the tests resolves through these.
+if (typeof global.TaggedUrn === 'undefined') {
+  global.TaggedUrn = require('tagged-urn').TaggedUrn;
+}
+if (typeof global.MediaUrn === 'undefined') global.MediaUrn = MediaUrn;
+if (typeof global.CapUrn === 'undefined') global.CapUrn = CapUrn;
+if (typeof global.Cap === 'undefined') global.Cap = Cap;
+if (typeof global.CapGraph === 'undefined') global.CapGraph = CapGraph;
+// Reference the top-of-file destructured createCap via the module export.
+if (typeof global.createCap === 'undefined') {
+  global.createCap = require('./capdag.js').createCap;
+}
+
+function testRenderer_cardinalityLabel_allFourCases() {
+  assertEqual(rendererCardinalityLabel(false, false), '1\u21921', 'scalar-to-scalar');
+  assertEqual(rendererCardinalityLabel(true, false),  'n\u21921', 'sequence-to-scalar');
+  assertEqual(rendererCardinalityLabel(false, true),  '1\u2192n', 'scalar-to-sequence');
+  assertEqual(rendererCardinalityLabel(true, true),   'n\u2192n', 'sequence-to-sequence');
+}
+
+function testRenderer_cardinalityLabel_usesUnicodeArrow() {
+  // The label must use the real rightwards arrow (U+2192), not ASCII "->".
+  // Downstream styling and tests depend on this glyph.
+  const label = rendererCardinalityLabel(false, true);
+  assert(label.includes('\u2192'), 'label should contain U+2192 rightwards arrow');
+  assert(!label.includes('->'), 'label must not contain the ASCII replacement "->"');
+}
+
+function testRenderer_cardinalityFromCap_findsStdinArgNotFirstArg() {
+  // The main input arg is the one whose sources include a stdin source.
+  // A naive implementation that reads args[0] would see `cli-only` (not a
+  // sequence) and report 1→1 even though the stdin arg is a sequence.
+  const cap = {
+    urn: 'cap:in="media:textable;list";op=transcribe;out="media:textable"',
+    args: [
+      {
+        display_name: 'cli-only',
+        is_sequence: false,
+        sources: [{ cli_flag: '--mode' }],
+      },
+      {
+        display_name: 'main-input',
+        is_sequence: true,
+        sources: [{ stdin: {} }],
+      },
+    ],
+    output: { is_sequence: false },
+  };
+  assertEqual(rendererCardinalityFromCap(cap), 'n\u21921',
+    'must pick the arg that has a stdin source, not args[0]');
+}
+
+function testRenderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing() {
+  // No args and no output: both sides collapse to 1 (scalar default).
+  // If a bug makes the function return "n" for missing data, this fails.
+  const cap = { urn: 'cap:in="media:";op=noop;out="media:"' };
+  assertEqual(rendererCardinalityFromCap(cap), '1\u21921',
+    'missing args/output must default to scalar on both sides');
+}
+
+function testRenderer_cardinalityFromCap_outputOnlySequence() {
+  // One scalar stdin arg, output is a sequence: expects 1→n.
+  const cap = {
+    urn: 'cap:in="media:textable";op=generate;out="media:textable;list"',
+    args: [{ sources: [{ stdin: {} }], is_sequence: false }],
+    output: { is_sequence: true },
+  };
+  assertEqual(rendererCardinalityFromCap(cap), '1\u2192n',
+    'scalar stdin with sequence output must yield 1→n');
+}
+
+function testRenderer_cardinalityFromCap_rejectsStringIsSequence() {
+  // The function must use strict `=== true` to avoid treating truthy strings
+  // as booleans. "true" is a string, not a boolean — it must NOT be treated
+  // as a sequence, because downstream renderers expect boolean semantics.
+  const cap = {
+    urn: 'cap:in="media:";op=x;out="media:"',
+    args: [{ sources: [{ stdin: {} }], is_sequence: 'true' }],
+    output: { is_sequence: 'true' },
+  };
+  assertEqual(rendererCardinalityFromCap(cap), '1\u21921',
+    'string "true" must not be treated as boolean true');
+}
+
+function testRenderer_cardinalityFromCap_throwsOnNonObject() {
+  // Fail-hard on invalid input; no fallback to a default cardinality.
+  let threw = false;
+  try {
+    rendererCardinalityFromCap(null);
+  } catch (e) {
+    threw = true;
+  }
+  assert(threw, 'cardinalityFromCap(null) must throw');
+
+  threw = false;
+  try {
+    rendererCardinalityFromCap('not-an-object');
+  } catch (e) {
+    threw = true;
+  }
+  assert(threw, 'cardinalityFromCap(string) must throw');
+}
+
+function testRenderer_canonicalMediaUrn_normalizesTagOrder() {
+  // Two media URNs with identical tags in different input orders must
+  // produce the same canonical string. If canonicalization is bypassed,
+  // the two strings remain different and this test exposes it.
+  const a = rendererCanonicalMediaUrn('media:video;h264;list');
+  const b = rendererCanonicalMediaUrn('media:list;h264;video');
+  assertEqual(a, b, 'tag-order differences must not survive canonicalization');
+}
+
+function testRenderer_canonicalMediaUrn_preservesValueTags() {
+  const c = rendererCanonicalMediaUrn('media:model;quant=q4');
+  assert(c.includes('quant=q4'), 'value tag must be preserved');
+}
+
+function testRenderer_canonicalMediaUrn_rejectsCapUrn() {
+  // MediaUrn.fromString enforces the media: prefix. Feeding a cap URN to
+  // canonicalMediaUrn must fail hard.
+  let threw = false;
+  try {
+    rendererCanonicalMediaUrn('cap:op=x;in="media:";out="media:"');
+  } catch (e) {
+    threw = true;
+  }
+  assert(threw, 'canonicalMediaUrn must reject non-media URNs');
+}
+
+function testRenderer_mediaNodeLabel_oneLinePerTag_valueAndMarker() {
+  // A media URN with one value tag and one marker tag renders two lines:
+  // value tag as "key: value", marker tag as bare key. Order is canonical
+  // (alphabetical, matching TaggedUrn's sorted key iteration).
+  const label = rendererMediaNodeLabel('media:video;quant=q4');
+  const lines = label.split('\n');
+  assertEqual(lines.length, 2, 'two tags must produce two lines');
+  assert(lines.includes('quant: q4'), 'value tag rendered as key: value');
+  assert(lines.includes('video'),     'marker tag rendered as bare key');
+}
+
+function testRenderer_mediaNodeLabel_stableAcrossTagOrder() {
+  // Labels must be tag-order-independent so that the same media URN
+  // produces the same multi-line label regardless of how the source
+  // happened to spell it.
+  const a = rendererMediaNodeLabel(rendererCanonicalMediaUrn('media:list;textable'));
+  const b = rendererMediaNodeLabel(rendererCanonicalMediaUrn('media:textable;list'));
+  assertEqual(a, b, 'label must be stable across tag orderings');
+}
+
+// ---------------- strand builder ----------------
+
+function makeCapStep(capUrn, title, fromSpec, toSpec, inSeq, outSeq) {
+  return {
+    step_type: {
+      Cap: {
+        cap_urn: capUrn,
+        title,
+        specificity: 0,
+        input_is_sequence: inSeq,
+        output_is_sequence: outSeq,
+      },
+    },
+    from_spec: fromSpec,
+    to_spec: toSpec,
+  };
+}
+
+function makeForEachStep(mediaSpec) {
+  return {
+    step_type: { ForEach: { media_spec: mediaSpec } },
+    from_spec: mediaSpec,
+    to_spec: mediaSpec,
+  };
+}
+
+function makeCollectStep(mediaSpec) {
+  return {
+    step_type: { Collect: { media_spec: mediaSpec } },
+    from_spec: mediaSpec,
+    to_spec: mediaSpec,
+  };
+}
+
+function testRenderer_validateStrandStep_rejectsUnknownVariant() {
+  // A step with an unknown variant must fail hard at validation; no
+  // silent coercion.
+  let threw = false;
+  try {
+    rendererValidateStrandStep({
+      step_type: { WrongVariant: {} },
+      from_spec: 'media:a',
+      to_spec: 'media:a',
+    }, 'test');
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('WrongVariant'), 'error must name the bad variant');
+  }
+  assert(threw, 'unknown variant must throw');
+}
+
+function testRenderer_validateStrandStep_requiresBooleanIsSequence() {
+  // A Cap variant must have boolean is_sequence fields; number or string
+  // must reject.
+  let threw = false;
+  try {
+    rendererValidateStrandStep({
+      step_type: { Cap: {
+        cap_urn: 'cap:in="media:a";op=x;out="media:b"',
+        title: 't',
+        input_is_sequence: 1,  // number, not boolean
+        output_is_sequence: false,
+      }},
+      from_spec: 'media:a',
+      to_spec: 'media:b',
+    }, 'test');
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('input_is_sequence'), 'error must name the bad field');
+  }
+  assert(threw, 'non-boolean is_sequence must throw');
+}
+
+function testRenderer_classifyStrandCapSteps_capFlags() {
+  // Strand: ForEach → cap1 → cap2 → cap3 → Collect. cap1 should have
+  // prevForEach=true; cap3 should have nextCollect=true; cap2 should
+  // have neither.
+  const steps = [
+    makeForEachStep('media:pdf;list'),
+    makeCapStep('cap:in="media:pdf";op=a;out="media:png"', 'a', 'media:pdf', 'media:png', false, false),
+    makeCapStep('cap:in="media:png";op=b;out="media:jpg"', 'b', 'media:png', 'media:jpg', false, false),
+    makeCapStep('cap:in="media:jpg";op=c;out="media:txt"', 'c', 'media:jpg', 'media:txt', false, false),
+    makeCollectStep('media:txt'),
+  ];
+  const { capStepIndices, capFlags } = rendererClassifyStrandCapSteps(steps);
+  assertEqual(capStepIndices.length, 3, 'three cap steps');
+  assert(capFlags.get(1).prevForEach, 'cap1 has prevForEach');
+  assert(!capFlags.get(1).nextCollect, 'cap1 has no nextCollect');
+  assert(!capFlags.get(2).prevForEach, 'cap2 has no prevForEach');
+  assert(!capFlags.get(2).nextCollect, 'cap2 has no nextCollect');
+  assert(!capFlags.get(3).prevForEach, 'cap3 has no prevForEach');
+  assert(capFlags.get(3).nextCollect, 'cap3 has nextCollect');
+}
+
+function testRenderer_classifyStrandCapSteps_nestedForks() {
+  // Nested strand: ForEach → cap1 → ForEach → cap2 → Collect → cap3 → Collect.
+  // cap1 has prevForEach (outer), cap2 has prevForEach (inner) and
+  // nextCollect (inner), cap3 has nextCollect (outer).
+  const steps = [
+    makeForEachStep('media:a;list'),
+    makeCapStep('cap:in="media:a";op=a;out="media:b"', 'a', 'media:a', 'media:b', false, false),
+    makeForEachStep('media:b;list'),
+    makeCapStep('cap:in="media:b";op=b;out="media:c"', 'b', 'media:b', 'media:c', false, false),
+    makeCollectStep('media:c'),
+    makeCapStep('cap:in="media:c";op=c;out="media:d"', 'c', 'media:c', 'media:d', false, false),
+    makeCollectStep('media:d'),
+  ];
+  const { capFlags } = rendererClassifyStrandCapSteps(steps);
+  assert(capFlags.get(1).prevForEach && !capFlags.get(1).nextCollect, 'cap1 outer entry');
+  assert(capFlags.get(3).prevForEach && capFlags.get(3).nextCollect, 'cap2 inner both');
+  assert(!capFlags.get(5).prevForEach && capFlags.get(5).nextCollect, 'cap3 outer exit');
+}
+
+function testRenderer_buildStrandGraphData_labelsForkBoundaries() {
+  // End-to-end: a foreach strand in which source_spec (media:pdf;list)
+  // differs from the first cap's from_spec (media:pdf) produces an
+  // explicit fix-up edge source→firstCap.from labeled "for each". The
+  // cap edge carries only the cap title. The topology is
+  //   media:pdf;list --[for each]--> media:pdf --[extract text]--> media:txt
+  // Only two edges — ForEach is NOT a separate node, Collect is absent
+  // because the strand's target_spec already matches the last cap's
+  // to_spec (no fan-in fix-up needed).
+  const payload = {
+    source_spec: 'media:pdf;list',
+    target_spec: 'media:txt',
+    steps: [
+      makeForEachStep('media:pdf;list'),
+      makeCapStep('cap:in="media:pdf";op=extract;out="media:txt"', 'extract text', 'media:pdf', 'media:txt', false, false),
+    ],
+  };
+  const built = rendererBuildStrandGraphData(payload);
+  assertEqual(built.edges.length, 2, 'one fix-up edge + one cap edge');
+  const forEachEdge = built.edges[0];
+  assertEqual(forEachEdge.label, 'for each', 'first edge is the for-each fan-out');
+  assertEqual(forEachEdge.source, 'media:pdf;list', 'for-each sources from source_spec');
+  assertEqual(forEachEdge.target, 'media:pdf', 'for-each targets first cap.from_spec');
+  const capEdge = built.edges[1];
+  assertEqual(capEdge.label, 'extract text', 'cap edge carries only the cap title');
+  assertEqual(capEdge.source, 'media:pdf', 'cap sources from its from_spec');
+  assertEqual(capEdge.target, 'media:txt', 'cap targets its to_spec');
+}
+
+function testRenderer_buildStrandGraphData_collectFixupEdge() {
+  // When the strand's target_spec (media:pdf;list) differs from the
+  // last cap's to_spec (media:pdf), the builder emits an explicit
+  // fix-up edge lastCap.to → target labeled "collect".
+  const payload = {
+    source_spec: 'media:a',
+    target_spec: 'media:pdf;list',
+    steps: [
+      makeCapStep('cap:in="media:a";op=x;out="media:pdf"', 'x', 'media:a', 'media:pdf', false, false),
+      makeCollectStep('media:pdf'),
+    ],
+  };
+  const built = rendererBuildStrandGraphData(payload);
+  assertEqual(built.edges.length, 2, 'one cap edge + one collect fix-up');
+  const capEdge = built.edges[0];
+  assertEqual(capEdge.label, 'x', 'cap edge plain title');
+  const collectEdge = built.edges[1];
+  assertEqual(collectEdge.label, 'collect', 'collect fix-up labeled "collect"');
+  assertEqual(collectEdge.source, 'media:pdf', 'collect sources from last cap.to_spec');
+  assertEqual(collectEdge.target, 'media:pdf;list', 'collect targets target_spec');
+}
+
+function testRenderer_buildStrandGraphData_plainCapNoMarker() {
+  // A plain 1→1 cap step (no ForEach/Collect adjacency, no sequence)
+  // must not emit any cardinality marker in the label. This catches a
+  // regression where "1→1" was accidentally appended to every edge.
+  const payload = {
+    source_spec: 'media:a',
+    target_spec: 'media:b',
+    steps: [
+      makeCapStep('cap:in="media:a";op=x;out="media:b"', 'x', 'media:a', 'media:b', false, false),
+    ],
+  };
+  const built = rendererBuildStrandGraphData(payload);
+  assertEqual(built.edges.length, 1, 'one edge');
+  assertEqual(built.edges[0].label, 'x', 'plain cap has no cardinality suffix');
+}
+
+function testRenderer_buildStrandGraphData_sequenceShowsCardinality() {
+  // A cap with input_is_sequence=true MUST emit "(n→1)" on the label.
+  const payload = {
+    source_spec: 'media:a;list',
+    target_spec: 'media:b',
+    steps: [
+      makeCapStep('cap:in="media:a;list";op=x;out="media:b"', 'x', 'media:a;list', 'media:b', true, false),
+    ],
+  };
+  const built = rendererBuildStrandGraphData(payload);
+  assertEqual(built.edges.length, 1, 'one edge');
+  assert(built.edges[0].label.includes('(n\u21921)'),
+    `edge label must include (n\u21921) marker; got: ${built.edges[0].label}`);
+}
+
+function testRenderer_validateStrandPayload_missingSourceSpec() {
+  let threw = false;
+  try {
+    rendererValidateStrandPayload({ target_spec: 'media:b', steps: [] });
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('source_spec'), 'error must name source_spec');
+  }
+  assert(threw, 'missing source_spec must throw');
+}
+
+// ---------------- run builder ----------------
+
+function testRenderer_validateBodyOutcome_rejectsNegativeIndex() {
+  let threw = false;
+  try {
+    rendererValidateBodyOutcome({ body_index: -1, success: true, cap_urns: [] }, 'test');
+  } catch (e) {
+    threw = true;
+  }
+  assert(threw, 'negative body_index must throw');
+}
+
+function testRenderer_buildRunGraphData_pagesSuccessesAndFailures() {
+  // 6 successes, 4 failures. visible_success_count=3, visible_failure_count=2,
+  // total_body_count=10. The builder must:
+  //  - render exactly 3 success replicas (one node per cap step per body)
+  //  - render exactly 2 failure replicas
+  //  - emit a success show-more node with hidden count 3
+  //  - emit a failure show-more node with hidden count 2
+  const strand = {
+    source_spec: 'media:pdf;list',
+    target_spec: 'media:txt',
+    steps: [
+      makeForEachStep('media:pdf;list'),
+      makeCapStep('cap:in="media:pdf";op=a;out="media:png"', 'a', 'media:pdf', 'media:png', false, false),
+      makeCapStep('cap:in="media:png";op=b;out="media:txt"', 'b', 'media:png', 'media:txt', false, false),
+      makeCollectStep('media:txt'),
+    ],
+  };
+  const outcomes = [];
+  for (let i = 0; i < 6; i++) {
+    outcomes.push({ body_index: i, success: true, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0 });
+  }
+  for (let i = 6; i < 10; i++) {
+    outcomes.push({
+      body_index: i,
+      success: false,
+      cap_urns: [],
+      saved_paths: [],
+      total_bytes: 0,
+      duration_ms: 0,
+      failed_cap: 'cap:in="media:png";op=b;out="media:txt"',
+      error: 'oom',
+    });
+  }
+  const payload = {
+    resolved_strand: strand,
+    body_outcomes: outcomes,
+    visible_success_count: 3,
+    visible_failure_count: 2,
+    total_body_count: 10,
+  };
+  const built = rendererBuildRunGraphData(payload);
+
+  // Count replica nodes by classes.
+  let successNodes = 0;
+  let failureNodes = 0;
+  for (const n of built.replicaNodes) {
+    if (n.classes === 'body-success') successNodes++;
+    if (n.classes === 'body-failure') failureNodes++;
+  }
+  assertEqual(successNodes, 3 * 2, 'three successful bodies × two cap steps each = 6 success nodes');
+  // Failed bodies truncate at failed_cap (cap b = second cap), so trace
+  // length includes both cap a and cap b → 2 nodes per failed body.
+  assertEqual(failureNodes, 2 * 2, 'two failed bodies × two nodes each (trace truncated at failed_cap)');
+
+  // Show-more nodes: one for success (hidden 3), one for failure (hidden 2).
+  const successShowMore = built.showMoreNodes.find(n => n.data.showMoreGroup === 'success');
+  const failureShowMore = built.showMoreNodes.find(n => n.data.showMoreGroup === 'failure');
+  assert(successShowMore !== undefined, 'success show-more present');
+  assert(failureShowMore !== undefined, 'failure show-more present');
+  assertEqual(successShowMore.data.hiddenCount, 3, 'success hidden count = 3');
+  assertEqual(failureShowMore.data.hiddenCount, 2, 'failure hidden count = 2');
+}
+
+function testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace() {
+  // A failure without failed_cap (e.g. infrastructure failure) must still
+  // render the full body trace — the builder must not crash or produce
+  // zero replicas.
+  const strand = {
+    source_spec: 'media:pdf;list',
+    target_spec: 'media:txt',
+    steps: [
+      makeForEachStep('media:pdf;list'),
+      makeCapStep('cap:in="media:pdf";op=a;out="media:txt"', 'a', 'media:pdf', 'media:txt', false, false),
+      makeCollectStep('media:txt'),
+    ],
+  };
+  const payload = {
+    resolved_strand: strand,
+    body_outcomes: [
+      { body_index: 0, success: false, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0, error: 'unknown' },
+    ],
+    visible_success_count: 0,
+    visible_failure_count: 5,
+    total_body_count: 1,
+  };
+  const built = rendererBuildRunGraphData(payload);
+  let failureNodes = 0;
+  for (const n of built.replicaNodes) {
+    if (n.classes === 'body-failure') failureNodes++;
+  }
+  assertEqual(failureNodes, 1, 'full trace (one cap) renders as one failure node');
+}
+
+function testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap() {
+  // The renderer matches failed_cap against step cap URNs via
+  // CapUrn.isEquivalent, NOT string equality. Feed a payload where
+  // failed_cap and the step's cap_urn differ only in tag order — they
+  // should still match, proving URNs are not treated as strings.
+  const strand = {
+    source_spec: 'media:a',
+    target_spec: 'media:c',
+    steps: [
+      makeForEachStep('media:a;list'),
+      // Canonical form places tags alphabetically: op after in/out.
+      makeCapStep(
+        'cap:in="media:a";op=x;out="media:b"',
+        'x', 'media:a', 'media:b', false, false
+      ),
+      makeCapStep(
+        'cap:in="media:b";op=y;out="media:c"',
+        'y', 'media:b', 'media:c', false, false
+      ),
+      makeCollectStep('media:c'),
+    ],
+  };
+  // The failed_cap URN is semantically the same as step 1 (cap y). If
+  // CapUrn.fromString canonicalizes (it should), any equivalent form
+  // will match. Feed a fully-specified form that is equivalent.
+  const payload = {
+    resolved_strand: strand,
+    body_outcomes: [
+      {
+        body_index: 0,
+        success: false,
+        cap_urns: [],
+        saved_paths: [],
+        total_bytes: 0,
+        duration_ms: 0,
+        failed_cap: 'cap:in="media:b";out="media:c";op=y',  // different tag order
+        error: 'fail',
+      },
+    ],
+    visible_success_count: 0,
+    visible_failure_count: 1,
+    total_body_count: 1,
+  };
+  const built = rendererBuildRunGraphData(payload);
+  let failureNodes = 0;
+  for (const n of built.replicaNodes) {
+    if (n.classes === 'body-failure') failureNodes++;
+  }
+  // cap x + cap y = 2 nodes for a body trace that terminates at cap y.
+  assertEqual(failureNodes, 2, 'trace truncates at cap y via isEquivalent, yielding 2 failure nodes');
+}
+
+// ---------------- machine builder ----------------
+
+function testRenderer_validateMachinePayload_rejectsUnknownKind() {
+  let threw = false;
+  try {
+    rendererValidateMachinePayload({
+      elements: [{ kind: 'widget', graph_id: 'w1' }],
+    });
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('widget') || e.message.includes('kind'),
+      'error must name the bad kind');
+  }
+  assert(threw, 'unknown element kind must throw');
+}
+
+function testRenderer_buildMachineGraphData_preservesTokenIds() {
+  // Token IDs are the bridge for editor cross-highlighting. Every
+  // element MUST carry its tokenId through into the cytoscape data.
+  const data = {
+    elements: [
+      { kind: 'node', graph_id: 'n1', label: 'a', token_id: 't-node-a' },
+      { kind: 'cap',  graph_id: 'c1', label: 'fn', token_id: 't-cap-fn' },
+      { kind: 'edge', graph_id: 'e1', source_graph_id: 'n1', target_graph_id: 'c1', label: '', token_id: 't-edge-1' },
+    ],
+  };
+  const built = rendererBuildMachineGraphData(data);
+  const nodeTokens = built.nodes.map(n => n.data.tokenId).sort();
+  assertEqual(JSON.stringify(nodeTokens), JSON.stringify(['t-cap-fn', 't-node-a']),
+    'node tokenIds must round-trip');
+  assertEqual(built.edges.length, 1, 'one edge');
+  assertEqual(built.edges[0].data.tokenId, 't-edge-1', 'edge tokenId must round-trip');
+  // Kinds are carried as element data for editor-side filtering.
+  const kinds = built.nodes.map(n => n.data.kind).sort();
+  assertEqual(JSON.stringify(kinds), JSON.stringify(['cap', 'node']),
+    'element kinds must be preserved');
+}
+
+function testRenderer_buildMachineGraphData_rejectsEdgeWithMissingSource() {
+  let threw = false;
+  try {
+    rendererBuildMachineGraphData({
+      elements: [
+        { kind: 'edge', graph_id: 'e1', target_graph_id: 't' },
+      ],
+    });
+  } catch (e) {
+    threw = true;
+  }
+  assert(threw, 'edge without source_graph_id must throw');
+}
+
+// ============================================================================
 // Test runner
 // ============================================================================
 
@@ -4092,6 +4681,43 @@ async function runTests() {
   runTest('REGISTRY: mediaRegistryEntry_construction', testMachine_mediaRegistryEntry_construction);
   runTest('REGISTRY: capRegistryClient_construction', testMachine_capRegistryClient_construction);
   runTest('REGISTRY: capRegistryEntry_defaults', testMachine_capRegistryEntry_defaults);
+
+  // cap-graph-renderer pure helpers (no DOM dependency)
+  console.log('\n--- cap-graph-renderer helpers ---');
+  runTest('RENDERER: cardinalityLabel_allFourCases',          testRenderer_cardinalityLabel_allFourCases);
+  runTest('RENDERER: cardinalityLabel_usesUnicodeArrow',      testRenderer_cardinalityLabel_usesUnicodeArrow);
+  runTest('RENDERER: cardinalityFromCap_findsStdinArg',       testRenderer_cardinalityFromCap_findsStdinArgNotFirstArg);
+  runTest('RENDERER: cardinalityFromCap_scalarDefaults',      testRenderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing);
+  runTest('RENDERER: cardinalityFromCap_outputOnlySequence',  testRenderer_cardinalityFromCap_outputOnlySequence);
+  runTest('RENDERER: cardinalityFromCap_rejectsStringBool',   testRenderer_cardinalityFromCap_rejectsStringIsSequence);
+  runTest('RENDERER: cardinalityFromCap_throwsOnNonObject',   testRenderer_cardinalityFromCap_throwsOnNonObject);
+  runTest('RENDERER: canonicalMediaUrn_normalizesTagOrder',   testRenderer_canonicalMediaUrn_normalizesTagOrder);
+  runTest('RENDERER: canonicalMediaUrn_preservesValueTags',   testRenderer_canonicalMediaUrn_preservesValueTags);
+  runTest('RENDERER: canonicalMediaUrn_rejectsCapUrn',        testRenderer_canonicalMediaUrn_rejectsCapUrn);
+  runTest('RENDERER: mediaNodeLabel_valueAndMarker',          testRenderer_mediaNodeLabel_oneLinePerTag_valueAndMarker);
+  runTest('RENDERER: mediaNodeLabel_stableAcrossTagOrder',    testRenderer_mediaNodeLabel_stableAcrossTagOrder);
+
+  console.log('\n--- cap-graph-renderer strand builder ---');
+  runTest('RENDERER: validateStrandStep_unknownVariant',      testRenderer_validateStrandStep_rejectsUnknownVariant);
+  runTest('RENDERER: validateStrandStep_booleanIsSequence',   testRenderer_validateStrandStep_requiresBooleanIsSequence);
+  runTest('RENDERER: classifyStrandCapSteps_simple',          testRenderer_classifyStrandCapSteps_capFlags);
+  runTest('RENDERER: classifyStrandCapSteps_nested',          testRenderer_classifyStrandCapSteps_nestedForks);
+  runTest('RENDERER: buildStrand_labelsForkBoundaries',       testRenderer_buildStrandGraphData_labelsForkBoundaries);
+  runTest('RENDERER: buildStrand_collectFixupEdge',           testRenderer_buildStrandGraphData_collectFixupEdge);
+  runTest('RENDERER: buildStrand_plainCapNoMarker',           testRenderer_buildStrandGraphData_plainCapNoMarker);
+  runTest('RENDERER: buildStrand_sequenceShowsCardinality',   testRenderer_buildStrandGraphData_sequenceShowsCardinality);
+  runTest('RENDERER: validateStrand_missingSourceSpec',       testRenderer_validateStrandPayload_missingSourceSpec);
+
+  console.log('\n--- cap-graph-renderer run builder ---');
+  runTest('RENDERER: validateBodyOutcome_negativeIndex',      testRenderer_validateBodyOutcome_rejectsNegativeIndex);
+  runTest('RENDERER: buildRun_pagesSuccessesAndFailures',     testRenderer_buildRunGraphData_pagesSuccessesAndFailures);
+  runTest('RENDERER: buildRun_failureWithoutFailedCap',       testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace);
+  runTest('RENDERER: buildRun_usesIsEquivalentForFailedCap',  testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap);
+
+  console.log('\n--- cap-graph-renderer machine builder ---');
+  runTest('RENDERER: validateMachine_unknownKind',            testRenderer_validateMachinePayload_rejectsUnknownKind);
+  runTest('RENDERER: buildMachine_preservesTokenIds',         testRenderer_buildMachineGraphData_preservesTokenIds);
+  runTest('RENDERER: buildMachine_rejectsEdgeMissingSource',  testRenderer_buildMachineGraphData_rejectsEdgeWithMissingSource);
 
   // Summary
   console.log(`\n${passCount + failCount} tests: ${passCount} passed, ${failCount} failed`);
