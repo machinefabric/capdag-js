@@ -892,11 +892,150 @@ function buildStrandGraphData(data) {
   addNode(outputId, displayNameFor(targetSpec), targetSpec, 'strand-target');
   addEdge(prevNodeId, outputId, '', '', '', 'strand-cap-edge');
 
+  // Return the raw plan-builder topology. Strand mode collapses
+  // ForEach/Collect nodes into edge labels at render time (see
+  // `strandCytoscapeElements`); run mode keeps them as explicit
+  // nodes because body replicas anchor at the ForEach/Collect
+  // junctions.
   return { nodes, edges, sourceSpec, targetSpec };
 }
 
-function strandCytoscapeElements(built) {
-  const nodeElements = built.nodes.map(node => ({
+// Collapse `strand-foreach` and `strand-collect` nodes into labeled
+// edges and drop the phantom direct cap edges that bypass the ForEach
+// iteration. Pure function on a nodes/edges topology — does NOT touch
+// the plan builder's underlying model; this is cosmetic-only.
+//
+// Rules, applied in order:
+//
+//   1. For each ForEach node F: F has exactly one incoming
+//      `strand-iteration`-class direct edge `src → F` and one or more
+//      outgoing `strand-iteration` edges `F → body_entry_k`. Any
+//      existing edge `src → body_entry_k` (from the phantom
+//      plan-builder direct cap edge) is redundant — remove it.
+//
+//   2. For each ForEach node F: replace the incoming direct edge +
+//      each outgoing iteration edge with a single edge
+//      `src → body_entry_k` labeled "for each". Remove F from nodes.
+//
+//   3. For each Collect node C: C has one or more incoming
+//      `strand-collection` edges `body_exit_k → C` and one outgoing
+//      `strand-cap-edge` or `strand-collection` edge `C → next`.
+//      Replace with edges `body_exit_k → next` labeled "collect".
+//      Remove C from nodes.
+function collapseStrandShapeTransitions(built) {
+  // Work on mutable copies so we can delete as we go.
+  const nodeById = new Map();
+  for (const n of built.nodes) nodeById.set(n.id, n);
+  // Index edges by source and by target for fast lookup.
+  function indexEdges(edgeList) {
+    const bySource = new Map();
+    const byTarget = new Map();
+    for (const e of edgeList) {
+      if (!bySource.has(e.source)) bySource.set(e.source, []);
+      bySource.get(e.source).push(e);
+      if (!byTarget.has(e.target)) byTarget.set(e.target, []);
+      byTarget.get(e.target).push(e);
+    }
+    return { bySource, byTarget };
+  }
+
+  let edges = built.edges.slice();
+
+  // Step 1: drop phantom direct cap edges that bypass a ForEach.
+  // A ForEach node has exactly one incoming direct edge (the
+  // strand-iteration class is reused for both the direct input AND
+  // the iteration-to-body edges in the builder above; distinguish by
+  // direction: the single edge pointing TO the ForEach node is the
+  // "foreach input", edges pointing FROM it are iteration edges).
+  const phantomsToDrop = new Set();
+  for (const node of built.nodes) {
+    if (node.nodeClass !== 'strand-foreach') continue;
+    const idx = indexEdges(edges);
+    const incoming = idx.byTarget.get(node.id) || [];
+    const outgoing = idx.bySource.get(node.id) || [];
+    // Gather all upstream sources (usually one) and all body entries.
+    const sources = incoming.map(e => e.source);
+    const bodyEntries = outgoing.map(e => e.target);
+    for (const src of sources) {
+      for (const entry of bodyEntries) {
+        const bypass = edges.find(e =>
+          e.source === src && e.target === entry && e.edgeClass === 'strand-cap-edge');
+        if (bypass) phantomsToDrop.add(bypass.id);
+      }
+    }
+  }
+  if (phantomsToDrop.size > 0) {
+    edges = edges.filter(e => !phantomsToDrop.has(e.id));
+  }
+
+  // Step 2: collapse ForEach nodes into "for each"-labeled edges.
+  for (const node of built.nodes.slice()) {
+    if (node.nodeClass !== 'strand-foreach') continue;
+    const idx = indexEdges(edges);
+    const incoming = idx.byTarget.get(node.id) || [];
+    const outgoing = idx.bySource.get(node.id) || [];
+    // Remove the ForEach node's own edges and the node itself.
+    edges = edges.filter(e => e.source !== node.id && e.target !== node.id);
+    nodeById.delete(node.id);
+    // Synthesize replacement edges: one per (src, entry) cartesian.
+    let nextIdSuffix = 0;
+    for (const inEdge of incoming) {
+      for (const outEdge of outgoing) {
+        edges.push({
+          id: `${node.id}-collapsed-${nextIdSuffix++}`,
+          source: inEdge.source,
+          target: outEdge.target,
+          label: 'for each',
+          title: 'for each',
+          fullUrn: '',
+          edgeClass: 'strand-foreach-edge',
+          color: inEdge.color,
+        });
+      }
+    }
+  }
+
+  // Step 3: collapse Collect nodes into "collect"-labeled edges.
+  for (const node of built.nodes.slice()) {
+    if (node.nodeClass !== 'strand-collect') continue;
+    const idx = indexEdges(edges);
+    const incoming = idx.byTarget.get(node.id) || [];
+    const outgoing = idx.bySource.get(node.id) || [];
+    edges = edges.filter(e => e.source !== node.id && e.target !== node.id);
+    nodeById.delete(node.id);
+    let nextIdSuffix = 0;
+    for (const inEdge of incoming) {
+      for (const outEdge of outgoing) {
+        edges.push({
+          id: `${node.id}-collapsed-${nextIdSuffix++}`,
+          source: inEdge.source,
+          target: outEdge.target,
+          label: 'collect',
+          title: 'collect',
+          fullUrn: '',
+          edgeClass: 'strand-collect-edge',
+          color: outEdge.color,
+        });
+      }
+    }
+  }
+
+  return { nodes: Array.from(nodeById.values()), edges };
+}
+
+function strandCytoscapeElements(built, options) {
+  // Strand mode presents ForEach and Collect as edge labels, not as
+  // boxed nodes. Apply the cosmetic collapse right before emitting
+  // cytoscape elements so the underlying plan-builder topology stays
+  // intact for any callers that need it.
+  //
+  // Run mode opts out (`options.collapse === false`) because its body
+  // replicas visually fan out from the ForEach node and merge at the
+  // Collect node — those junctions must remain as explicit graph
+  // nodes for the fan-in/fan-out to be visible.
+  const shouldCollapse = !(options && options.collapse === false);
+  const source = shouldCollapse ? collapseStrandShapeTransitions(built) : built;
+  const nodeElements = source.nodes.map(node => ({
     group: 'nodes',
     data: {
       id: node.id,
@@ -905,7 +1044,7 @@ function strandCytoscapeElements(built) {
     },
     classes: node.nodeClass || '',
   }));
-  const edgeElements = built.edges.map(edge => ({
+  const edgeElements = source.edges.map(edge => ({
     group: 'edges',
     data: {
       id: edge.id,
@@ -1200,7 +1339,10 @@ function buildRunGraphData(data) {
 }
 
 function runCytoscapeElements(built) {
-  const strandElements = strandCytoscapeElements(built.strandBuilt);
+  // Do NOT collapse ForEach/Collect nodes in run mode — body replicas
+  // anchor at the ForEach node (fan-out) and merge at the Collect
+  // node (fan-in). Those junctions must stay visible.
+  const strandElements = strandCytoscapeElements(built.strandBuilt, { collapse: false });
   return strandElements
     .concat(built.replicaNodes)
     .concat(built.showMoreNodes)
@@ -2103,6 +2245,7 @@ if (typeof module !== 'undefined' && module.exports) {
     mediaNodeLabel,
     buildBrowseGraphData,
     buildStrandGraphData,
+    collapseStrandShapeTransitions,
     buildRunGraphData,
     buildMachineGraphData,
     classifyStrandCapSteps,
