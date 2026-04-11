@@ -10,8 +10,6 @@
   },
   "files": [
     "capdag.js",
-    "cap-graph-renderer.js",
-    "build-browser.js",
     "capdag.test.js",
     "machine.pegjs",
     "machine-parser.js",
@@ -36,9 +34,8 @@
   },
   "scripts": {
     "build:parser": "npx peggy --format commonjs -o machine-parser.js machine.pegjs",
-    "build:browser": "npm run build:parser && node build-browser.js",
     "pretest": "npm run build:parser",
     "test": "node capdag.test.js"
   },
-  "version": "0.102.232"
+  "version": "0.104.240"
 }
