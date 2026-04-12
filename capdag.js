@@ -3008,7 +3008,7 @@ class CapSetEntry {
 }
 
 /**
- * Unified registry for cap sets (providers and plugins)
+ * Unified registry for cap sets (providers and cartridges)
  * Provides capability host discovery using subset matching.
  */
 class CapMatrix {
@@ -3804,7 +3804,7 @@ const StdinSourceKind = {
 
 /**
  * Represents the source for stdin data.
- * For plugins (via gRPC/XPC), using FileReference avoids size limits
+ * For cartridges (via gRPC/XPC), using FileReference avoids size limits
  * by letting the receiving side read the file locally.
  */
 class StdinSource {
@@ -3838,7 +3838,7 @@ class StdinSource {
 
   /**
    * Create a StdinSource from a file reference
-   * Used for plugins to read files locally instead of sending bytes over the wire.
+   * Used for cartridges to read files locally instead of sending bytes over the wire.
    * @param {string} trackedFileId - ID for lifecycle management
    * @param {string} originalPath - Original file path (for logging/debugging)
    * @param {Uint8Array|Buffer|null} securityBookmark - Security bookmark data
@@ -3872,13 +3872,13 @@ class StdinSource {
 }
 
 // =============================================================================
-// Plugin Repository System
+// Cartridge Repository System
 // =============================================================================
 
 /**
- * Plugin capability summary from registry
+ * Cartridge capability summary from registry
  */
-class PluginCapSummary {
+class CartridgeCapSummary {
   constructor(urn, title, description = '') {
     this.urn = urn;
     this.title = title;
@@ -3887,9 +3887,9 @@ class PluginCapSummary {
 }
 
 /**
- * Plugin information from registry
+ * Cartridge information from registry
  */
-class PluginInfo {
+class CartridgeInfo {
   constructor(data) {
     this.id = data.id;
     this.name = data.name;
@@ -3900,7 +3900,7 @@ class PluginInfo {
     this.teamId = data.teamId || '';
     this.signedAt = data.signedAt || '';
     this.minAppVersion = data.minAppVersion || '';
-    this.caps = (data.caps || []).map(c => new PluginCapSummary(c.urn, c.title, c.description || ''));
+    this.caps = (data.caps || []).map(c => new CartridgeCapSummary(c.urn, c.title, c.description || ''));
     this.categories = data.categories || [];
     this.tags = data.tags || [];
     this.changelog = data.changelog || {};
@@ -3916,7 +3916,7 @@ class PluginInfo {
   }
 
   /**
-   * Check if plugin is signed (has team_id and signed_at)
+   * Check if cartridge is signed (has team_id and signed_at)
    */
   isSigned() {
     return this.teamId.length > 0 && this.signedAt.length > 0;
@@ -3931,13 +3931,13 @@ class PluginInfo {
 }
 
 /**
- * Plugin suggestion for a missing cap
+ * Cartridge suggestion for a missing cap
  */
-class PluginSuggestion {
+class CartridgeSuggestion {
   constructor(data) {
-    this.pluginId = data.pluginId;
-    this.pluginName = data.pluginName;
-    this.pluginDescription = data.pluginDescription;
+    this.cartridgeId = data.cartridgeId;
+    this.cartridgeName = data.cartridgeName;
+    this.cartridgeDescription = data.cartridgeDescription;
     this.capUrn = data.capUrn;
     this.capTitle = data.capTitle;
     this.latestVersion = data.latestVersion;
@@ -3947,23 +3947,23 @@ class PluginSuggestion {
 }
 
 /**
- * Plugin registry cache entry
+ * Cartridge registry cache entry
  */
-class PluginRepoCache {
+class CartridgeRepoCache {
   constructor(repoUrl) {
-    this.plugins = new Map(); // plugin_id -> PluginInfo
-    this.capToPlugins = new Map(); // cap_urn -> [plugin_ids]
+    this.cartridges = new Map(); // cartridge_id -> CartridgeInfo
+    this.capToCartridges = new Map(); // cap_urn -> [cartridge_ids]
     this.lastUpdated = Date.now();
     this.repoUrl = repoUrl;
   }
 }
 
 /**
- * Plugin repository client - fetches and caches plugin registry
+ * Cartridge repository client - fetches and caches cartridge registry
  */
-class PluginRepoClient {
+class CartridgeRepoClient {
   constructor(cacheTtlSeconds = 3600) {
-    this.caches = new Map(); // repo_url -> PluginRepoCache
+    this.caches = new Map(); // repo_url -> CartridgeRepoCache
     this.cacheTtl = cacheTtlSeconds * 1000; // Convert to milliseconds
   }
 
@@ -3974,32 +3974,32 @@ class PluginRepoClient {
     const response = await fetch(repoUrl);
 
     if (!response.ok) {
-      throw new Error(`Plugin registry request failed: HTTP ${response.status} from ${repoUrl}`);
+      throw new Error(`Cartridge registry request failed: HTTP ${response.status} from ${repoUrl}`);
     }
 
     const data = await response.json();
 
-    if (!data.plugins || !Array.isArray(data.plugins)) {
-      throw new Error(`Invalid plugin registry response from ${repoUrl}: missing plugins array`);
+    if (!data.cartridges || !Array.isArray(data.cartridges)) {
+      throw new Error(`Invalid cartridge registry response from ${repoUrl}: missing cartridges array`);
     }
 
-    return data.plugins.map(p => new PluginInfo(p));
+    return data.cartridges.map(p => new CartridgeInfo(p));
   }
 
   /**
    * Update cache from registry data
    */
-  updateCache(repoUrl, plugins) {
-    const cache = new PluginRepoCache(repoUrl);
+  updateCache(repoUrl, cartridges) {
+    const cache = new CartridgeRepoCache(repoUrl);
 
-    for (const plugin of plugins) {
-      cache.plugins.set(plugin.id, plugin);
+    for (const cartridge of cartridges) {
+      cache.cartridges.set(cartridge.id, cartridge);
 
-      for (const cap of plugin.caps) {
-        if (!cache.capToPlugins.has(cap.urn)) {
-          cache.capToPlugins.set(cap.urn, []);
+      for (const cap of cartridge.caps) {
+        if (!cache.capToCartridges.has(cap.urn)) {
+          cache.capToCartridges.set(cap.urn, []);
         }
-        cache.capToPlugins.get(cap.urn).push(plugin.id);
+        cache.capToCartridges.get(cap.urn).push(cartridge.id);
       }
     }
 
@@ -4014,15 +4014,15 @@ class PluginRepoClient {
   }
 
   /**
-   * Sync plugin data from repository URLs
+   * Sync cartridge data from repository URLs
    */
   async syncRepos(repoUrls) {
     for (const repoUrl of repoUrls) {
       try {
-        const plugins = await this.fetchRegistry(repoUrl);
-        this.updateCache(repoUrl, plugins);
+        const cartridges = await this.fetchRegistry(repoUrl);
+        this.updateCache(repoUrl, cartridges);
       } catch (e) {
-        console.warn(`Failed to sync plugin repo ${repoUrl}: ${e.message}`);
+        console.warn(`Failed to sync cartridge repo ${repoUrl}: ${e.message}`);
         // Continue with other repos
       }
     }
@@ -4042,31 +4042,31 @@ class PluginRepoClient {
   }
 
   /**
-   * Get plugin suggestions for a cap URN
+   * Get cartridge suggestions for a cap URN
    */
   getSuggestionsForCap(capUrn) {
     const suggestions = [];
 
     for (const cache of this.caches.values()) {
-      const pluginIds = cache.capToPlugins.get(capUrn);
-      if (!pluginIds) continue;
+      const cartridgeIds = cache.capToCartridges.get(capUrn);
+      if (!cartridgeIds) continue;
 
-      for (const pluginId of pluginIds) {
-        const plugin = cache.plugins.get(pluginId);
-        if (!plugin) continue;
+      for (const cartridgeId of cartridgeIds) {
+        const cartridge = cache.cartridges.get(cartridgeId);
+        if (!cartridge) continue;
 
-        const capInfo = plugin.caps.find(c => c.urn === capUrn);
+        const capInfo = cartridge.caps.find(c => c.urn === capUrn);
         if (!capInfo) continue;
 
-        const pageUrl = plugin.pageUrl || cache.repoUrl;
+        const pageUrl = cartridge.pageUrl || cache.repoUrl;
 
-        suggestions.push(new PluginSuggestion({
-          pluginId: plugin.id,
-          pluginName: plugin.name,
-          pluginDescription: plugin.description,
+        suggestions.push(new CartridgeSuggestion({
+          cartridgeId: cartridge.id,
+          cartridgeName: cartridge.name,
+          cartridgeDescription: cartridge.description,
           capUrn: capUrn,
           capTitle: capInfo.title,
-          latestVersion: plugin.version,
+          latestVersion: cartridge.version,
           repoUrl: cache.repoUrl,
           pageUrl: pageUrl
         }));
@@ -4077,25 +4077,25 @@ class PluginRepoClient {
   }
 
   /**
-   * Get all available plugins from all repos
+   * Get all available cartridges from all repos
    */
-  getAllPlugins() {
-    const plugins = [];
+  getAllCartridges() {
+    const cartridges = [];
     for (const cache of this.caches.values()) {
-      for (const [pluginId, pluginInfo] of cache.plugins) {
-        plugins.push([pluginId, pluginInfo]);
+      for (const [cartridgeId, cartridgeInfo] of cache.cartridges) {
+        cartridges.push([cartridgeId, cartridgeInfo]);
       }
     }
-    return plugins;
+    return cartridges;
   }
 
   /**
-   * Get all available cap URNs from plugins
+   * Get all available cap URNs from cartridges
    */
   getAllAvailableCaps() {
     const caps = new Set();
     for (const cache of this.caches.values()) {
-      for (const capUrn of cache.capToPlugins.keys()) {
+      for (const capUrn of cache.capToCartridges.keys()) {
         caps.add(capUrn);
       }
     }
@@ -4103,13 +4103,13 @@ class PluginRepoClient {
   }
 
   /**
-   * Get plugin info by ID
+   * Get cartridge info by ID
    */
-  getPlugin(pluginId) {
+  getCartridge(cartridgeId) {
     for (const cache of this.caches.values()) {
-      const plugin = cache.plugins.get(pluginId);
-      if (plugin) {
-        return plugin;
+      const cartridge = cache.cartridges.get(cartridgeId);
+      if (cartridge) {
+        return cartridge;
       }
     }
     return null;
@@ -4133,9 +4133,9 @@ class PluginRepoClient {
 }
 
 /**
- * Plugin repository server - serves registry data with queries
+ * Cartridge repository server - serves registry data with queries
  */
-class PluginRepoServer {
+class CartridgeRepoServer {
   constructor(registry) {
     this.registry = registry;
     this.validateRegistry();
@@ -4151,8 +4151,8 @@ class PluginRepoServer {
     if (this.registry.schemaVersion !== '3.0') {
       throw new Error(`Unsupported registry schema version: ${this.registry.schemaVersion}. Required: 3.0`);
     }
-    if (!this.registry.plugins || typeof this.registry.plugins !== 'object') {
-      throw new Error('Registry must have plugins object');
+    if (!this.registry.cartridges || typeof this.registry.cartridges !== 'object') {
+      throw new Error('Registry must have cartridges object');
     }
   }
 
@@ -4161,13 +4161,13 @@ class PluginRepoServer {
    */
   validateVersionData(id, version, versionData) {
     if (!versionData.platform) {
-      throw new Error(`Plugin ${id} v${version}: missing required field 'platform'`);
+      throw new Error(`Cartridge ${id} v${version}: missing required field 'platform'`);
     }
     if (!versionData.package || !versionData.package.name) {
-      throw new Error(`Plugin ${id} v${version}: missing required field 'package'`);
+      throw new Error(`Cartridge ${id} v${version}: missing required field 'package'`);
     }
     if (!versionData.binary || !versionData.binary.name) {
-      throw new Error(`Plugin ${id} v${version}: missing required field 'binary'`);
+      throw new Error(`Cartridge ${id} v${version}: missing required field 'binary'`);
     }
   }
 
@@ -4202,44 +4202,44 @@ class PluginRepoServer {
   }
 
   /**
-   * Transform registry to flat plugin array
+   * Transform registry to flat cartridge array
    */
-  transformToPluginArray() {
-    const pluginsObject = this.registry.plugins || {};
-    const plugins = [];
+  transformToCartridgeArray() {
+    const cartridgesObject = this.registry.cartridges || {};
+    const cartridges = [];
 
-    for (const [id, plugin] of Object.entries(pluginsObject)) {
-      const latestVersion = plugin.latestVersion;
-      const versionData = plugin.versions[latestVersion];
+    for (const [id, cartridge] of Object.entries(cartridgesObject)) {
+      const latestVersion = cartridge.latestVersion;
+      const versionData = cartridge.versions[latestVersion];
 
       if (!versionData) {
-        throw new Error(`Plugin ${id}: latest version ${latestVersion} not found in versions`);
+        throw new Error(`Cartridge ${id}: latest version ${latestVersion} not found in versions`);
       }
 
       // Validate required fields - fail hard
       this.validateVersionData(id, latestVersion, versionData);
 
       // Get all version numbers sorted descending
-      const availableVersions = Object.keys(plugin.versions).sort((a, b) => {
+      const availableVersions = Object.keys(cartridge.versions).sort((a, b) => {
         return this.compareVersions(b, a);
       });
 
-      // Build flat plugin object with latest version data
-      const packageUrl = `https://machinefabric.com/plugins/packages/${versionData.package.name}`;
-      plugins.push({
+      // Build flat cartridge object with latest version data
+      const packageUrl = `https://machinefabric.com/cartridges/packages/${versionData.package.name}`;
+      cartridges.push({
         id,
-        name: plugin.name,
+        name: cartridge.name,
         version: latestVersion,
-        description: plugin.description,
-        author: plugin.author,
-        pageUrl: plugin.pageUrl || packageUrl,
-        teamId: plugin.teamId,
+        description: cartridge.description,
+        author: cartridge.author,
+        pageUrl: cartridge.pageUrl || packageUrl,
+        teamId: cartridge.teamId,
         signedAt: versionData.releaseDate,
-        minAppVersion: versionData.minAppVersion || plugin.minAppVersion,
-        caps: plugin.caps || [],
-        categories: plugin.categories,
-        tags: plugin.tags,
-        changelog: this.buildChangelogMap(plugin.versions),
+        minAppVersion: versionData.minAppVersion || cartridge.minAppVersion,
+        caps: cartridge.caps || [],
+        categories: cartridge.categories,
+        tags: cartridge.tags,
+        changelog: this.buildChangelogMap(cartridge.versions),
         // Distribution fields - ALL REQUIRED
         platform: versionData.platform,
         packageName: versionData.package.name,
@@ -4253,34 +4253,34 @@ class PluginRepoServer {
       });
     }
 
-    return plugins;
+    return cartridges;
   }
 
   /**
-   * Get all plugins (API response format)
+   * Get all cartridges (API response format)
    */
-  getPlugins() {
+  getCartridges() {
     return {
-      plugins: this.transformToPluginArray()
+      cartridges: this.transformToCartridgeArray()
     };
   }
 
   /**
-   * Get plugin by ID
+   * Get cartridge by ID
    */
-  getPluginById(id) {
-    const plugins = this.transformToPluginArray();
-    return plugins.find(p => p.id === id);
+  getCartridgeById(id) {
+    const cartridges = this.transformToCartridgeArray();
+    return cartridges.find(p => p.id === id);
   }
 
   /**
-   * Search plugins by query
+   * Search cartridges by query
    */
-  searchPlugins(query) {
-    const plugins = this.transformToPluginArray();
+  searchCartridges(query) {
+    const cartridges = this.transformToCartridgeArray();
     const lowerQuery = query.toLowerCase();
 
-    return plugins.filter(p =>
+    return cartridges.filter(p =>
       p.name.toLowerCase().includes(lowerQuery) ||
       p.description.toLowerCase().includes(lowerQuery) ||
       p.tags.some(t => t.toLowerCase().includes(lowerQuery)) ||
@@ -4289,19 +4289,19 @@ class PluginRepoServer {
   }
 
   /**
-   * Get plugins by category
+   * Get cartridges by category
    */
-  getPluginsByCategory(category) {
-    const plugins = this.transformToPluginArray();
-    return plugins.filter(p => p.categories.includes(category));
+  getCartridgesByCategory(category) {
+    const cartridges = this.transformToCartridgeArray();
+    return cartridges.filter(p => p.categories.includes(category));
   }
 
   /**
-   * Get plugins that provide a specific cap
+   * Get cartridges that provide a specific cap
    */
-  getPluginsByCap(capUrn) {
-    const plugins = this.transformToPluginArray();
-    return plugins.filter(p => p.caps.some(c => c.urn === capUrn));
+  getCartridgesByCap(capUrn) {
+    const cartridges = this.transformToCartridgeArray();
+    return cartridges.filter(p => p.caps.some(c => c.urn === capUrn));
   }
 }
 
@@ -5515,13 +5515,13 @@ module.exports = {
   CapGraph,
   StdinSource,
   StdinSourceKind,
-  // Plugin Repository
-  PluginCapSummary,
-  PluginInfo,
-  PluginSuggestion,
-  PluginRepoCache,
-  PluginRepoClient,
-  PluginRepoServer,
+  // Cartridge Repository
+  CartridgeCapSummary,
+  CartridgeInfo,
+  CartridgeSuggestion,
+  CartridgeRepoCache,
+  CartridgeRepoClient,
+  CartridgeRepoServer,
   // Machine notation
   MachineSyntaxError,
   MachineSyntaxErrorCodes,

@@ -8,7 +8,7 @@ const {
   Cap, MediaSpec, MediaSpecError, MediaSpecErrorCodes,
   resolveMediaUrn, buildExtensionIndex, mediaUrnsForExtension, getExtensionMappings,
   CapMatrixError, CapMatrix, BestCapSetMatch, CompositeCapSet, CapBlock,
-  PluginInfo, PluginCapSummary, PluginSuggestion, PluginRepoClient, PluginRepoServer,
+  CartridgeInfo, CartridgeCapSummary, CartridgeSuggestion, CartridgeRepoClient, CartridgeRepoServer,
   CapGraphEdge, CapGraphStats, CapGraph,
   StdinSource, StdinSourceKind,
   validateNoMediaSpecRedefinitionSync,
@@ -1176,7 +1176,7 @@ function test110_multipleExtensions() {
 // TEST117: CapBlock finds more specific cap across registries
 function test117_capBlockMoreSpecificWins() {
   const providerRegistry = new CapMatrix();
-  const pluginRegistry = new CapMatrix();
+  const cartridgeRegistry = new CapMatrix();
 
   const providerHost = new MockCapSet('provider');
   const providerCap = makeCap(
@@ -1185,22 +1185,22 @@ function test117_capBlockMoreSpecificWins() {
   );
   providerRegistry.registerCapSet('provider', providerHost, [providerCap]);
 
-  const pluginHost = new MockCapSet('plugin');
-  const pluginCap = makeCap(
+  const cartridgeHost = new MockCapSet('cartridge');
+  const cartridgeCap = makeCap(
     'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"',
-    'Plugin PDF Thumbnail Generator (specific)'
+    'Cartridge PDF Thumbnail Generator (specific)'
   );
-  pluginRegistry.registerCapSet('plugin', pluginHost, [pluginCap]);
+  cartridgeRegistry.registerCapSet('cartridge', cartridgeHost, [cartridgeCap]);
 
   const composite = new CapBlock();
   composite.addRegistry('providers', providerRegistry);
-  composite.addRegistry('plugins', pluginRegistry);
+  composite.addRegistry('cartridges', cartridgeRegistry);
 
   const request = 'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"';
   const best = composite.findBestCapSet(request);
 
-  assertEqual(best.registryName, 'plugins', 'More specific plugin should win');
-  assertEqual(best.cap.title, 'Plugin PDF Thumbnail Generator (specific)', 'Should get plugin cap');
+  assertEqual(best.registryName, 'cartridges', 'More specific cartridge should win');
+  assertEqual(best.cap.title, 'Cartridge PDF Thumbnail Generator (specific)', 'Should get cartridge cap');
 }
 
 // TEST118: CapBlock tie-breaking prefers first registry in order
@@ -1269,7 +1269,7 @@ function test120_capBlockNoMatch() {
 // TEST121: CapBlock fallback scenario where generic cap handles unknown file types
 function test121_capBlockFallbackScenario() {
   const providerRegistry = new CapMatrix();
-  const pluginRegistry = new CapMatrix();
+  const cartridgeRegistry = new CapMatrix();
 
   const providerHost = new MockCapSet('provider_fallback');
   const providerCap = makeCap(
@@ -1278,20 +1278,20 @@ function test121_capBlockFallbackScenario() {
   );
   providerRegistry.registerCapSet('provider_fallback', providerHost, [providerCap]);
 
-  const pluginHost = new MockCapSet('pdf_plugin');
-  const pluginCap = makeCap(
+  const cartridgeHost = new MockCapSet('pdf_cartridge');
+  const cartridgeCap = makeCap(
     'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"',
-    'PDF Thumbnail Plugin'
+    'PDF Thumbnail Cartridge'
   );
-  pluginRegistry.registerCapSet('pdf_plugin', pluginHost, [pluginCap]);
+  cartridgeRegistry.registerCapSet('pdf_cartridge', cartridgeHost, [cartridgeCap]);
 
   const composite = new CapBlock();
   composite.addRegistry('providers', providerRegistry);
-  composite.addRegistry('plugins', pluginRegistry);
+  composite.addRegistry('cartridges', cartridgeRegistry);
 
-  // PDF request -> plugin wins
+  // PDF request -> cartridge wins
   const best = composite.findBestCapSet('cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"');
-  assertEqual(best.registryName, 'plugins', 'Plugin should win for PDF');
+  assertEqual(best.registryName, 'cartridges', 'Cartridge should win for PDF');
 
   // WAV request -> provider wins (fallback)
   const bestWav = composite.findBestCapSet('cap:ext=wav;in="media:binary";op=generate_thumbnail;out="media:binary"');
@@ -1494,19 +1494,19 @@ function test130_capGraphStats() {
 // TEST131: CapGraph with CapBlock builds graph from multiple registries
 function test131_capGraphWithCapBlock() {
   const providerRegistry = new CapMatrix();
-  const pluginRegistry = new CapMatrix();
+  const cartridgeRegistry = new CapMatrix();
   const providerHost = { executeCap: async () => ({ textOutput: 'provider' }) };
-  const pluginHost = { executeCap: async () => ({ textOutput: 'plugin' }) };
+  const cartridgeHost = { executeCap: async () => ({ textOutput: 'cartridge' }) };
 
   const providerCap = makeGraphCap('media:binary', 'media:string', 'Provider Binary to String');
   providerRegistry.registerCapSet('provider', providerHost, [providerCap]);
 
-  const pluginCap = makeGraphCap('media:string', 'media:object', 'Plugin String to Object');
-  pluginRegistry.registerCapSet('plugin', pluginHost, [pluginCap]);
+  const cartridgeCap = makeGraphCap('media:string', 'media:object', 'Cartridge String to Object');
+  cartridgeRegistry.registerCapSet('cartridge', cartridgeHost, [cartridgeCap]);
 
   const cube = new CapBlock();
   cube.addRegistry('providers', providerRegistry);
-  cube.addRegistry('plugins', pluginRegistry);
+  cube.addRegistry('cartridges', cartridgeRegistry);
   const graph = cube.graph();
 
   assert(graph.canConvert('media:binary', 'media:object'), 'Should convert across registries');
@@ -1514,7 +1514,7 @@ function test131_capGraphWithCapBlock() {
   assert(path !== null, 'Should find path');
   assertEqual(path.length, 2, 'Path through 2 registries');
   assertEqual(path[0].registryName, 'providers', 'First edge from providers');
-  assertEqual(path[1].registryName, 'plugins', 'Second edge from plugins');
+  assertEqual(path[1].registryName, 'cartridges', 'Second edge from cartridges');
 }
 
 // TEST132: N/A (already covered by TEST129)
@@ -2008,14 +2008,14 @@ function testJS_mediaSpecConstruction() {
 }
 
 // =============================================================================
-// Plugin Repository Tests (TEST320-TEST335)
+// Cartridge Repository Tests (TEST320-TEST335)
 // =============================================================================
 
 // Sample registry for testing
 const sampleRegistry = {
   schemaVersion: '3.0',
   lastUpdated: '2026-02-07T16:48:28Z',
-  plugins: {
+  cartridges: {
     pdfcartridge: {
       name: 'pdfcartridge',
       description: 'PDF document processor',
@@ -2096,11 +2096,11 @@ const sampleRegistry = {
   }
 };
 
-// TEST320: Plugin info construction
-function test320_pluginInfoConstruction() {
+// TEST320: Cartridge info construction
+function test320_cartridgeInfoConstruction() {
   const data = {
-    id: 'testplugin',
-    name: 'Test Plugin',
+    id: 'testcartridge',
+    name: 'Test Cartridge',
     version: '1.0.0',
     description: 'A test',
     teamId: 'TEAM123',
@@ -2109,73 +2109,73 @@ function test320_pluginInfoConstruction() {
     binarySha256: 'abc123',
     caps: [{urn: 'cap:in="media:void";op=test;out="media:void"', title: 'Test', description: ''}]
   };
-  const plugin = new PluginInfo(data);
-  assert(plugin.id === 'testplugin', 'ID should match');
-  assert(plugin.teamId === 'TEAM123', 'Team ID should match');
-  assert(plugin.caps.length === 1, 'Should have 1 cap');
-  assert(plugin.caps[0].urn === 'cap:in="media:void";op=test;out="media:void"', 'Cap URN should match');
+  const cartridge = new CartridgeInfo(data);
+  assert(cartridge.id === 'testcartridge', 'ID should match');
+  assert(cartridge.teamId === 'TEAM123', 'Team ID should match');
+  assert(cartridge.caps.length === 1, 'Should have 1 cap');
+  assert(cartridge.caps[0].urn === 'cap:in="media:void";op=test;out="media:void"', 'Cap URN should match');
 }
 
-// TEST321: Plugin info is signed check
-function test321_pluginInfoIsSigned() {
-  const signed = new PluginInfo({id: 'test', teamId: 'TEAM', signedAt: '2026-01-01', caps: []});
-  assert(signed.isSigned() === true, 'Plugin with teamId and signedAt should be signed');
+// TEST321: Cartridge info is signed check
+function test321_cartridgeInfoIsSigned() {
+  const signed = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '2026-01-01', caps: []});
+  assert(signed.isSigned() === true, 'Cartridge with teamId and signedAt should be signed');
 
-  const unsigned1 = new PluginInfo({id: 'test', teamId: '', signedAt: '2026-01-01', caps: []});
-  assert(unsigned1.isSigned() === false, 'Plugin without teamId should not be signed');
+  const unsigned1 = new CartridgeInfo({id: 'test', teamId: '', signedAt: '2026-01-01', caps: []});
+  assert(unsigned1.isSigned() === false, 'Cartridge without teamId should not be signed');
 
-  const unsigned2 = new PluginInfo({id: 'test', teamId: 'TEAM', signedAt: '', caps: []});
-  assert(unsigned2.isSigned() === false, 'Plugin without signedAt should not be signed');
+  const unsigned2 = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '', caps: []});
+  assert(unsigned2.isSigned() === false, 'Cartridge without signedAt should not be signed');
 }
 
-// TEST322: Plugin info has binary check
-function test322_pluginInfoHasBinary() {
-  const withBinary = new PluginInfo({id: 'test', binaryName: 'test-bin', binarySha256: 'abc', caps: []});
-  assert(withBinary.hasBinary() === true, 'Plugin with binary info should return true');
+// TEST322: Cartridge info has binary check
+function test322_cartridgeInfoHasBinary() {
+  const withBinary = new CartridgeInfo({id: 'test', binaryName: 'test-bin', binarySha256: 'abc', caps: []});
+  assert(withBinary.hasBinary() === true, 'Cartridge with binary info should return true');
 
-  const noBinary1 = new PluginInfo({id: 'test', binaryName: '', binarySha256: 'abc', caps: []});
-  assert(noBinary1.hasBinary() === false, 'Plugin without binaryName should return false');
+  const noBinary1 = new CartridgeInfo({id: 'test', binaryName: '', binarySha256: 'abc', caps: []});
+  assert(noBinary1.hasBinary() === false, 'Cartridge without binaryName should return false');
 
-  const noBinary2 = new PluginInfo({id: 'test', binaryName: 'test', binarySha256: '', caps: []});
-  assert(noBinary2.hasBinary() === false, 'Plugin without binarySha256 should return false');
+  const noBinary2 = new CartridgeInfo({id: 'test', binaryName: 'test', binarySha256: '', caps: []});
+  assert(noBinary2.hasBinary() === false, 'Cartridge without binarySha256 should return false');
 }
 
-// TEST323: PluginRepoServer validate registry
-function test323_pluginRepoServerValidateRegistry() {
+// TEST323: CartridgeRepoServer validate registry
+function test323_cartridgeRepoServerValidateRegistry() {
   // Valid registry
-  const server = new PluginRepoServer(sampleRegistry);
+  const server = new CartridgeRepoServer(sampleRegistry);
   assert(server.registry.schemaVersion === '3.0', 'Should accept valid registry');
 
   // Invalid schema version
   let threw = false;
   try {
-    new PluginRepoServer({schemaVersion: '2.0', plugins: {}});
+    new CartridgeRepoServer({schemaVersion: '2.0', cartridges: {}});
   } catch (e) {
     threw = true;
     assert(e.message.includes('schema version'), 'Should reject wrong schema version');
   }
   assert(threw, 'Should throw for invalid schema');
 
-  // Missing plugins
+  // Missing cartridges
   threw = false;
   try {
-    new PluginRepoServer({schemaVersion: '3.0'});
+    new CartridgeRepoServer({schemaVersion: '3.0'});
   } catch (e) {
     threw = true;
-    assert(e.message.includes('plugins'), 'Should reject missing plugins');
+    assert(e.message.includes('cartridges'), 'Should reject missing cartridges');
   }
-  assert(threw, 'Should throw for missing plugins');
+  assert(threw, 'Should throw for missing cartridges');
 }
 
-// TEST324: PluginRepoServer transform to array
-function test324_pluginRepoServerTransformToArray() {
-  const server = new PluginRepoServer(sampleRegistry);
-  const plugins = server.transformToPluginArray();
+// TEST324: CartridgeRepoServer transform to array
+function test324_cartridgeRepoServerTransformToArray() {
+  const server = new CartridgeRepoServer(sampleRegistry);
+  const cartridges = server.transformToCartridgeArray();
 
-  assert(Array.isArray(plugins), 'Should return array');
-  assert(plugins.length === 2, 'Should have 2 plugins');
-  
-  const pdf = plugins.find(p => p.id === 'pdfcartridge');
+  assert(Array.isArray(cartridges), 'Should return array');
+  assert(cartridges.length === 2, 'Should have 2 cartridges');
+
+  const pdf = cartridges.find(p => p.id === 'pdfcartridge');
   assert(pdf !== undefined, 'Should include pdfcartridge');
   assert(pdf.version === '0.81.5325', 'Should have latest version');
   assert(pdf.teamId === 'P336JK947M', 'Should have teamId');
@@ -2186,125 +2186,125 @@ function test324_pluginRepoServerTransformToArray() {
   assert(pdf.caps.length === 2, 'Should have 2 caps');
 }
 
-// TEST325: PluginRepoServer get plugins
-function test325_pluginRepoServerGetPlugins() {
-  const server = new PluginRepoServer(sampleRegistry);
-  const response = server.getPlugins();
+// TEST325: CartridgeRepoServer get cartridges
+function test325_cartridgeRepoServerGetCartridges() {
+  const server = new CartridgeRepoServer(sampleRegistry);
+  const response = server.getCartridges();
 
-  assert(response.plugins !== undefined, 'Should have plugins field');
-  assert(Array.isArray(response.plugins), 'Plugins should be array');
-  assert(response.plugins.length === 2, 'Should have 2 plugins');
+  assert(response.cartridges !== undefined, 'Should have cartridges field');
+  assert(Array.isArray(response.cartridges), 'Cartridges should be array');
+  assert(response.cartridges.length === 2, 'Should have 2 cartridges');
 }
 
-// TEST326: PluginRepoServer get plugin by ID
-function test326_pluginRepoServerGetPluginById() {
-  const server = new PluginRepoServer(sampleRegistry);
+// TEST326: CartridgeRepoServer get cartridge by ID
+function test326_cartridgeRepoServerGetCartridgeById() {
+  const server = new CartridgeRepoServer(sampleRegistry);
 
-  const pdf = server.getPluginById('pdfcartridge');
+  const pdf = server.getCartridgeById('pdfcartridge');
   assert(pdf !== undefined, 'Should find pdfcartridge');
   assert(pdf.id === 'pdfcartridge', 'Should have correct ID');
 
-  const notFound = server.getPluginById('nonexistent');
-  assert(notFound === undefined, 'Should return undefined for missing plugin');
+  const notFound = server.getCartridgeById('nonexistent');
+  assert(notFound === undefined, 'Should return undefined for missing cartridge');
 }
 
-// TEST327: PluginRepoServer search plugins
-function test327_pluginRepoServerSearchPlugins() {
-  const server = new PluginRepoServer(sampleRegistry);
+// TEST327: CartridgeRepoServer search cartridges
+function test327_cartridgeRepoServerSearchCartridges() {
+  const server = new CartridgeRepoServer(sampleRegistry);
 
-  const pdfResults = server.searchPlugins('pdf');
-  assert(pdfResults.length === 1, 'Should find 1 PDF plugin');
+  const pdfResults = server.searchCartridges('pdf');
+  assert(pdfResults.length === 1, 'Should find 1 PDF cartridge');
   assert(pdfResults[0].id === 'pdfcartridge', 'Should find pdfcartridge');
 
-  const metadataResults = server.searchPlugins('metadata');
-  assert(metadataResults.length === 1, 'Should find plugin by cap title');
+  const metadataResults = server.searchCartridges('metadata');
+  assert(metadataResults.length === 1, 'Should find cartridge by cap title');
 
-  const noResults = server.searchPlugins('nonexistent');
+  const noResults = server.searchCartridges('nonexistent');
   assert(noResults.length === 0, 'Should return empty for no matches');
 }
 
-// TEST328: PluginRepoServer get by category
-function test328_pluginRepoServerGetByCategory() {
-  const server = new PluginRepoServer(sampleRegistry);
+// TEST328: CartridgeRepoServer get by category
+function test328_cartridgeRepoServerGetByCategory() {
+  const server = new CartridgeRepoServer(sampleRegistry);
 
-  const docPlugins = server.getPluginsByCategory('document');
-  assert(docPlugins.length === 1, 'Should find 1 document plugin');
-  assert(docPlugins[0].id === 'pdfcartridge', 'Should be pdfcartridge');
+  const docCartridges = server.getCartridgesByCategory('document');
+  assert(docCartridges.length === 1, 'Should find 1 document cartridge');
+  assert(docCartridges[0].id === 'pdfcartridge', 'Should be pdfcartridge');
 
-  const textPlugins = server.getPluginsByCategory('text');
-  assert(textPlugins.length === 1, 'Should find 1 text plugin');
-  assert(textPlugins[0].id === 'txtcartridge', 'Should be txtcartridge');
+  const textCartridges = server.getCartridgesByCategory('text');
+  assert(textCartridges.length === 1, 'Should find 1 text cartridge');
+  assert(textCartridges[0].id === 'txtcartridge', 'Should be txtcartridge');
 }
 
-// TEST329: PluginRepoServer get by cap
-function test329_pluginRepoServerGetByCap() {
-  const server = new PluginRepoServer(sampleRegistry);
+// TEST329: CartridgeRepoServer get by cap
+function test329_cartridgeRepoServerGetByCap() {
+  const server = new CartridgeRepoServer(sampleRegistry);
 
   const disbindCap = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"';
-  const plugins = server.getPluginsByCap(disbindCap);
+  const cartridges = server.getCartridgesByCap(disbindCap);
 
-  assert(plugins.length === 1, 'Should find 1 plugin with this cap');
-  assert(plugins[0].id === 'pdfcartridge', 'Should be pdfcartridge');
+  assert(cartridges.length === 1, 'Should find 1 cartridge with this cap');
+  assert(cartridges[0].id === 'pdfcartridge', 'Should be pdfcartridge');
 
   const metadataCap = 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;textable;record"';
-  const metadataPlugins = server.getPluginsByCap(metadataCap);
-  assert(metadataPlugins.length === 1, 'Should find metadata cap');
+  const metadataCartridges = server.getCartridgesByCap(metadataCap);
+  assert(metadataCartridges.length === 1, 'Should find metadata cap');
 }
 
-// TEST330: PluginRepoClient update cache
-function test330_pluginRepoClientUpdateCache() {
-  const client = new PluginRepoClient(3600);
-  const server = new PluginRepoServer(sampleRegistry);
-  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+// TEST330: CartridgeRepoClient update cache
+function test330_cartridgeRepoClientUpdateCache() {
+  const client = new CartridgeRepoClient(3600);
+  const server = new CartridgeRepoServer(sampleRegistry);
+  const cartridges = server.transformToCartridgeArray().map(p => new CartridgeInfo(p));
 
-  client.updateCache('https://example.com/api/plugins', plugins);
+  client.updateCache('https://example.com/api/cartridges', cartridges);
 
-  const cache = client.caches.get('https://example.com/api/plugins');
+  const cache = client.caches.get('https://example.com/api/cartridges');
   assert(cache !== undefined, 'Cache should exist');
-  assert(cache.plugins.size === 2, 'Should have 2 plugins in cache');
-  assert(cache.capToPlugins.size > 0, 'Should have cap mappings');
+  assert(cache.cartridges.size === 2, 'Should have 2 cartridges in cache');
+  assert(cache.capToCartridges.size > 0, 'Should have cap mappings');
 }
 
-// TEST331: PluginRepoClient get suggestions
-function test331_pluginRepoClientGetSuggestions() {
-  const client = new PluginRepoClient(3600);
-  const server = new PluginRepoServer(sampleRegistry);
-  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+// TEST331: CartridgeRepoClient get suggestions
+function test331_cartridgeRepoClientGetSuggestions() {
+  const client = new CartridgeRepoClient(3600);
+  const server = new CartridgeRepoServer(sampleRegistry);
+  const cartridges = server.transformToCartridgeArray().map(p => new CartridgeInfo(p));
 
-  client.updateCache('https://example.com/api/plugins', plugins);
+  client.updateCache('https://example.com/api/cartridges', cartridges);
 
   const disbindCap = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"';
   const suggestions = client.getSuggestionsForCap(disbindCap);
 
   assert(suggestions.length === 1, 'Should find 1 suggestion');
-  assert(suggestions[0].pluginId === 'pdfcartridge', 'Should suggest pdfcartridge');
+  assert(suggestions[0].cartridgeId === 'pdfcartridge', 'Should suggest pdfcartridge');
   assert(suggestions[0].capUrn === disbindCap, 'Should have correct cap URN');
   assert(suggestions[0].capTitle === 'Disbind PDF', 'Should have cap title');
 }
 
-// TEST332: PluginRepoClient get plugin
-function test332_pluginRepoClientGetPlugin() {
-  const client = new PluginRepoClient(3600);
-  const server = new PluginRepoServer(sampleRegistry);
-  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+// TEST332: CartridgeRepoClient get cartridge
+function test332_cartridgeRepoClientGetCartridge() {
+  const client = new CartridgeRepoClient(3600);
+  const server = new CartridgeRepoServer(sampleRegistry);
+  const cartridges = server.transformToCartridgeArray().map(p => new CartridgeInfo(p));
 
-  client.updateCache('https://example.com/api/plugins', plugins);
+  client.updateCache('https://example.com/api/cartridges', cartridges);
 
-  const plugin = client.getPlugin('pdfcartridge');
-  assert(plugin !== null, 'Should find plugin');
-  assert(plugin.id === 'pdfcartridge', 'Should have correct ID');
+  const cartridge = client.getCartridge('pdfcartridge');
+  assert(cartridge !== null, 'Should find cartridge');
+  assert(cartridge.id === 'pdfcartridge', 'Should have correct ID');
 
-  const notFound = client.getPlugin('nonexistent');
-  assert(notFound === null, 'Should return null for missing plugin');
+  const notFound = client.getCartridge('nonexistent');
+  assert(notFound === null, 'Should return null for missing cartridge');
 }
 
-// TEST333: PluginRepoClient get all caps
-function test333_pluginRepoClientGetAllCaps() {
-  const client = new PluginRepoClient(3600);
-  const server = new PluginRepoServer(sampleRegistry);
-  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+// TEST333: CartridgeRepoClient get all caps
+function test333_cartridgeRepoClientGetAllCaps() {
+  const client = new CartridgeRepoClient(3600);
+  const server = new CartridgeRepoServer(sampleRegistry);
+  const cartridges = server.transformToCartridgeArray().map(p => new CartridgeInfo(p));
 
-  client.updateCache('https://example.com/api/plugins', plugins);
+  client.updateCache('https://example.com/api/cartridges', cartridges);
 
   const caps = client.getAllAvailableCaps();
   assert(Array.isArray(caps), 'Should return array');
@@ -2312,19 +2312,19 @@ function test333_pluginRepoClientGetAllCaps() {
   assert(caps.every(c => typeof c === 'string'), 'All caps should be strings');
 }
 
-// TEST334: PluginRepoClient needs sync
-function test334_pluginRepoClientNeedsSync() {
-  const client = new PluginRepoClient(1); // 1 second TTL
-  const server = new PluginRepoServer(sampleRegistry);
-  const plugins = server.transformToPluginArray().map(p => new PluginInfo(p));
+// TEST334: CartridgeRepoClient needs sync
+function test334_cartridgeRepoClientNeedsSync() {
+  const client = new CartridgeRepoClient(1); // 1 second TTL
+  const server = new CartridgeRepoServer(sampleRegistry);
+  const cartridges = server.transformToCartridgeArray().map(p => new CartridgeInfo(p));
 
-  const urls = ['https://example.com/api/plugins'];
+  const urls = ['https://example.com/api/cartridges'];
 
   // Should need sync initially
   assert(client.needsSync(urls) === true, 'Should need sync with empty cache');
 
   // Update cache
-  client.updateCache(urls[0], plugins);
+  client.updateCache(urls[0], cartridges);
 
   // Should not need sync immediately
   assert(client.needsSync(urls) === false, 'Should not need sync right after update');
@@ -2333,33 +2333,33 @@ function test334_pluginRepoClientNeedsSync() {
   // Note: Can't test this synchronously, would need async test
 }
 
-// TEST335: PluginRepoServer and Client integration
-function test335_pluginRepoServerClientIntegration() {
+// TEST335: CartridgeRepoServer and Client integration
+function test335_cartridgeRepoServerClientIntegration() {
   // Server creates API response
-  const server = new PluginRepoServer(sampleRegistry);
-  const apiResponse = server.getPlugins();
+  const server = new CartridgeRepoServer(sampleRegistry);
+  const apiResponse = server.getCartridges();
 
   // Client consumes API response
-  const client = new PluginRepoClient(3600);
-  const plugins = apiResponse.plugins.map(p => new PluginInfo(p));
-  client.updateCache('https://example.com/api/plugins', plugins);
+  const client = new CartridgeRepoClient(3600);
+  const cartridges = apiResponse.cartridges.map(p => new CartridgeInfo(p));
+  client.updateCache('https://example.com/api/cartridges', cartridges);
 
-  // Client can find plugin
-  const plugin = client.getPlugin('pdfcartridge');
-  assert(plugin !== null, 'Client should find plugin from server data');
-  assert(plugin.isSigned(), 'Plugin should be signed');
-  assert(plugin.hasBinary(), 'Plugin should have binary');
+  // Client can find cartridge
+  const cartridge = client.getCartridge('pdfcartridge');
+  assert(cartridge !== null, 'Client should find cartridge from server data');
+  assert(cartridge.isSigned(), 'Cartridge should be signed');
+  assert(cartridge.hasBinary(), 'Cartridge should have binary');
 
   // Client can get suggestions
   const capUrn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"';
   const suggestions = client.getSuggestionsForCap(capUrn);
   assert(suggestions.length === 1, 'Should get suggestions');
-  assert(suggestions[0].pluginId === 'pdfcartridge', 'Should suggest correct plugin');
+  assert(suggestions[0].cartridgeId === 'pdfcartridge', 'Should suggest correct cartridge');
 
   // Server can search
-  const searchResults = server.searchPlugins('pdf');
+  const searchResults = server.searchCartridges('pdf');
   assert(searchResults.length === 1, 'Server search should work');
-  assert(searchResults[0].id === plugin.id, 'Search and client should agree');
+  assert(searchResults[0].id === cartridge.id, 'Search and client should agree');
 }
 
 // ============================================================================
@@ -5401,24 +5401,24 @@ async function runTests() {
   if (p2) await p2;
   runTest('JS: media_spec_construction', testJS_mediaSpecConstruction);
 
-  // plugin_repo: PluginRepoServer and PluginRepoClient tests
-  console.log('\n--- plugin_repo ---');
-  runTest('TEST320: plugin_info_construction', test320_pluginInfoConstruction);
-  runTest('TEST321: plugin_info_is_signed', test321_pluginInfoIsSigned);
-  runTest('TEST322: plugin_info_has_binary', test322_pluginInfoHasBinary);
-  runTest('TEST323: plugin_repo_server_validate_registry', test323_pluginRepoServerValidateRegistry);
-  runTest('TEST324: plugin_repo_server_transform_to_array', test324_pluginRepoServerTransformToArray);
-  runTest('TEST325: plugin_repo_server_get_plugins', test325_pluginRepoServerGetPlugins);
-  runTest('TEST326: plugin_repo_server_get_plugin_by_id', test326_pluginRepoServerGetPluginById);
-  runTest('TEST327: plugin_repo_server_search_plugins', test327_pluginRepoServerSearchPlugins);
-  runTest('TEST328: plugin_repo_server_get_by_category', test328_pluginRepoServerGetByCategory);
-  runTest('TEST329: plugin_repo_server_get_by_cap', test329_pluginRepoServerGetByCap);
-  runTest('TEST330: plugin_repo_client_update_cache', test330_pluginRepoClientUpdateCache);
-  runTest('TEST331: plugin_repo_client_get_suggestions', test331_pluginRepoClientGetSuggestions);
-  runTest('TEST332: plugin_repo_client_get_plugin', test332_pluginRepoClientGetPlugin);
-  runTest('TEST333: plugin_repo_client_get_all_caps', test333_pluginRepoClientGetAllCaps);
-  runTest('TEST334: plugin_repo_client_needs_sync', test334_pluginRepoClientNeedsSync);
-  runTest('TEST335: plugin_repo_server_client_integration', test335_pluginRepoServerClientIntegration);
+  // cartridge_repo: CartridgeRepoServer and CartridgeRepoClient tests
+  console.log('\n--- cartridge_repo ---');
+  runTest('TEST320: cartridge_info_construction', test320_cartridgeInfoConstruction);
+  runTest('TEST321: cartridge_info_is_signed', test321_cartridgeInfoIsSigned);
+  runTest('TEST322: cartridge_info_has_binary', test322_cartridgeInfoHasBinary);
+  runTest('TEST323: cartridge_repo_server_validate_registry', test323_cartridgeRepoServerValidateRegistry);
+  runTest('TEST324: cartridge_repo_server_transform_to_array', test324_cartridgeRepoServerTransformToArray);
+  runTest('TEST325: cartridge_repo_server_get_cartridges', test325_cartridgeRepoServerGetCartridges);
+  runTest('TEST326: cartridge_repo_server_get_cartridge_by_id', test326_cartridgeRepoServerGetCartridgeById);
+  runTest('TEST327: cartridge_repo_server_search_cartridges', test327_cartridgeRepoServerSearchCartridges);
+  runTest('TEST328: cartridge_repo_server_get_by_category', test328_cartridgeRepoServerGetByCategory);
+  runTest('TEST329: cartridge_repo_server_get_by_cap', test329_cartridgeRepoServerGetByCap);
+  runTest('TEST330: cartridge_repo_client_update_cache', test330_cartridgeRepoClientUpdateCache);
+  runTest('TEST331: cartridge_repo_client_get_suggestions', test331_cartridgeRepoClientGetSuggestions);
+  runTest('TEST332: cartridge_repo_client_get_cartridge', test332_cartridgeRepoClientGetCartridge);
+  runTest('TEST333: cartridge_repo_client_get_all_caps', test333_cartridgeRepoClientGetAllCaps);
+  runTest('TEST334: cartridge_repo_client_needs_sync', test334_cartridgeRepoClientNeedsSync);
+  runTest('TEST335: cartridge_repo_server_client_integration', test335_cartridgeRepoServerClientIntegration);
 
   // media_urn.rs: TEST546-TEST558 (MediaUrn predicates)
   console.log('\n--- media_urn.rs (predicates) ---');

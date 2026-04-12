@@ -125,22 +125,22 @@ This catalog lists all numbered tests in the capdag-js codebase.
 | test310 | `test310_llmConversationUrnUnconstrained` | llm_conversation_urn uses unconstrained tag (not constrained) | capdag.test.js:1708 |
 | test311 | `test311_llmConversationUrnSpecs` | llm_conversation_urn in/out specs match the expected media URNs semantically | capdag.test.js:1716 |
 | test312 | `test312_allUrnBuildersProduceValidUrns` | All URN builders produce parseable cap URNs | capdag.test.js:1727 |
-| test320 | `test320_pluginInfoConstruction` | Plugin info construction | capdag.test.js:2018 |
-| test321 | `test321_pluginInfoIsSigned` | Plugin info is signed check | capdag.test.js:2038 |
-| test322 | `test322_pluginInfoHasBinary` | Plugin info has binary check | capdag.test.js:2050 |
-| test323 | `test323_pluginRepoServerValidateRegistry` | PluginRepoServer validate registry | capdag.test.js:2062 |
-| test324 | `test324_pluginRepoServerTransformToArray` | PluginRepoServer transform to array | capdag.test.js:2089 |
-| test325 | `test325_pluginRepoServerGetPlugins` | PluginRepoServer get plugins | capdag.test.js:2108 |
-| test326 | `test326_pluginRepoServerGetPluginById` | PluginRepoServer get plugin by ID | capdag.test.js:2118 |
-| test327 | `test327_pluginRepoServerSearchPlugins` | PluginRepoServer search plugins | capdag.test.js:2130 |
-| test328 | `test328_pluginRepoServerGetByCategory` | PluginRepoServer get by category | capdag.test.js:2145 |
-| test329 | `test329_pluginRepoServerGetByCap` | PluginRepoServer get by cap | capdag.test.js:2158 |
-| test330 | `test330_pluginRepoClientUpdateCache` | PluginRepoClient update cache | capdag.test.js:2173 |
-| test331 | `test331_pluginRepoClientGetSuggestions` | PluginRepoClient get suggestions | capdag.test.js:2187 |
-| test332 | `test332_pluginRepoClientGetPlugin` | PluginRepoClient get plugin | capdag.test.js:2204 |
-| test333 | `test333_pluginRepoClientGetAllCaps` | PluginRepoClient get all caps | capdag.test.js:2220 |
-| test334 | `test334_pluginRepoClientNeedsSync` | PluginRepoClient needs sync | capdag.test.js:2234 |
-| test335 | `test335_pluginRepoServerClientIntegration` | PluginRepoServer and Client integration | capdag.test.js:2255 |
+| test320 | `test320_cartridgeInfoConstruction` | Cartridge info construction | capdag.test.js:2018 |
+| test321 | `test321_cartridgeInfoIsSigned` | Cartridge info is signed check | capdag.test.js:2038 |
+| test322 | `test322_cartridgeInfoHasBinary` | Cartridge info has binary check | capdag.test.js:2050 |
+| test323 | `test323_cartridgeRepoServerValidateRegistry` | CartridgeRepoServer validate registry | capdag.test.js:2062 |
+| test324 | `test324_cartridgeRepoServerTransformToArray` | CartridgeRepoServer transform to array | capdag.test.js:2089 |
+| test325 | `test325_cartridgeRepoServerGetCartridges` | CartridgeRepoServer get cartridges | capdag.test.js:2108 |
+| test326 | `test326_cartridgeRepoServerGetCartridgeById` | CartridgeRepoServer get cartridge by ID | capdag.test.js:2118 |
+| test327 | `test327_cartridgeRepoServerSearchCartridges` | CartridgeRepoServer search cartridges | capdag.test.js:2130 |
+| test328 | `test328_cartridgeRepoServerGetByCategory` | CartridgeRepoServer get by category | capdag.test.js:2145 |
+| test329 | `test329_cartridgeRepoServerGetByCap` | CartridgeRepoServer get by cap | capdag.test.js:2158 |
+| test330 | `test330_cartridgeRepoClientUpdateCache` | CartridgeRepoClient update cache | capdag.test.js:2173 |
+| test331 | `test331_cartridgeRepoClientGetSuggestions` | CartridgeRepoClient get suggestions | capdag.test.js:2187 |
+| test332 | `test332_cartridgeRepoClientGetCartridge` | CartridgeRepoClient get cartridge | capdag.test.js:2204 |
+| test333 | `test333_cartridgeRepoClientGetAllCaps` | CartridgeRepoClient get all caps | capdag.test.js:2220 |
+| test334 | `test334_cartridgeRepoClientNeedsSync` | CartridgeRepoClient needs sync | capdag.test.js:2234 |
+| test335 | `test335_cartridgeRepoServerClientIntegration` | CartridgeRepoServer and Client integration | capdag.test.js:2255 |
 | test501 | `test501_tagged_urn_creation` | Verify basic URN creation from string with multiple tags | tagged-urn.test.js:63 |
 | test502 | `test502_custom_prefix` | Verify custom prefixes work and tags are sorted alphabetically | tagged-urn.test.js:72 |
 | test503 | `test503_prefix_case_insensitive` | Verify prefix is case-insensitive (CAP, cap, Cap all equal) | tagged-urn.test.js:80 |
