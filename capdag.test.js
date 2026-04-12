@@ -3757,11 +3757,13 @@ const {
   buildStrandGraphData: rendererBuildStrandGraphData,
   collapseStrandShapeTransitions: rendererCollapseStrandShapeTransitions,
   buildRunGraphData: rendererBuildRunGraphData,
-  buildMachineGraphData: rendererBuildMachineGraphData,
+  buildEditorGraphData: rendererBuildEditorGraphData,
+  buildResolvedMachineGraphData: rendererBuildResolvedMachineGraphData,
   classifyStrandCapSteps: rendererClassifyStrandCapSteps,
   validateStrandPayload: rendererValidateStrandPayload,
   validateRunPayload: rendererValidateRunPayload,
-  validateMachinePayload: rendererValidateMachinePayload,
+  validateEditorGraphPayload: rendererValidateEditorGraphPayload,
+  validateResolvedMachinePayload: rendererValidateResolvedMachinePayload,
   validateStrandStep: rendererValidateStrandStep,
   validateBodyOutcome: rendererValidateBodyOutcome,
 } = require('./cap-graph-renderer.js');
@@ -4844,12 +4846,12 @@ function testRenderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarge
     'one merge edge from body cap replica to collect target');
 }
 
-// ---------------- machine builder ----------------
+// ---------------- editor-graph builder ----------------
 
-function testRenderer_validateMachinePayload_rejectsUnknownKind() {
+function testRenderer_validateEditorGraphPayload_rejectsUnknownKind() {
   let threw = false;
   try {
-    rendererValidateMachinePayload({
+    rendererValidateEditorGraphPayload({
       elements: [{ kind: 'widget', graph_id: 'w1' }],
     });
   } catch (e) {
@@ -4860,7 +4862,7 @@ function testRenderer_validateMachinePayload_rejectsUnknownKind() {
   assert(threw, 'unknown element kind must throw');
 }
 
-function testRenderer_buildMachineGraphData_collapsesCapsIntoLabeledEdges() {
+function testRenderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges() {
   // The notation analyzer emits a bipartite chain per cap
   // application: data_node → arg_edge → cap_node → arg_edge →
   // data_node. The machine builder collapses each cap into a
@@ -4878,7 +4880,7 @@ function testRenderer_buildMachineGraphData_collapsesCapsIntoLabeledEdges() {
       { kind: 'edge', graph_id: 'e_out', source_graph_id: 'c1', target_graph_id: 'n_dst', label: 'out', token_id: 't-eout' },
     ],
   };
-  const built = rendererBuildMachineGraphData(data);
+  const built = rendererBuildEditorGraphData(data);
 
   // Only data-slot nodes survive. Cap is NOT a node.
   assertEqual(built.nodes.length, 2, 'only data-slot nodes are rendered');
@@ -4898,7 +4900,7 @@ function testRenderer_buildMachineGraphData_collapsesCapsIntoLabeledEdges() {
     'edge carries the cap node tokenId so editor cross-highlight points to the cap in source text');
 }
 
-function testRenderer_buildMachineGraphData_loopMarkedEdgeGetsLoopClass() {
+function testRenderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass() {
   // A cap marked `is_loop: true` must produce a `machine-loop`
   // edge so the stylesheet's dashed amber rule applies.
   const data = {
@@ -4910,13 +4912,13 @@ function testRenderer_buildMachineGraphData_loopMarkedEdgeGetsLoopClass() {
       { kind: 'edge', graph_id: 'e2', source_graph_id: 'c', target_graph_id: 'b', token_id: 't-e2' },
     ],
   };
-  const built = rendererBuildMachineGraphData(data);
+  const built = rendererBuildEditorGraphData(data);
   assertEqual(built.edges.length, 1, 'one collapsed edge');
   assert(built.edges[0].classes.indexOf('machine-loop') >= 0,
     'loop-marked cap emits machine-loop class on the collapsed edge');
 }
 
-function testRenderer_buildMachineGraphData_cardinalityFromDataSlotSequenceFlags() {
+function testRenderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags() {
   // Cardinality markers come from the source and target data
   // slots' `is_sequence` flags. A cap whose output data slot has
   // `is_sequence=true` shows "(1→n)" on its collapsed edge.
@@ -4929,13 +4931,13 @@ function testRenderer_buildMachineGraphData_cardinalityFromDataSlotSequenceFlags
       { kind: 'edge', graph_id: 'e2', source_graph_id: 'c', target_graph_id: 'b', token_id: 't-e2' },
     ],
   };
-  const built = rendererBuildMachineGraphData(data);
+  const built = rendererBuildEditorGraphData(data);
   assertEqual(built.edges.length, 1, 'one collapsed edge');
   assertEqual(built.edges[0].data.label, 'disbind (1\u2192n)',
     'cardinality marker "(1→n)" derived from output data slot is_sequence=true');
 }
 
-function testRenderer_buildMachineGraphData_capWithoutCompleteArgsIsDropped() {
+function testRenderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped() {
   // A cap with no incoming or no outgoing argument edges (e.g.
   // the user is mid-typing) contributes nothing to the render.
   // The data slots are still emitted.
@@ -4946,16 +4948,16 @@ function testRenderer_buildMachineGraphData_capWithoutCompleteArgsIsDropped() {
       { kind: 'edge', graph_id: 'e1', source_graph_id: 'a', target_graph_id: 'c', token_id: 't-e1' },
     ],
   };
-  const built = rendererBuildMachineGraphData(data);
+  const built = rendererBuildEditorGraphData(data);
   assertEqual(built.nodes.length, 1, 'data slot emitted');
   assertEqual(built.edges.length, 0,
     'incomplete cap (no outgoing argument) drops out of the render');
 }
 
-function testRenderer_buildMachineGraphData_rejectsEdgeWithMissingSource() {
+function testRenderer_buildEditorGraphData_rejectsEdgeWithMissingSource() {
   let threw = false;
   try {
-    rendererBuildMachineGraphData({
+    rendererBuildEditorGraphData({
       elements: [
         { kind: 'edge', graph_id: 'e1', target_graph_id: 't' },
       ],
@@ -4964,6 +4966,261 @@ function testRenderer_buildMachineGraphData_rejectsEdgeWithMissingSource() {
     threw = true;
   }
   assert(threw, 'edge without source_graph_id must throw');
+}
+
+// ---------------- resolved-machine builder ----------------
+
+function testRenderer_buildResolvedMachineGraphData_singleStrandLinearChain() {
+  // A single-strand machine: media:pdf → extract → media:txt
+  // → embed → media:embedding. Two edges, three nodes, no
+  // loops, no fan-in. Tests the basic shape — nodes and
+  // edges flow through verbatim from the resolved machine
+  // payload.
+  const payload = {
+    strands: [
+      {
+        nodes: [
+          { id: 'n0', urn: 'media:pdf' },
+          { id: 'n1', urn: 'media:txt;textable' },
+          { id: 'n2', urn: 'media:embedding;record' },
+        ],
+        edges: [
+          {
+            alias: 'edge_0',
+            cap_urn: 'cap:in=media:pdf;op=extract;out=media:txt;textable',
+            is_loop: false,
+            assignment: [
+              { cap_arg_media_urn: 'media:pdf', source_node: 'n0' },
+            ],
+            target_node: 'n1',
+          },
+          {
+            alias: 'edge_1',
+            cap_urn: 'cap:in=media:textable;op=embed;out=media:embedding;record',
+            is_loop: false,
+            assignment: [
+              { cap_arg_media_urn: 'media:textable', source_node: 'n1' },
+            ],
+            target_node: 'n2',
+          },
+        ],
+        input_anchor_nodes: ['n0'],
+        output_anchor_nodes: ['n2'],
+      },
+    ],
+  };
+  const built = rendererBuildResolvedMachineGraphData(payload);
+  assertEqual(built.nodes.length, 3, 'three data-slot nodes');
+  assertEqual(built.edges.length, 2, 'two cap edges (one assignment each)');
+  // First edge connects n0 → n1, second connects n1 → n2.
+  const edges = built.edges.map(e => `${e.data.source}->${e.data.target}`);
+  assertEqual(edges[0], 'n0->n1', 'first edge wires n0 to n1');
+  assertEqual(edges[1], 'n1->n2', 'second edge wires n1 to n2');
+  // Anchor nodes carry the strand-source / strand-target classes.
+  const n0 = built.nodes.find(n => n.data.id === 'n0');
+  const n2 = built.nodes.find(n => n.data.id === 'n2');
+  assert(n0.classes.indexOf('strand-source') >= 0,
+    'input anchor node carries strand-source class');
+  assert(n2.classes.indexOf('strand-target') >= 0,
+    'output anchor node carries strand-target class');
+}
+
+function testRenderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass() {
+  // An is_loop edge corresponds to a strand step inside a
+  // ForEach body. The renderer must mark it with the
+  // `machine-loop` class so the dashed amber rule applies.
+  const payload = {
+    strands: [
+      {
+        nodes: [
+          { id: 'n0', urn: 'media:page;textable' },
+          { id: 'n1', urn: 'media:decision;json;record;textable' },
+        ],
+        edges: [
+          {
+            alias: 'edge_0',
+            cap_urn: 'cap:in=media:textable;op=make_decision;out=media:decision;json;record;textable',
+            is_loop: true,
+            assignment: [
+              { cap_arg_media_urn: 'media:textable', source_node: 'n0' },
+            ],
+            target_node: 'n1',
+          },
+        ],
+        input_anchor_nodes: ['n0'],
+        output_anchor_nodes: ['n1'],
+      },
+    ],
+  };
+  const built = rendererBuildResolvedMachineGraphData(payload);
+  assertEqual(built.edges.length, 1, 'one cap edge');
+  assert(built.edges[0].classes.indexOf('machine-loop') >= 0,
+    'is_loop=true must produce a machine-loop class on the cap edge');
+}
+
+function testRenderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment() {
+  // A cap with two input args (a fan-in) gets one rendered
+  // edge per (source_node, target_node) pair so cytoscape can
+  // draw both incoming wires. Both edges share the cap title
+  // and color so they read as a single fan-in.
+  const payload = {
+    strands: [
+      {
+        nodes: [
+          { id: 'n0', urn: 'media:image;png' },
+          { id: 'n1', urn: 'media:model-spec;textable' },
+          { id: 'n2', urn: 'media:image-description;textable' },
+        ],
+        edges: [
+          {
+            alias: 'edge_0',
+            cap_urn: 'cap:in=media:image;png;op=describe_image;out=media:image-description;textable',
+            is_loop: false,
+            assignment: [
+              { cap_arg_media_urn: 'media:image;png', source_node: 'n0' },
+              { cap_arg_media_urn: 'media:model-spec;textable', source_node: 'n1' },
+            ],
+            target_node: 'n2',
+          },
+        ],
+        input_anchor_nodes: ['n0', 'n1'],
+        output_anchor_nodes: ['n2'],
+      },
+    ],
+  };
+  const built = rendererBuildResolvedMachineGraphData(payload);
+  assertEqual(built.edges.length, 2, 'two rendered edges, one per assignment binding');
+  const sources = built.edges.map(e => e.data.source).sort();
+  assertEqual(JSON.stringify(sources), JSON.stringify(['n0', 'n1']),
+    'each binding gets its own source-node edge into the same target');
+  assertEqual(built.edges[0].data.target, 'n2', 'first edge targets n2');
+  assertEqual(built.edges[1].data.target, 'n2', 'second edge targets n2');
+}
+
+function testRenderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint() {
+  // Two strands inside one machine. Each strand has its own
+  // nodes and edges. Node ids are globally unique across
+  // strands (Rust assigns them via a single counter), so no
+  // node id collision can happen. The renderer must emit
+  // every node and every edge from both strands.
+  const payload = {
+    strands: [
+      {
+        nodes: [
+          { id: 'n0', urn: 'media:pdf' },
+          { id: 'n1', urn: 'media:txt;textable' },
+        ],
+        edges: [
+          {
+            alias: 'edge_0',
+            cap_urn: 'cap:in=media:pdf;op=extract;out=media:txt;textable',
+            is_loop: false,
+            assignment: [
+              { cap_arg_media_urn: 'media:pdf', source_node: 'n0' },
+            ],
+            target_node: 'n1',
+          },
+        ],
+        input_anchor_nodes: ['n0'],
+        output_anchor_nodes: ['n1'],
+      },
+      {
+        nodes: [
+          { id: 'n2', urn: 'media:json;record;textable' },
+          { id: 'n3', urn: 'media:csv;list;record;textable' },
+        ],
+        edges: [
+          {
+            alias: 'edge_1',
+            cap_urn: 'cap:in=media:json;record;textable;op=convert_format;out=media:csv;list;record;textable',
+            is_loop: false,
+            assignment: [
+              { cap_arg_media_urn: 'media:json;record;textable', source_node: 'n2' },
+            ],
+            target_node: 'n3',
+          },
+        ],
+        input_anchor_nodes: ['n2'],
+        output_anchor_nodes: ['n3'],
+      },
+    ],
+  };
+  const built = rendererBuildResolvedMachineGraphData(payload);
+  assertEqual(built.nodes.length, 4, 'all four nodes from both strands present');
+  assertEqual(built.edges.length, 2, 'one edge per strand');
+  // Each node carries a strandIndex matching which strand it came from.
+  const idToStrand = {};
+  for (const n of built.nodes) idToStrand[n.data.id] = n.data.strandIndex;
+  assertEqual(idToStrand['n0'], 0, 'n0 belongs to strand 0');
+  assertEqual(idToStrand['n1'], 0, 'n1 belongs to strand 0');
+  assertEqual(idToStrand['n2'], 1, 'n2 belongs to strand 1');
+  assertEqual(idToStrand['n3'], 1, 'n3 belongs to strand 1');
+}
+
+function testRenderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard() {
+  // Node ids must be globally unique across strands. The
+  // Rust serializer guarantees this via a single global
+  // counter. If the host ever feeds a payload that violates
+  // it, the renderer must fail hard so the bug surfaces
+  // instead of silently overwriting one node with another.
+  const payload = {
+    strands: [
+      {
+        nodes: [{ id: 'n0', urn: 'media:pdf' }],
+        edges: [],
+        input_anchor_nodes: ['n0'],
+        output_anchor_nodes: ['n0'],
+      },
+      {
+        nodes: [{ id: 'n0', urn: 'media:html' }],
+        edges: [],
+        input_anchor_nodes: ['n0'],
+        output_anchor_nodes: ['n0'],
+      },
+    ],
+  };
+  let threw = false;
+  let message = '';
+  try {
+    rendererBuildResolvedMachineGraphData(payload);
+  } catch (e) {
+    threw = true;
+    message = e.message || '';
+  }
+  assert(threw, 'duplicate node id across strands must throw');
+  assert(message.includes('duplicate node id') && message.includes('n0'),
+    'error must name the colliding node id');
+}
+
+function testRenderer_validateResolvedMachinePayload_rejectsMissingFields() {
+  // The validator must reject any payload missing a required
+  // field on a strand, edge, node, or assignment binding.
+  // We exercise the most-likely-to-be-missed field on each
+  // sub-shape.
+  const cases = [
+    { strands: 'not-an-array' },
+    { strands: [{ nodes: [], edges: [], input_anchor_nodes: [] /* missing output_anchor_nodes */ }] },
+    { strands: [{ nodes: [{ id: 'n0' /* missing urn */ }], edges: [], input_anchor_nodes: [], output_anchor_nodes: [] }] },
+    {
+      strands: [{
+        nodes: [{ id: 'n0', urn: 'media:x' }],
+        edges: [{
+          alias: 'edge_0',
+          cap_urn: 'cap:in=...;out=...',
+          is_loop: false,
+          assignment: [{ cap_arg_media_urn: 'media:x' /* missing source_node */ }],
+          target_node: 'n0',
+        }],
+        input_anchor_nodes: ['n0'],
+        output_anchor_nodes: ['n0'],
+      }],
+    },
+  ];
+  for (const c of cases) {
+    let threw = false;
+    try { rendererValidateResolvedMachinePayload(c); } catch (e) { threw = true; }
+    assert(threw, `validator must reject payload: ${JSON.stringify(c).slice(0, 80)}`);
+  }
 }
 
 // ============================================================================
@@ -5360,13 +5617,21 @@ async function runTests() {
   runTest('RENDERER: buildRun_unclosedForeachNoMerge',        testRenderer_buildRunGraphData_unclosedForeachSuccessNoMerge);
   runTest('RENDERER: buildRun_closedForeachMerges',           testRenderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget);
 
-  console.log('\n--- cap-graph-renderer machine builder ---');
-  runTest('RENDERER: validateMachine_unknownKind',            testRenderer_validateMachinePayload_rejectsUnknownKind);
-  runTest('RENDERER: buildMachine_collapsesCapsIntoEdges',    testRenderer_buildMachineGraphData_collapsesCapsIntoLabeledEdges);
-  runTest('RENDERER: buildMachine_loopMarkedEdgeGetsClass',   testRenderer_buildMachineGraphData_loopMarkedEdgeGetsLoopClass);
-  runTest('RENDERER: buildMachine_cardinalityFromIsSeq',      testRenderer_buildMachineGraphData_cardinalityFromDataSlotSequenceFlags);
-  runTest('RENDERER: buildMachine_incompleteCapDropped',      testRenderer_buildMachineGraphData_capWithoutCompleteArgsIsDropped);
-  runTest('RENDERER: buildMachine_rejectsEdgeMissingSource',  testRenderer_buildMachineGraphData_rejectsEdgeWithMissingSource);
+  console.log('\n--- cap-graph-renderer editor-graph builder ---');
+  runTest('RENDERER: validateEditorGraph_unknownKind',          testRenderer_validateEditorGraphPayload_rejectsUnknownKind);
+  runTest('RENDERER: buildEditorGraph_collapsesCapsIntoEdges',  testRenderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges);
+  runTest('RENDERER: buildEditorGraph_loopEdgeGetsClass',       testRenderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass);
+  runTest('RENDERER: buildEditorGraph_cardinalityFromIsSeq',    testRenderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags);
+  runTest('RENDERER: buildEditorGraph_incompleteCapDropped',    testRenderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped);
+  runTest('RENDERER: buildEditorGraph_rejectsEdgeMissingSrc',   testRenderer_buildEditorGraphData_rejectsEdgeWithMissingSource);
+
+  console.log('\n--- cap-graph-renderer resolved-machine builder ---');
+  runTest('RENDERER: buildResolvedMachine_singleStrandLinear',     testRenderer_buildResolvedMachineGraphData_singleStrandLinearChain);
+  runTest('RENDERER: buildResolvedMachine_loopGetsLoopClass',      testRenderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass);
+  runTest('RENDERER: buildResolvedMachine_fanInOneEdgePerSrc',     testRenderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment);
+  runTest('RENDERER: buildResolvedMachine_multiStrandDisjoint',    testRenderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint);
+  runTest('RENDERER: buildResolvedMachine_dupNodeIdFails',         testRenderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard);
+  runTest('RENDERER: validateResolvedMachine_rejectsMissingFields', testRenderer_validateResolvedMachinePayload_rejectsMissingFields);
 
   // Summary
   console.log(`\n${passCount + failCount} tests: ${passCount} passed, ${failCount} failed`);

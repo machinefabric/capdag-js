@@ -185,7 +185,7 @@ function layoutForMode(mode) {
       'elk.spacing.nodeNode': 35,
     });
   }
-  if (mode === 'machine') {
+  if (mode === 'editor-graph') {
     // Editor graph is a small bipartite-ish DAG; orthogonal routing
     // reads more cleanly than polyline at this density.
     return {
@@ -198,6 +198,16 @@ function layoutForMode(mode) {
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
       'elk.layered.nodePlacement.bk.fixedAlignment': 'BALANCED',
     };
+  }
+  if (mode === 'machine') {
+    // Resolved-machine graph: a (potentially multi-strand) DAG laid
+    // out left-to-right with the same spacing the strand mode uses
+    // for single strands. Multiple disconnected strands are placed
+    // side by side by elk's component packer.
+    return Object.assign({}, base, {
+      'elk.layered.spacing.nodeNodeBetweenLayers': 120,
+      'elk.spacing.nodeNode': 40,
+    });
   }
   throw new Error(`CapGraphRenderer: unknown mode '${mode}'`);
 }
@@ -358,12 +368,14 @@ function buildStylesheet() {
       style: { 'width': 3, 'z-index': 999, 'line-style': 'solid' },
     },
 
-    // -------- Machine mode ---------------------------------------------
-    // Used by the notation editor's live graph. The machine-mode
-    // builder collapses each cap application into a single
-    // labeled edge between its input and output data slots —
-    // caps do NOT appear as separate nodes. Only data slots are
-    // nodes; cap semantics are carried on edges.
+    // -------- Machine / editor-graph mode ------------------------------
+    // Shared between the resolved-machine view (`mode: 'machine'`,
+    // canonical `Machine::to_render_payload_json`) and the notation
+    // editor's live graph (`mode: 'editor-graph'`, ast-driven). Both
+    // collapse each cap application into a single labeled edge
+    // between its input and output data slots — caps do NOT appear
+    // as separate nodes. Only data slots are nodes; cap semantics
+    // are carried on edges.
     //
     // Reads the editor's dedicated palette so nodes, edges and
     // loop markers match the text theme.
@@ -561,25 +573,93 @@ function validateRunPayload(data) {
   }
 }
 
-function validateMachinePayload(data) {
+function validateEditorGraphPayload(data) {
   if (!data || typeof data !== 'object') {
-    throw new Error('CapGraphRenderer machine mode: data must be an object');
+    throw new Error('CapGraphRenderer editor-graph mode: data must be an object');
   }
-  assertArray(data.elements, 'machine mode data.elements');
+  assertArray(data.elements, 'editor-graph mode data.elements');
   data.elements.forEach((el, idx) => {
     if (!el || typeof el !== 'object') {
-      throw new Error(`CapGraphRenderer machine mode: data.elements[${idx}] is not an object`);
+      throw new Error(`CapGraphRenderer editor-graph mode: data.elements[${idx}] is not an object`);
     }
     if (el.kind !== 'node' && el.kind !== 'cap' && el.kind !== 'edge') {
       throw new Error(
-        `CapGraphRenderer machine mode: data.elements[${idx}].kind must be "node" | "cap" | "edge" (got: ${JSON.stringify(el.kind)})`
+        `CapGraphRenderer editor-graph mode: data.elements[${idx}].kind must be "node" | "cap" | "edge" (got: ${JSON.stringify(el.kind)})`
       );
     }
-    assertString(el.graph_id, `machine mode data.elements[${idx}].graph_id`);
+    assertString(el.graph_id, `editor-graph mode data.elements[${idx}].graph_id`);
     if (el.kind === 'edge') {
-      assertString(el.source_graph_id, `machine mode data.elements[${idx}].source_graph_id`);
-      assertString(el.target_graph_id, `machine mode data.elements[${idx}].target_graph_id`);
+      assertString(el.source_graph_id, `editor-graph mode data.elements[${idx}].source_graph_id`);
+      assertString(el.target_graph_id, `editor-graph mode data.elements[${idx}].target_graph_id`);
     }
+  });
+}
+
+// `validateResolvedMachinePayload` checks the canonical machine
+// render payload produced by Rust `Machine::to_render_payload_json`.
+// Shape:
+//   {
+//     "strands": [
+//       {
+//         "nodes": [{"id": "n0", "urn": "media:pdf"}, ...],
+//         "edges": [{
+//           "alias": "edge_0",
+//           "cap_urn": "...",
+//           "is_loop": false,
+//           "assignment": [{"cap_arg_media_urn": "media:pdf", "source_node": "n0"}, ...],
+//           "target_node": "n1"
+//         }, ...],
+//         "input_anchor_nodes": ["n0"],
+//         "output_anchor_nodes": ["n2"]
+//       },
+//       ...
+//     ]
+//   }
+function validateResolvedMachinePayload(data) {
+  if (!data || typeof data !== 'object') {
+    throw new Error('CapGraphRenderer machine mode: data must be an object');
+  }
+  assertArray(data.strands, 'machine mode data.strands');
+  data.strands.forEach((strand, sIdx) => {
+    if (!strand || typeof strand !== 'object') {
+      throw new Error(`CapGraphRenderer machine mode: data.strands[${sIdx}] is not an object`);
+    }
+    assertArray(strand.nodes, `machine mode data.strands[${sIdx}].nodes`);
+    strand.nodes.forEach((n, nIdx) => {
+      if (!n || typeof n !== 'object') {
+        throw new Error(`CapGraphRenderer machine mode: data.strands[${sIdx}].nodes[${nIdx}] is not an object`);
+      }
+      assertString(n.id, `machine mode data.strands[${sIdx}].nodes[${nIdx}].id`);
+      assertString(n.urn, `machine mode data.strands[${sIdx}].nodes[${nIdx}].urn`);
+    });
+    assertArray(strand.edges, `machine mode data.strands[${sIdx}].edges`);
+    strand.edges.forEach((e, eIdx) => {
+      if (!e || typeof e !== 'object') {
+        throw new Error(`CapGraphRenderer machine mode: data.strands[${sIdx}].edges[${eIdx}] is not an object`);
+      }
+      assertString(e.alias, `machine mode data.strands[${sIdx}].edges[${eIdx}].alias`);
+      assertString(e.cap_urn, `machine mode data.strands[${sIdx}].edges[${eIdx}].cap_urn`);
+      if (typeof e.is_loop !== 'boolean') {
+        throw new Error(`CapGraphRenderer machine mode: data.strands[${sIdx}].edges[${eIdx}].is_loop must be boolean`);
+      }
+      assertArray(e.assignment, `machine mode data.strands[${sIdx}].edges[${eIdx}].assignment`);
+      e.assignment.forEach((b, bIdx) => {
+        if (!b || typeof b !== 'object') {
+          throw new Error(`CapGraphRenderer machine mode: data.strands[${sIdx}].edges[${eIdx}].assignment[${bIdx}] is not an object`);
+        }
+        assertString(b.cap_arg_media_urn, `machine mode data.strands[${sIdx}].edges[${eIdx}].assignment[${bIdx}].cap_arg_media_urn`);
+        assertString(b.source_node, `machine mode data.strands[${sIdx}].edges[${eIdx}].assignment[${bIdx}].source_node`);
+      });
+      assertString(e.target_node, `machine mode data.strands[${sIdx}].edges[${eIdx}].target_node`);
+    });
+    assertArray(strand.input_anchor_nodes, `machine mode data.strands[${sIdx}].input_anchor_nodes`);
+    strand.input_anchor_nodes.forEach((id, iIdx) => {
+      assertString(id, `machine mode data.strands[${sIdx}].input_anchor_nodes[${iIdx}]`);
+    });
+    assertArray(strand.output_anchor_nodes, `machine mode data.strands[${sIdx}].output_anchor_nodes`);
+    strand.output_anchor_nodes.forEach((id, oIdx) => {
+      assertString(id, `machine mode data.strands[${sIdx}].output_anchor_nodes[${oIdx}]`);
+    });
   });
 }
 
@@ -1678,8 +1758,8 @@ function runCytoscapeElements(built) {
 // abstract-machine view that matches strand mode's rendering
 // style: one edge per cap application, labeled with the cap
 // title, with cardinality markers where relevant.
-function buildMachineGraphData(data) {
-  validateMachinePayload(data);
+function buildEditorGraphData(data) {
+  validateEditorGraphPayload(data);
 
   // Index elements by kind for quick lookup.
   const dataNodes = new Map(); // graph_id → element
@@ -1802,20 +1882,124 @@ function buildMachineGraphData(data) {
   return { nodes, edges };
 }
 
-function machineCytoscapeElements(built) {
+function editorGraphCytoscapeElements(built) {
   return built.nodes.concat(built.edges);
 }
 
-// A cheap signature for machine-mode inputs. The editor streams updates
-// on every keystroke; we skip the expensive rebuild when the element
-// shape is unchanged.
-function machineGraphSignature(data) {
+// A cheap signature for editor-graph mode inputs. The editor streams
+// updates on every keystroke; we skip the expensive rebuild when the
+// element shape is unchanged.
+function editorGraphSignature(data) {
   if (!data || !Array.isArray(data.elements)) return '';
   const parts = [];
   for (const el of data.elements) {
     parts.push(`${el.kind}|${el.graph_id}|${el.token_id || ''}|${el.label || ''}|${el.source_graph_id || ''}|${el.target_graph_id || ''}|${el.is_loop ? '1' : '0'}`);
   }
   return parts.join(';');
+}
+
+// `buildResolvedMachineGraphData` consumes the canonical
+// `Machine::to_render_payload_json` shape and produces the cytoscape
+// elements list directly. Each strand contributes its own nodes and
+// edges to the same graph; cytoscape lays disconnected components
+// side by side.
+//
+// Node ids and edge aliases are globally unique across all strands
+// (the Rust serializer assigns them from a single global counter),
+// so we can pass them straight through to cytoscape without name
+// collisions.
+//
+// Each cap edge is rendered as one cytoscape edge per
+// (assignment.source_node, target_node) pair. The common
+// single-input cap produces exactly one rendered edge; multi-input
+// (fan-in) caps produce one edge per source-arg slot, all sharing
+// the cap title and color so they read as a single fan-in.
+function buildResolvedMachineGraphData(data) {
+  validateResolvedMachinePayload(data);
+
+  const nodes = [];
+  const edges = [];
+  const seenNodeIds = new Set();
+  let edgeCounter = 0;
+
+  data.strands.forEach((strand, strandIdx) => {
+    const inputAnchorSet = new Set(strand.input_anchor_nodes);
+    const outputAnchorSet = new Set(strand.output_anchor_nodes);
+
+    for (const node of strand.nodes) {
+      // Each node id is unique across the whole machine; the
+      // Rust side guarantees this via its global counter. If a
+      // duplicate appears it indicates a malformed payload, so
+      // fail hard rather than silently dropping.
+      if (seenNodeIds.has(node.id)) {
+        throw new Error(
+          `CapGraphRenderer machine mode: duplicate node id "${node.id}" in strand ${strandIdx}`
+        );
+      }
+      seenNodeIds.add(node.id);
+
+      const nodeClasses = ['machine-node'];
+      if (inputAnchorSet.has(node.id)) nodeClasses.push('strand-source');
+      if (outputAnchorSet.has(node.id)) nodeClasses.push('strand-target');
+
+      nodes.push({
+        group: 'nodes',
+        data: {
+          id: node.id,
+          label: mediaNodeLabel(canonicalMediaUrn(node.urn)),
+          fullUrn: node.urn,
+          strandIndex: strandIdx,
+        },
+        classes: nodeClasses.join(' '),
+      });
+    }
+
+    for (const edge of strand.edges) {
+      const cardinality = edge.is_loop ? 'n\u21921' : '1\u21921';
+      const capUrn = edge.cap_urn;
+      // Title falls back to the canonical cap URN. The host can
+      // pre-resolve a friendlier title via `step_titles` on the
+      // proto message and use it elsewhere in the UI; the graph
+      // renderer is intentionally registry-free.
+      const capTitle = capUrn;
+      const label = cardinality === '1\u21921'
+        ? edge.alias
+        : `${edge.alias} (${cardinality})`;
+
+      const color = edge.is_loop
+        ? 'var(--graph-loop-color)'
+        : edgeHueColor(edgeCounter);
+      const baseClasses = edge.is_loop
+        ? 'machine-edge machine-loop'
+        : 'machine-edge';
+
+      for (const binding of edge.assignment) {
+        edges.push({
+          group: 'edges',
+          data: {
+            id: `machine-edge-${edgeCounter}`,
+            source: binding.source_node,
+            target: edge.target_node,
+            label,
+            title: `${capTitle} (${binding.cap_arg_media_urn})`,
+            fullUrn: capUrn,
+            color,
+            strandIndex: strandIdx,
+            capArgMediaUrn: binding.cap_arg_media_urn,
+            isLoop: edge.is_loop,
+          },
+          classes: baseClasses,
+        });
+        edgeCounter++;
+      }
+    }
+  });
+
+  return { nodes, edges };
+}
+
+function resolvedMachineCytoscapeElements(built) {
+  return built.nodes.concat(built.edges);
 }
 
 // =============================================================================
@@ -1831,9 +2015,9 @@ class CapGraphRenderer {
       throw new Error('CapGraphRenderer: options must be an object');
     }
     const mode = options.mode;
-    if (mode !== 'browse' && mode !== 'strand' && mode !== 'run' && mode !== 'machine') {
+    if (mode !== 'browse' && mode !== 'strand' && mode !== 'run' && mode !== 'machine' && mode !== 'editor-graph') {
       throw new Error(
-        `CapGraphRenderer: options.mode must be one of "browse", "strand", "run", "machine" (got ${JSON.stringify(mode)})`
+        `CapGraphRenderer: options.mode must be one of "browse", "strand", "run", "machine", "editor-graph" (got ${JSON.stringify(mode)})`
       );
     }
 
@@ -1897,8 +2081,12 @@ class CapGraphRenderer {
     this._strandBuilt = null;
     this._runBuilt = null;
 
-    // Machine state.
-    this._machineSignature = null;
+    // Editor-graph state (Monaco machine-notation editor live view).
+    this._editorGraphSignature = null;
+    this._editorGraphBuilt = null;
+
+    // Resolved-machine state (canonical Machine render payload from
+    // Rust `Machine::to_render_payload_json`).
     this._machineBuilt = null;
 
     // Theme observer.
@@ -1950,15 +2138,19 @@ class CapGraphRenderer {
       this._runBuilt = buildRunGraphData(data);
       return this;
     }
-    if (this.mode === 'machine') {
-      const signature = machineGraphSignature(data);
-      if (signature === this._machineSignature && this.cy) {
+    if (this.mode === 'editor-graph') {
+      const signature = editorGraphSignature(data);
+      if (signature === this._editorGraphSignature && this.cy) {
         // Same shape — restyle for theme changes and return.
         this.cy.style(buildStylesheet());
         return this;
       }
-      this._machineSignature = signature;
-      this._machineBuilt = buildMachineGraphData(data);
+      this._editorGraphSignature = signature;
+      this._editorGraphBuilt = buildEditorGraphData(data);
+      return this;
+    }
+    if (this.mode === 'machine') {
+      this._machineBuilt = buildResolvedMachineGraphData(data);
       return this;
     }
     throw new Error(`CapGraphRenderer: unreachable mode '${this.mode}'`);
@@ -2026,7 +2218,7 @@ class CapGraphRenderer {
       maxZoom: 10,
       wheelSensitivity: 0.3,
       boxSelectionEnabled: false,
-      autounselectify: this.mode === 'machine',
+      autounselectify: this.mode === 'editor-graph' || this.mode === 'machine',
     });
 
     const resizeAndRefit = () => {
@@ -2059,9 +2251,13 @@ class CapGraphRenderer {
       if (!this._runBuilt) return [];
       return runCytoscapeElements(this._runBuilt);
     }
+    if (this.mode === 'editor-graph') {
+      if (!this._editorGraphBuilt) return [];
+      return editorGraphCytoscapeElements(this._editorGraphBuilt);
+    }
     if (this.mode === 'machine') {
       if (!this._machineBuilt) return [];
-      return machineCytoscapeElements(this._machineBuilt);
+      return resolvedMachineCytoscapeElements(this._machineBuilt);
     }
     throw new Error(`CapGraphRenderer: unreachable mode '${this.mode}'`);
   }
@@ -2322,12 +2518,13 @@ class CapGraphRenderer {
   }
 
   // ===========================================================================
-  // Machine mode API — used by the editor for cross-highlight.
+  // Editor-graph mode API — used by the notation editor for
+  // cross-highlight between source-text spans and graph elements.
   // ===========================================================================
 
-  applyMachineActiveTokenIds(tokenIds) {
-    if (this.mode !== 'machine') {
-      throw new Error(`CapGraphRenderer: applyMachineActiveTokenIds is only valid in machine mode (current: ${this.mode})`);
+  applyEditorGraphActiveTokenIds(tokenIds) {
+    if (this.mode !== 'editor-graph') {
+      throw new Error(`CapGraphRenderer: applyEditorGraphActiveTokenIds is only valid in editor-graph mode (current: ${this.mode})`);
     }
     if (!this.cy) return;
     const wanted = new Set(tokenIds || []);
@@ -2645,11 +2842,13 @@ if (typeof module !== 'undefined' && module.exports) {
     buildStrandGraphData,
     collapseStrandShapeTransitions,
     buildRunGraphData,
-    buildMachineGraphData,
+    buildEditorGraphData,
+    buildResolvedMachineGraphData,
     classifyStrandCapSteps,
     validateStrandPayload,
     validateRunPayload,
-    validateMachinePayload,
+    validateEditorGraphPayload,
+    validateResolvedMachinePayload,
     validateStrandStep,
     validateBodyOutcome,
   };
