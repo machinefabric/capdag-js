@@ -2048,11 +2048,6 @@ const sampleRegistry = {
             name: 'pdfcartridge-0.81.5325.pkg',
             sha256: '9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0',
             size: 5187485
-          },
-          binary: {
-            name: 'pdfcartridge-0.81.5325-darwin-arm64',
-            sha256: '908187ec35632758f1a00452ff4755ba01020ea288619098b6998d5d33851d19',
-            size: 12980288
           }
         }
       }
@@ -2084,11 +2079,6 @@ const sampleRegistry = {
             name: 'txtcartridge-0.54.6408.pkg',
             sha256: 'abc123',
             size: 821000
-          },
-          binary: {
-            name: 'txtcartridge-0.54.6408-darwin-arm64',
-            sha256: 'def456',
-            size: 1700000
           }
         }
       }
@@ -2105,8 +2095,8 @@ function test320_cartridgeInfoConstruction() {
     description: 'A test',
     teamId: 'TEAM123',
     signedAt: '2026-01-01',
-    binaryName: 'test-binary',
-    binarySha256: 'abc123',
+    packageName: 'test-1.0.0.pkg',
+    packageSha256: 'abc123',
     caps: [{urn: 'cap:in="media:void";op=test;out="media:void"', title: 'Test', description: ''}]
   };
   const cartridge = new CartridgeInfo(data);
@@ -2128,16 +2118,16 @@ function test321_cartridgeInfoIsSigned() {
   assert(unsigned2.isSigned() === false, 'Cartridge without signedAt should not be signed');
 }
 
-// TEST322: Cartridge info has binary check
-function test322_cartridgeInfoHasBinary() {
-  const withBinary = new CartridgeInfo({id: 'test', binaryName: 'test-bin', binarySha256: 'abc', caps: []});
-  assert(withBinary.hasBinary() === true, 'Cartridge with binary info should return true');
+// TEST322: Cartridge info has package check
+function test322_cartridgeInfoHasPackage() {
+  const withPkg = new CartridgeInfo({id: 'test', packageName: 'test.pkg', packageSha256: 'abc', caps: []});
+  assert(withPkg.hasPackage() === true, 'Cartridge with package info should return true');
 
-  const noBinary1 = new CartridgeInfo({id: 'test', binaryName: '', binarySha256: 'abc', caps: []});
-  assert(noBinary1.hasBinary() === false, 'Cartridge without binaryName should return false');
+  const noPkg1 = new CartridgeInfo({id: 'test', packageName: '', packageSha256: 'abc', caps: []});
+  assert(noPkg1.hasPackage() === false, 'Cartridge without packageName should return false');
 
-  const noBinary2 = new CartridgeInfo({id: 'test', binaryName: 'test', binarySha256: '', caps: []});
-  assert(noBinary2.hasBinary() === false, 'Cartridge without binarySha256 should return false');
+  const noPkg2 = new CartridgeInfo({id: 'test', packageName: 'test.pkg', packageSha256: '', caps: []});
+  assert(noPkg2.hasPackage() === false, 'Cartridge without packageSha256 should return false');
 }
 
 // TEST323: CartridgeRepoServer validate registry
@@ -2180,8 +2170,8 @@ function test324_cartridgeRepoServerTransformToArray() {
   assert(pdf.version === '0.81.5325', 'Should have latest version');
   assert(pdf.teamId === 'P336JK947M', 'Should have teamId');
   assert(pdf.signedAt === '2026-02-07T16:40:28Z', 'Should have signedAt from releaseDate');
-  assert(pdf.binaryName === 'pdfcartridge-0.81.5325-darwin-arm64', 'Should have binary name');
-  assert(pdf.binarySha256 === '908187ec35632758f1a00452ff4755ba01020ea288619098b6998d5d33851d19', 'Should have SHA256');
+  assert(pdf.packageName === 'pdfcartridge-0.81.5325.pkg', 'Should have package name');
+  assert(pdf.packageSha256 === '9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0', 'Should have package SHA256');
   assert(Array.isArray(pdf.caps), 'Should have caps array');
   assert(pdf.caps.length === 2, 'Should have 2 caps');
 }
@@ -2348,7 +2338,7 @@ function test335_cartridgeRepoServerClientIntegration() {
   const cartridge = client.getCartridge('pdfcartridge');
   assert(cartridge !== null, 'Client should find cartridge from server data');
   assert(cartridge.isSigned(), 'Cartridge should be signed');
-  assert(cartridge.hasBinary(), 'Cartridge should have binary');
+  assert(cartridge.hasPackage(), 'Cartridge should have package');
 
   // Client can get suggestions
   const capUrn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"';
@@ -5405,7 +5395,7 @@ async function runTests() {
   console.log('\n--- cartridge_repo ---');
   runTest('TEST320: cartridge_info_construction', test320_cartridgeInfoConstruction);
   runTest('TEST321: cartridge_info_is_signed', test321_cartridgeInfoIsSigned);
-  runTest('TEST322: cartridge_info_has_binary', test322_cartridgeInfoHasBinary);
+  runTest('TEST322: cartridge_info_has_package', test322_cartridgeInfoHasPackage);
   runTest('TEST323: cartridge_repo_server_validate_registry', test323_cartridgeRepoServerValidateRegistry);
   runTest('TEST324: cartridge_repo_server_transform_to_array', test324_cartridgeRepoServerTransformToArray);
   runTest('TEST325: cartridge_repo_server_get_cartridges', test325_cartridgeRepoServerGetCartridges);

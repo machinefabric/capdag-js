@@ -3909,9 +3909,6 @@ class CartridgeInfo {
     this.packageName = data.packageName || '';
     this.packageSha256 = data.packageSha256 || '';
     this.packageSize = data.packageSize || 0;
-    this.binaryName = data.binaryName || '';
-    this.binarySha256 = data.binarySha256 || '';
-    this.binarySize = data.binarySize || 0;
     this.availableVersions = data.availableVersions || [];
   }
 
@@ -3923,10 +3920,10 @@ class CartridgeInfo {
   }
 
   /**
-   * Check if binary download info is available
+   * Check if package download info is available
    */
-  hasBinary() {
-    return this.binaryName.length > 0 && this.binarySha256.length > 0;
+  hasPackage() {
+    return this.packageName.length > 0 && this.packageSha256.length > 0;
   }
 }
 
@@ -4166,9 +4163,6 @@ class CartridgeRepoServer {
     if (!versionData.package || !versionData.package.name) {
       throw new Error(`Cartridge ${id} v${version}: missing required field 'package'`);
     }
-    if (!versionData.binary || !versionData.binary.name) {
-      throw new Error(`Cartridge ${id} v${version}: missing required field 'binary'`);
-    }
   }
 
   /**
@@ -4240,14 +4234,11 @@ class CartridgeRepoServer {
         categories: cartridge.categories,
         tags: cartridge.tags,
         changelog: this.buildChangelogMap(cartridge.versions),
-        // Distribution fields - ALL REQUIRED
+        // Distribution fields
         platform: versionData.platform,
         packageName: versionData.package.name,
         packageSha256: versionData.package.sha256,
         packageSize: versionData.package.size,
-        binaryName: versionData.binary.name,
-        binarySha256: versionData.binary.sha256,
-        binarySize: versionData.binary.size,
         // All available versions
         availableVersions
       });
