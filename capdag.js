@@ -3903,12 +3903,8 @@ class CartridgeInfo {
     this.caps = (data.caps || []).map(c => new CartridgeCapSummary(c.urn, c.title, c.description || ''));
     this.categories = data.categories || [];
     this.tags = data.tags || [];
-    this.changelog = data.changelog || {};
-    // Distribution fields
-    this.platform = data.platform || '';
-    this.packageName = data.packageName || '';
-    this.packageSha256 = data.packageSha256 || '';
-    this.packageSize = data.packageSize || 0;
+    // Versions with platform-specific builds
+    this.versions = data.versions || {};
     this.availableVersions = data.availableVersions || [];
   }
 
@@ -3920,10 +3916,25 @@ class CartridgeInfo {
   }
 
   /**
-   * Check if package download info is available
+   * Get the build for a specific platform from the latest version
    */
-  hasPackage() {
-    return this.packageName.length > 0 && this.packageSha256.length > 0;
+  buildForPlatform(platform) {
+    const latestVersionData = this.versions[this.version];
+    if (!latestVersionData) return null;
+    return (latestVersionData.builds || []).find(b => b.platform === platform) || null;
+  }
+
+  /**
+   * Get all platforms available across all versions
+   */
+  availablePlatforms() {
+    const platforms = new Set();
+    for (const versionData of Object.values(this.versions)) {
+      for (const build of (versionData.builds || [])) {
+        platforms.add(build.platform);
+      }
+    }
+    return Array.from(platforms).sort();
   }
 }
 
@@ -4145,8 +4156,8 @@ class CartridgeRepoServer {
     if (!this.registry) {
       throw new Error('Registry is required');
     }
-    if (this.registry.schemaVersion !== '3.0') {
-      throw new Error(`Unsupported registry schema version: ${this.registry.schemaVersion}. Required: 3.0`);
+    if (this.registry.schemaVersion !== '4.0') {
+      throw new Error(`Unsupported registry schema version: ${this.registry.schemaVersion}. Required: 4.0`);
     }
     if (!this.registry.cartridges || typeof this.registry.cartridges !== 'object') {
       throw new Error('Registry must have cartridges object');
@@ -4157,11 +4168,17 @@ class CartridgeRepoServer {
    * Validate version data has all required fields
    */
   validateVersionData(id, version, versionData) {
-    if (!versionData.platform) {
-      throw new Error(`Cartridge ${id} v${version}: missing required field 'platform'`);
+    if (!Array.isArray(versionData.builds) || versionData.builds.length === 0) {
+      throw new Error(`Cartridge ${id} v${version}: no builds`);
     }
-    if (!versionData.package || !versionData.package.name) {
-      throw new Error(`Cartridge ${id} v${version}: missing required field 'package'`);
+    for (let i = 0; i < versionData.builds.length; i++) {
+      const build = versionData.builds[i];
+      if (!build.platform) {
+        throw new Error(`Cartridge ${id} v${version}: build[${i}] missing platform`);
+      }
+      if (!build.package || !build.package.name) {
+        throw new Error(`Cartridge ${id} v${version}: build[${i}] (${build.platform}) missing package.name`);
+      }
     }
   }
 
@@ -4180,19 +4197,6 @@ class CartridgeRepoServer {
       }
     }
     return 0;
-  }
-
-  /**
-   * Build changelog map from versions
-   */
-  buildChangelogMap(versions) {
-    const changelog = {};
-    for (const [version, versionData] of Object.entries(versions)) {
-      if (versionData.changelog && Array.isArray(versionData.changelog)) {
-        changelog[version] = versionData.changelog;
-      }
-    }
-    return changelog;
   }
 
   /**
@@ -4218,28 +4222,20 @@ class CartridgeRepoServer {
         return this.compareVersions(b, a);
       });
 
-      // Build flat cartridge object with latest version data
-      const packageUrl = `https://machinefabric.com/cartridges/packages/${versionData.package.name}`;
       cartridges.push({
         id,
         name: cartridge.name,
         version: latestVersion,
         description: cartridge.description,
         author: cartridge.author,
-        pageUrl: cartridge.pageUrl || packageUrl,
+        pageUrl: cartridge.pageUrl || '',
         teamId: cartridge.teamId,
         signedAt: versionData.releaseDate,
         minAppVersion: versionData.minAppVersion || cartridge.minAppVersion,
         caps: cartridge.caps || [],
         categories: cartridge.categories,
         tags: cartridge.tags,
-        changelog: this.buildChangelogMap(cartridge.versions),
-        // Distribution fields
-        platform: versionData.platform,
-        packageName: versionData.package.name,
-        packageSha256: versionData.package.sha256,
-        packageSize: versionData.package.size,
-        // All available versions
+        versions: cartridge.versions,
         availableVersions
       });
     }

@@ -2013,7 +2013,7 @@ function testJS_mediaSpecConstruction() {
 
 // Sample registry for testing
 const sampleRegistry = {
-  schemaVersion: '3.0',
+  schemaVersion: '4.0',
   lastUpdated: '2026-02-07T16:48:28Z',
   cartridges: {
     pdfcartridge: {
@@ -2043,12 +2043,14 @@ const sampleRegistry = {
           releaseDate: '2026-02-07T16:40:28Z',
           changelog: ['Initial release'],
           minAppVersion: '1.0.0',
-          platform: 'darwin-arm64',
-          package: {
-            name: 'pdfcartridge-0.81.5325.pkg',
-            sha256: '9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0',
-            size: 5187485
-          }
+          builds: [{
+            platform: 'darwin-arm64',
+            package: {
+              name: 'pdfcartridge-0.81.5325.pkg',
+              sha256: '9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0',
+              size: 5187485
+            }
+          }]
         }
       }
     },
@@ -2074,12 +2076,14 @@ const sampleRegistry = {
           releaseDate: '2026-02-07T17:44:00Z',
           changelog: ['First version'],
           minAppVersion: '1.0.0',
-          platform: 'darwin-arm64',
-          package: {
-            name: 'txtcartridge-0.54.6408.pkg',
-            sha256: 'abc123',
-            size: 821000
-          }
+          builds: [{
+            platform: 'darwin-arm64',
+            package: {
+              name: 'txtcartridge-0.54.6408.pkg',
+              sha256: 'abc123',
+              size: 821000
+            }
+          }]
         }
       }
     }
@@ -2095,9 +2099,16 @@ function test320_cartridgeInfoConstruction() {
     description: 'A test',
     teamId: 'TEAM123',
     signedAt: '2026-01-01',
-    packageName: 'test-1.0.0.pkg',
-    packageSha256: 'abc123',
-    caps: [{urn: 'cap:in="media:void";op=test;out="media:void"', title: 'Test', description: ''}]
+    caps: [{urn: 'cap:in="media:void";op=test;out="media:void"', title: 'Test', description: ''}],
+    versions: {
+      '1.0.0': {
+        releaseDate: '2026-01-01',
+        changelog: ['Initial'],
+        minAppVersion: '1.0.0',
+        builds: [{platform: 'darwin-arm64', package: {name: 'test-1.0.0.pkg', sha256: 'abc123', size: 100}}]
+      }
+    },
+    availableVersions: ['1.0.0']
   };
   const cartridge = new CartridgeInfo(data);
   assert(cartridge.id === 'testcartridge', 'ID should match');
@@ -2118,28 +2129,50 @@ function test321_cartridgeInfoIsSigned() {
   assert(unsigned2.isSigned() === false, 'Cartridge without signedAt should not be signed');
 }
 
-// TEST322: Cartridge info has package check
-function test322_cartridgeInfoHasPackage() {
-  const withPkg = new CartridgeInfo({id: 'test', packageName: 'test.pkg', packageSha256: 'abc', caps: []});
-  assert(withPkg.hasPackage() === true, 'Cartridge with package info should return true');
+// TEST322: Cartridge info build for platform and available platforms
+function test322_cartridgeInfoBuildForPlatform() {
+  const withBuilds = new CartridgeInfo({
+    id: 'test', version: '1.0.0', caps: [],
+    versions: {
+      '1.0.0': {
+        builds: [
+          {platform: 'darwin-arm64', package: {name: 'test-darwin.pkg', sha256: 'abc', size: 100}},
+          {platform: 'linux-x86_64', package: {name: 'test-linux.pkg', sha256: 'def', size: 200}}
+        ]
+      }
+    },
+    availableVersions: ['1.0.0']
+  });
+  const darwinBuild = withBuilds.buildForPlatform('darwin-arm64');
+  assert(darwinBuild !== null, 'Should find darwin-arm64 build');
+  assert(darwinBuild.package.name === 'test-darwin.pkg', 'Should have correct package name');
 
-  const noPkg1 = new CartridgeInfo({id: 'test', packageName: '', packageSha256: 'abc', caps: []});
-  assert(noPkg1.hasPackage() === false, 'Cartridge without packageName should return false');
+  const linuxBuild = withBuilds.buildForPlatform('linux-x86_64');
+  assert(linuxBuild !== null, 'Should find linux-x86_64 build');
 
-  const noPkg2 = new CartridgeInfo({id: 'test', packageName: 'test.pkg', packageSha256: '', caps: []});
-  assert(noPkg2.hasPackage() === false, 'Cartridge without packageSha256 should return false');
+  const missingBuild = withBuilds.buildForPlatform('windows-x86_64');
+  assert(missingBuild === null, 'Should return null for missing platform');
+
+  const platforms = withBuilds.availablePlatforms();
+  assert(platforms.length === 2, 'Should have 2 platforms');
+  assert(platforms.includes('darwin-arm64'), 'Should include darwin-arm64');
+  assert(platforms.includes('linux-x86_64'), 'Should include linux-x86_64');
+
+  const noBuilds = new CartridgeInfo({id: 'test', version: '1.0.0', caps: [], versions: {}, availableVersions: []});
+  assert(noBuilds.buildForPlatform('darwin-arm64') === null, 'Should return null when no versions');
+  assert(noBuilds.availablePlatforms().length === 0, 'Should have no platforms');
 }
 
 // TEST323: CartridgeRepoServer validate registry
 function test323_cartridgeRepoServerValidateRegistry() {
   // Valid registry
   const server = new CartridgeRepoServer(sampleRegistry);
-  assert(server.registry.schemaVersion === '3.0', 'Should accept valid registry');
+  assert(server.registry.schemaVersion === '4.0', 'Should accept valid registry');
 
   // Invalid schema version
   let threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '2.0', cartridges: {}});
+    new CartridgeRepoServer({schemaVersion: '3.0', cartridges: {}});
   } catch (e) {
     threw = true;
     assert(e.message.includes('schema version'), 'Should reject wrong schema version');
@@ -2149,7 +2182,7 @@ function test323_cartridgeRepoServerValidateRegistry() {
   // Missing cartridges
   threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '3.0'});
+    new CartridgeRepoServer({schemaVersion: '4.0'});
   } catch (e) {
     threw = true;
     assert(e.message.includes('cartridges'), 'Should reject missing cartridges');
@@ -2170,8 +2203,14 @@ function test324_cartridgeRepoServerTransformToArray() {
   assert(pdf.version === '0.81.5325', 'Should have latest version');
   assert(pdf.teamId === 'P336JK947M', 'Should have teamId');
   assert(pdf.signedAt === '2026-02-07T16:40:28Z', 'Should have signedAt from releaseDate');
-  assert(pdf.packageName === 'pdfcartridge-0.81.5325.pkg', 'Should have package name');
-  assert(pdf.packageSha256 === '9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0', 'Should have package SHA256');
+  assert(pdf.versions !== undefined, 'Should have versions');
+  assert(pdf.versions['0.81.5325'] !== undefined, 'Should have version data');
+  assert(pdf.versions['0.81.5325'].builds.length === 1, 'Should have 1 build');
+  assert(pdf.versions['0.81.5325'].builds[0].platform === 'darwin-arm64', 'Should have correct platform');
+  assert(pdf.versions['0.81.5325'].builds[0].package.name === 'pdfcartridge-0.81.5325.pkg', 'Should have package name');
+  assert(pdf.versions['0.81.5325'].builds[0].package.sha256 === '9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0', 'Should have package SHA256');
+  assert(Array.isArray(pdf.availableVersions), 'Should have availableVersions array');
+  assert(pdf.availableVersions.includes('0.81.5325'), 'Should include latest version');
   assert(Array.isArray(pdf.caps), 'Should have caps array');
   assert(pdf.caps.length === 2, 'Should have 2 caps');
 }
@@ -2338,7 +2377,7 @@ function test335_cartridgeRepoServerClientIntegration() {
   const cartridge = client.getCartridge('pdfcartridge');
   assert(cartridge !== null, 'Client should find cartridge from server data');
   assert(cartridge.isSigned(), 'Cartridge should be signed');
-  assert(cartridge.hasPackage(), 'Cartridge should have package');
+  assert(cartridge.buildForPlatform('darwin-arm64') !== null, 'Cartridge should have darwin-arm64 build');
 
   // Client can get suggestions
   const capUrn = 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"';
@@ -5395,7 +5434,7 @@ async function runTests() {
   console.log('\n--- cartridge_repo ---');
   runTest('TEST320: cartridge_info_construction', test320_cartridgeInfoConstruction);
   runTest('TEST321: cartridge_info_is_signed', test321_cartridgeInfoIsSigned);
-  runTest('TEST322: cartridge_info_has_package', test322_cartridgeInfoHasPackage);
+  runTest('TEST322: cartridge_info_build_for_platform', test322_cartridgeInfoBuildForPlatform);
   runTest('TEST323: cartridge_repo_server_validate_registry', test323_cartridgeRepoServerValidateRegistry);
   runTest('TEST324: cartridge_repo_server_transform_to_array', test324_cartridgeRepoServerTransformToArray);
   runTest('TEST325: cartridge_repo_server_get_cartridges', test325_cartridgeRepoServerGetCartridges);
