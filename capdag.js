@@ -789,18 +789,22 @@ const MEDIA_OBJECT = 'media:record';
 // Media URN for binary data - the most general media type (no constraints)
 const MEDIA_IDENTITY = 'media:';
 
-// Array types - URNs must match base.toml definitions
-// Media URN for string array type - textable with list marker
-const MEDIA_STRING_ARRAY = 'media:list;textable';
-// Media URN for integer array type - textable, numeric with list marker
-const MEDIA_INTEGER_ARRAY = 'media:integer;list;textable;numeric';
-// Media URN for number array type - textable, numeric with list marker
-const MEDIA_NUMBER_ARRAY = 'media:list;textable;numeric';
-// Media URN for boolean array type - uses "bool" with list marker
-const MEDIA_BOOLEAN_ARRAY = 'media:bool;list;textable';
-// Media URN for object array type - list of records (NOT textable)
-// Use a specific format like JSON array for textable object arrays.
-const MEDIA_OBJECT_ARRAY = 'media:list;record';
+// List types - URNs must match base.toml definitions
+// Media URN for generic list type
+const MEDIA_LIST = 'media:list';
+// Media URN for textable list type
+const MEDIA_TEXTABLE_LIST = 'media:list;textable';
+// Media URN for string list type - textable with list marker
+const MEDIA_STRING_LIST = 'media:list;textable';
+// Media URN for integer list type - textable, numeric with list marker
+const MEDIA_INTEGER_LIST = 'media:integer;list;textable;numeric';
+// Media URN for number list type - textable, numeric with list marker
+const MEDIA_NUMBER_LIST = 'media:list;numeric;textable';
+// Media URN for boolean list type - uses "bool" with list marker
+const MEDIA_BOOLEAN_LIST = 'media:bool;list;textable';
+// Media URN for object list type - list of records (NOT textable)
+// Use a specific format like JSON array for textable object lists.
+const MEDIA_OBJECT_LIST = 'media:list;record';
 
 // Semantic media types for specialized content
 // Media URN for PNG image data
@@ -813,8 +817,6 @@ const MEDIA_VIDEO = 'media:video';
 // Semantic AI input types - distinguished by their purpose/context
 // Media URN for audio input containing speech for transcription (Whisper)
 const MEDIA_AUDIO_SPEECH = 'media:audio;wav;speech';
-// Media URN for thumbnail image output
-const MEDIA_IMAGE_THUMBNAIL = 'media:image;png;thumbnail';
 
 // Document types (PRIMARY naming - type IS the format)
 // Media URN for PDF documents
@@ -842,6 +844,18 @@ const MEDIA_JSON_SCHEMA = 'media:json;json-schema;record;textable';
 // Media URN for YAML data - has record marker (structured key-value)
 const MEDIA_YAML = 'media:record;textable;yaml';
 
+// Format-specific variants for JSON, YAML, CSV
+const MEDIA_JSON_VALUE = 'media:json;textable';
+const MEDIA_JSON_RECORD = 'media:json;record;textable';
+const MEDIA_JSON_LIST = 'media:json;list;textable';
+const MEDIA_JSON_LIST_RECORD = 'media:json;list;record;textable';
+const MEDIA_YAML_VALUE = 'media:textable;yaml';
+const MEDIA_YAML_RECORD = 'media:record;textable;yaml';
+const MEDIA_YAML_LIST = 'media:list;textable;yaml';
+const MEDIA_YAML_LIST_RECORD = 'media:list;record;textable;yaml';
+const MEDIA_CSV = 'media:csv;list;record;textable';
+const MEDIA_CSV_LIST = 'media:csv;list;textable';
+
 // File path types - for arguments that represent filesystem paths
 // Media URN for a single file path - textable, scalar by default (no list marker)
 const MEDIA_FILE_PATH = 'media:file-path;textable';
@@ -849,8 +863,6 @@ const MEDIA_FILE_PATH = 'media:file-path;textable';
 const MEDIA_FILE_PATH_ARRAY = 'media:file-path;list;textable';
 
 // Semantic text input types - distinguished by their purpose/context
-// Media URN for frontmatter text (book metadata) - scalar by default
-const MEDIA_FRONTMATTER_TEXT = 'media:frontmatter;textable';
 // Media URN for model spec (provider:model format, HuggingFace name, etc.) - scalar by default
 const MEDIA_MODEL_SPEC = 'media:model-spec;textable';
 // Media URN for MLX model path - scalar by default
@@ -877,20 +889,17 @@ const MEDIA_PATH_OUTPUT = 'media:model-path;record;textable';
 const MEDIA_EMBEDDING_VECTOR = 'media:embedding-vector;record;textable';
 // Media URN for LLM inference output - has record marker
 const MEDIA_LLM_INFERENCE_OUTPUT = 'media:generated-text;record;textable';
-// Media URN for extracted metadata - has record marker
-const MEDIA_FILE_METADATA = 'media:file-metadata;record;textable';
-// Media URN for extracted outline - has record marker
-const MEDIA_DOCUMENT_OUTLINE = 'media:document-outline;record;textable';
-// Media URN for disbound page - has list marker (array of page objects)
-const MEDIA_DISBOUND_PAGE = 'media:disbound-page;list;textable';
 // Media URN for vision inference output - textable, scalar by default
 const MEDIA_IMAGE_DESCRIPTION = 'media:image-description;textable';
 // Media URN for transcription output - has record marker
 const MEDIA_TRANSCRIPTION_OUTPUT = 'media:record;textable;transcription';
-// Media URN for decision output (bit choice) - scalar by default
-const MEDIA_DECISION = 'media:bool;decision;textable';
-// Media URN for decision array output (bit choices) - has list marker
-const MEDIA_DECISION_ARRAY = 'media:bool;decision;list;textable';
+// Media URN for decision output - JSON record with textable
+const MEDIA_DECISION = 'media:decision;json;record;textable';
+// Media URN for textable page output
+const MEDIA_TEXTABLE_PAGE = 'media:textable;page';
+// Collection types
+const MEDIA_COLLECTION = 'media:collection;record';
+const MEDIA_COLLECTION_LIST = 'media:collection;list;record';
 
 // =============================================================================
 // STANDARD CAP URN CONSTANTS
@@ -956,8 +965,10 @@ class MediaUrn {
   // =========================================================================
 
   /**
-   * Returns true if this media is a list (has `list` marker tag).
-   * Returns false if scalar (no `list` marker = default).
+   * Returns true if this media URN describes list-type data (has `list` marker tag).
+   * This is a semantic type check — it means "the data format IS a list/array".
+   * This does NOT indicate input cardinality (single vs multiple items).
+   * Cardinality is tracked by is_sequence on the wire protocol, not by URN tags.
    * @returns {boolean}
    */
   isList() { return this._hasMarkerTag('list'); }
@@ -1028,6 +1039,22 @@ class MediaUrn {
   isBool() { return this._urn.getTag('bool') !== undefined; }
 
   /**
+   * Returns true if this media URN describes YAML representation.
+   * @returns {boolean}
+   */
+  isYaml() {
+    return this._hasMarkerTag('yaml');
+  }
+
+  /**
+   * Returns true if this media URN describes CSV representation.
+   * @returns {boolean}
+   */
+  isCsv() {
+    return this._hasMarkerTag('csv');
+  }
+
+  /**
    * Check if this represents a single file path type (not array).
    * Returns true if the "file-path" marker tag is present AND no list marker.
    * @returns {boolean}
@@ -1047,6 +1074,13 @@ class MediaUrn {
    * @returns {boolean}
    */
   isAnyFilePath() { return this._hasMarkerTag('file-path'); }
+
+  /**
+   * Check if this represents a collection type.
+   * Returns true if the "collection" marker tag is present.
+   * @returns {boolean}
+   */
+  isCollection() { return this._hasMarkerTag('collection'); }
 
   /**
    * Check if this media URN conforms to another (pattern).
@@ -1123,18 +1157,65 @@ class MediaUrn {
 // =============================================================================
 
 /**
- * Build URN for LLM conversation capability
- * @param {string} langCode - Language code (e.g., "en", "fr")
+ * Build URN for LLM generate-text capability
  * @returns {CapUrn}
  */
-function llmConversationUrn(langCode) {
+function llmGenerateTextUrn() {
   return new CapUrnBuilder()
-    .tag('op', 'conversation')
-    .tag('unconstrained', '*')
-    .tag('language', langCode)
+    .tag('op', 'generate_text')
+    .tag('llm', '*')
+    .tag('ml-model', '*')
     .inSpec(MEDIA_STRING)
-    .outSpec(MEDIA_LLM_INFERENCE_OUTPUT)
+    .outSpec(MEDIA_STRING)
     .build();
+}
+
+/**
+ * Build URN for render-page-image capability
+ * @param {string} inputMedia - The input media URN string
+ * @returns {CapUrn}
+ */
+function renderPageImageUrn(inputMedia) {
+  return new CapUrnBuilder()
+    .tag('op', 'render_page_image')
+    .inSpec(inputMedia)
+    .outSpec(MEDIA_PNG)
+    .build();
+}
+
+/**
+ * Build URN for format conversion capability
+ * @param {string} inMedia - The input media URN string
+ * @param {string} outMedia - The output media URN string
+ * @returns {CapUrn}
+ */
+function formatConversionUrn(inMedia, outMedia) {
+  return new CapUrnBuilder()
+    .tag('op', 'convert_format')
+    .inSpec(inMedia)
+    .outSpec(outMedia)
+    .build();
+}
+
+/**
+ * Map a primitive type name to the corresponding media URN string.
+ * @param {string} typeName - The type name (e.g., 'string', 'integer', 'string-list')
+ * @returns {string|null} The media URN string, or null if not recognized
+ */
+function mediaUrnForType(typeName) {
+  switch (typeName) {
+    case 'string': return MEDIA_STRING;
+    case 'integer': return MEDIA_INTEGER;
+    case 'number': return MEDIA_NUMBER;
+    case 'boolean': return MEDIA_BOOLEAN;
+    case 'object': return MEDIA_OBJECT;
+    case 'string-list': return MEDIA_STRING_LIST;
+    case 'integer-list': return MEDIA_INTEGER_LIST;
+    case 'number-list': return MEDIA_NUMBER_LIST;
+    case 'boolean-list': return MEDIA_BOOLEAN_LIST;
+    case 'object-list': return MEDIA_OBJECT_LIST;
+    default: return null;
+  }
 }
 
 /**
@@ -2934,6 +3015,56 @@ class CapValidator {
 // ============================================================================
 
 /**
+ * Result from a cap execution.
+ *
+ * Scalar outputs carry raw materialized bytes (e.g. UTF-8 text, raw binary).
+ * List outputs carry a CBOR sequence of values, one per list item.
+ * Empty represents a void cap with no output.
+ */
+class CapResult {
+  static KIND_SCALAR = 'scalar';
+  static KIND_LIST = 'list';
+  static KIND_EMPTY = 'empty';
+
+  /**
+   * @param {'scalar'|'list'|'empty'} kind
+   * @param {Uint8Array|null} data - Bytes for scalar or CBOR sequence for list, null for empty
+   */
+  constructor(kind, data = null) {
+    this.kind = kind;
+    this.data = data;
+  }
+
+  /** Create a CapResult carrying raw bytes (scalar output). */
+  static scalar(data) {
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data || []);
+    return new CapResult(CapResult.KIND_SCALAR, bytes);
+  }
+
+  /** Create a CapResult carrying a CBOR sequence (list output). */
+  static list(cborSequence) {
+    const bytes = cborSequence instanceof Uint8Array ? cborSequence : new Uint8Array(cborSequence || []);
+    return new CapResult(CapResult.KIND_LIST, bytes);
+  }
+
+  /** Create a CapResult for void caps. */
+  static empty() {
+    return new CapResult(CapResult.KIND_EMPTY, null);
+  }
+
+  /** Returns true if this is a scalar result. */
+  isScalar() { return this.kind === CapResult.KIND_SCALAR; }
+
+  /** Returns true if this is a list result. */
+  isList() { return this.kind === CapResult.KIND_LIST; }
+
+  /** Returns true if this is an empty result. */
+  isEmpty() { return this.kind === CapResult.KIND_EMPTY; }
+}
+
+// ============================================================================
+
+/**
  * Unified argument type - arguments are identified by media_urn.
  * The cap definition's sources specify how to extract values (stdin, position, cli_flag).
  */
@@ -3189,7 +3320,7 @@ class CompositeCapSet {
    * Execute a capability by finding the best match and delegating
    * @param {string} capUrn - The capability URN to execute
    * @param {CapArgumentValue[]} args - Arguments identified by media_urn
-   * @returns {Promise<{binaryOutput: Uint8Array|null, textOutput: string|null}>}
+   * @returns {Promise<CapResult>}
    */
   async executeCap(capUrn, args) {
     let request;
@@ -5435,18 +5566,20 @@ module.exports = {
   MEDIA_NUMBER,
   MEDIA_BOOLEAN,
   MEDIA_OBJECT,
-  MEDIA_STRING_ARRAY,
-  MEDIA_INTEGER_ARRAY,
-  MEDIA_NUMBER_ARRAY,
-  MEDIA_BOOLEAN_ARRAY,
-  MEDIA_OBJECT_ARRAY,
+  // List types
+  MEDIA_LIST,
+  MEDIA_TEXTABLE_LIST,
+  MEDIA_STRING_LIST,
+  MEDIA_INTEGER_LIST,
+  MEDIA_NUMBER_LIST,
+  MEDIA_BOOLEAN_LIST,
+  MEDIA_OBJECT_LIST,
   MEDIA_IDENTITY,
   MEDIA_VOID,
   MEDIA_PNG,
   MEDIA_AUDIO,
   MEDIA_VIDEO,
   MEDIA_AUDIO_SPEECH,
-  MEDIA_IMAGE_THUMBNAIL,
   // Document types (PRIMARY naming)
   MEDIA_PDF,
   MEDIA_EPUB,
@@ -5460,11 +5593,22 @@ module.exports = {
   MEDIA_JSON,
   MEDIA_JSON_SCHEMA,
   MEDIA_YAML,
+  // Format-specific variants
+  MEDIA_JSON_VALUE,
+  MEDIA_JSON_RECORD,
+  MEDIA_JSON_LIST,
+  MEDIA_JSON_LIST_RECORD,
+  MEDIA_YAML_VALUE,
+  MEDIA_YAML_RECORD,
+  MEDIA_YAML_LIST,
+  MEDIA_YAML_LIST_RECORD,
+  MEDIA_CSV,
+  MEDIA_CSV_LIST,
   MEDIA_MODEL_SPEC,
   MEDIA_MODEL_REPO,
   MEDIA_MODEL_DIM,
   MEDIA_DECISION,
-  MEDIA_DECISION_ARRAY,
+  MEDIA_TEXTABLE_PAGE,
   // Semantic output types - model management
   MEDIA_DOWNLOAD_OUTPUT,
   MEDIA_LIST_OUTPUT,
@@ -5475,21 +5619,24 @@ module.exports = {
   // Semantic output types - inference
   MEDIA_EMBEDDING_VECTOR,
   MEDIA_LLM_INFERENCE_OUTPUT,
-  MEDIA_FILE_METADATA,
-  MEDIA_DOCUMENT_OUTLINE,
-  MEDIA_DISBOUND_PAGE,
   MEDIA_IMAGE_DESCRIPTION,
   MEDIA_TRANSCRIPTION_OUTPUT,
   // File path types
   MEDIA_FILE_PATH,
   MEDIA_FILE_PATH_ARRAY,
-  // Semantic text input types
-  MEDIA_FRONTMATTER_TEXT,
   MEDIA_MLX_MODEL_PATH,
+  // Collection types
+  MEDIA_COLLECTION,
+  MEDIA_COLLECTION_LIST,
+  // Cap execution result
+  CapResult,
   // Unified argument type
   CapArgumentValue,
   // Standard cap URN builders
-  llmConversationUrn,
+  llmGenerateTextUrn,
+  renderPageImageUrn,
+  formatConversionUrn,
+  mediaUrnForType,
   modelAvailabilityUrn,
   modelPathUrn,
   CapMatrixError,

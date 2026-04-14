@@ -13,12 +13,12 @@ const {
   StdinSource, StdinSourceKind,
   validateNoMediaSpecRedefinitionSync,
   CapArgumentValue,
-  llmConversationUrn, modelAvailabilityUrn, modelPathUrn,
+  llmGenerateTextUrn, modelAvailabilityUrn, modelPathUrn,
   MachineSyntaxError, MachineSyntaxErrorCodes, MachineEdge, Machine, MachineBuilder, parseMachine, parseMachineWithAST,
   CapRegistryEntry, MediaRegistryEntry, CapRegistryClient,
   MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
-  MEDIA_OBJECT, MEDIA_STRING_ARRAY, MEDIA_INTEGER_ARRAY,
-  MEDIA_NUMBER_ARRAY, MEDIA_BOOLEAN_ARRAY, MEDIA_OBJECT_ARRAY,
+  MEDIA_OBJECT, MEDIA_STRING_LIST, MEDIA_INTEGER_LIST,
+  MEDIA_NUMBER_LIST, MEDIA_BOOLEAN_LIST, MEDIA_OBJECT_LIST,
   MEDIA_IDENTITY, MEDIA_VOID, MEDIA_PNG, MEDIA_AUDIO, MEDIA_VIDEO,
   MEDIA_PDF, MEDIA_EPUB, MEDIA_MD, MEDIA_TXT, MEDIA_RST, MEDIA_LOG,
   MEDIA_HTML, MEDIA_XML, MEDIA_JSON, MEDIA_YAML, MEDIA_JSON_SCHEMA,
@@ -26,8 +26,8 @@ const {
   MEDIA_LLM_INFERENCE_OUTPUT,
   MEDIA_FILE_PATH, MEDIA_FILE_PATH_ARRAY,
   MEDIA_COLLECTION, MEDIA_COLLECTION_LIST,
-  MEDIA_DECISION, MEDIA_DECISION_ARRAY,
-  MEDIA_AUDIO_SPEECH, MEDIA_IMAGE_THUMBNAIL
+  MEDIA_DECISION,
+  MEDIA_AUDIO_SPEECH
 } = require('./capdag.js');
 
 // ============================================================================
@@ -827,7 +827,7 @@ function test061_isBinary() {
   assert(!MediaUrn.fromString(MEDIA_MD).isBinary(), 'MEDIA_MD should not be binary');
 }
 
-// TEST062: isMap true for MEDIA_OBJECT (record); false for MEDIA_STRING (form=scalar), MEDIA_STRING_ARRAY (list)
+// TEST062: isMap true for MEDIA_OBJECT (record); false for MEDIA_STRING (form=scalar), MEDIA_STRING_LIST (list)
 // TEST062: is_record returns true if record marker tag is present (key-value structure)
 function test062_isRecord() {
   assert(MediaUrn.fromString(MEDIA_OBJECT).isRecord(), 'MEDIA_OBJECT should be record');
@@ -836,7 +836,7 @@ function test062_isRecord() {
   // Without record marker, is_record is false
   assert(!MediaUrn.fromString('media:textable').isRecord(), 'plain textable should not be record');
   assert(!MediaUrn.fromString(MEDIA_STRING).isRecord(), 'MEDIA_STRING should not be record');
-  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isRecord(), 'MEDIA_STRING_ARRAY should not be record');
+  assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isRecord(), 'MEDIA_STRING_LIST should not be record');
 }
 
 // TEST063: is_scalar returns true if NO list marker (scalar is default cardinality)
@@ -848,16 +848,16 @@ function test063_isScalar() {
   assert(MediaUrn.fromString(MEDIA_OBJECT).isScalar(), 'MEDIA_OBJECT (record but scalar) should be scalar');
   assert(MediaUrn.fromString('media:textable').isScalar(), 'plain textable should be scalar');
   // With list marker, is_scalar is false
-  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isScalar(), 'MEDIA_STRING_ARRAY should not be scalar');
-  assert(!MediaUrn.fromString(MEDIA_OBJECT_ARRAY).isScalar(), 'MEDIA_OBJECT_ARRAY should not be scalar');
+  assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isScalar(), 'MEDIA_STRING_LIST should not be scalar');
+  assert(!MediaUrn.fromString(MEDIA_OBJECT_LIST).isScalar(), 'MEDIA_OBJECT_LIST should not be scalar');
 }
 
-// TEST064: isList true for MEDIA_STRING_ARRAY, MEDIA_INTEGER_ARRAY, MEDIA_OBJECT_ARRAY;
+// TEST064: isList true for MEDIA_STRING_LIST, MEDIA_INTEGER_LIST, MEDIA_OBJECT_LIST;
 //          false for MEDIA_STRING, MEDIA_OBJECT
 function test064_isList() {
-  assert(MediaUrn.fromString(MEDIA_STRING_ARRAY).isList(), 'MEDIA_STRING_ARRAY should be list');
-  assert(MediaUrn.fromString(MEDIA_INTEGER_ARRAY).isList(), 'MEDIA_INTEGER_ARRAY should be list');
-  assert(MediaUrn.fromString(MEDIA_OBJECT_ARRAY).isList(), 'MEDIA_OBJECT_ARRAY should be list');
+  assert(MediaUrn.fromString(MEDIA_STRING_LIST).isList(), 'MEDIA_STRING_LIST should be list');
+  assert(MediaUrn.fromString(MEDIA_INTEGER_LIST).isList(), 'MEDIA_INTEGER_LIST should be list');
+  assert(MediaUrn.fromString(MEDIA_OBJECT_LIST).isList(), 'MEDIA_OBJECT_LIST should be list');
   assert(!MediaUrn.fromString(MEDIA_STRING).isList(), 'MEDIA_STRING should not be list');
   assert(!MediaUrn.fromString(MEDIA_OBJECT).isList(), 'MEDIA_OBJECT should not be list');
 }
@@ -865,7 +865,7 @@ function test064_isList() {
 // TEST065: is_opaque returns true if NO record marker (opaque is default structure)
 function test065_isOpaque() {
   assert(MediaUrn.fromString(MEDIA_STRING).isOpaque(), 'MEDIA_STRING should be opaque');
-  assert(MediaUrn.fromString(MEDIA_STRING_ARRAY).isOpaque(), 'MEDIA_STRING_ARRAY (list but no record) should be opaque');
+  assert(MediaUrn.fromString(MEDIA_STRING_LIST).isOpaque(), 'MEDIA_STRING_LIST (list but no record) should be opaque');
   assert(MediaUrn.fromString(MEDIA_PDF).isOpaque(), 'MEDIA_PDF should be opaque');
   assert(MediaUrn.fromString('media:textable').isOpaque(), 'plain textable should be opaque');
   // With record marker, is_opaque is false
@@ -912,8 +912,8 @@ function test071_toStringRoundtrip() {
 function test072_constantsParse() {
   const constants = [
     MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
-    MEDIA_OBJECT, MEDIA_STRING_ARRAY, MEDIA_INTEGER_ARRAY,
-    MEDIA_NUMBER_ARRAY, MEDIA_BOOLEAN_ARRAY, MEDIA_OBJECT_ARRAY,
+    MEDIA_OBJECT, MEDIA_STRING_LIST, MEDIA_INTEGER_LIST,
+    MEDIA_NUMBER_LIST, MEDIA_BOOLEAN_LIST, MEDIA_OBJECT_LIST,
     MEDIA_IDENTITY, MEDIA_VOID, MEDIA_PNG, MEDIA_PDF, MEDIA_EPUB,
     MEDIA_MD, MEDIA_TXT, MEDIA_RST, MEDIA_LOG, MEDIA_HTML, MEDIA_XML,
     MEDIA_JSON, MEDIA_YAML, MEDIA_JSON_SCHEMA, MEDIA_AUDIO, MEDIA_VIDEO,
@@ -1052,8 +1052,8 @@ function test101_resolvedIsScalar() {
 
 // TEST102: MediaSpec with list -> isList() true
 function test102_resolvedIsList() {
-  const spec = new MediaSpec('text/plain', null, null, 'String Array', null, MEDIA_STRING_ARRAY);
-  assert(spec.isList(), 'Resolved string_array spec should be list');
+  const spec = new MediaSpec('text/plain', null, null, 'String List', null, MEDIA_STRING_LIST);
+  assert(spec.isList(), 'Resolved string_list spec should be list');
 }
 
 // TEST103: MediaSpec with json tag -> isJSON() true
@@ -1706,37 +1706,37 @@ function test309_modelAvailabilityAndPathAreDistinct() {
   assert(avail.toString() !== path.toString(), 'availability and path must be distinct');
 }
 
-// TEST310: llm_conversation_urn uses unconstrained tag (not constrained)
-function test310_llmConversationUrnUnconstrained() {
-  const urn = llmConversationUrn('en');
-  assert(urn.getTag('unconstrained') !== undefined, 'Must have unconstrained tag');
-  assert(urn.hasTag('op', 'conversation'), 'Must have op=conversation');
-  assert(urn.hasTag('language', 'en'), 'Must have language=en');
+// TEST310: llm_generate_text_urn has correct op and ml-model tags
+function test310_llmGenerateTextUrn() {
+  const urn = llmGenerateTextUrn();
+  assert(urn.hasTag('op', 'generate_text'), 'Must have op=generate_text');
+  assert(urn.getTag('llm') !== undefined, 'Must have llm tag');
+  assert(urn.getTag('ml-model') !== undefined, 'Must have ml-model tag');
 }
 
-// TEST311: llm_conversation_urn in/out specs match the expected media URNs semantically
-function test311_llmConversationUrnSpecs() {
-  const urn = llmConversationUrn('fr');
+// TEST311: llm_generate_text_urn in/out specs match MEDIA_STRING
+function test311_llmGenerateTextUrnSpecs() {
+  const urn = llmGenerateTextUrn();
   const inSpec = TaggedUrn.fromString(urn.getInSpec());
   const expectedIn = TaggedUrn.fromString(MEDIA_STRING);
   assert(inSpec.conformsTo(expectedIn), 'in_spec must conform to MEDIA_STRING');
   const outSpec = TaggedUrn.fromString(urn.getOutSpec());
-  const expectedOut = TaggedUrn.fromString(MEDIA_LLM_INFERENCE_OUTPUT);
-  assert(outSpec.conformsTo(expectedOut), 'out_spec must conform to MEDIA_LLM_INFERENCE_OUTPUT');
+  const expectedOut = TaggedUrn.fromString(MEDIA_STRING);
+  assert(outSpec.conformsTo(expectedOut), 'out_spec must conform to MEDIA_STRING');
 }
 
 // TEST312: All URN builders produce parseable cap URNs
 function test312_allUrnBuildersProduceValidUrns() {
   const avail = modelAvailabilityUrn();
   const path = modelPathUrn();
-  const conv = llmConversationUrn('en');
+  const llmGen = llmGenerateTextUrn();
 
   const parsedAvail = CapUrn.fromString(avail.toString());
   assert(parsedAvail !== null, 'modelAvailabilityUrn must be parseable');
   const parsedPath = CapUrn.fromString(path.toString());
   assert(parsedPath !== null, 'modelPathUrn must be parseable');
-  const parsedConv = CapUrn.fromString(conv.toString());
-  assert(parsedConv !== null, 'llmConversationUrn must be parseable');
+  const parsedLlmGen = CapUrn.fromString(llmGen.toString());
+  assert(parsedLlmGen !== null, 'llmGenerateTextUrn must be parseable');
 }
 
 // ============================================================================
@@ -2398,7 +2398,7 @@ function test335_cartridgeRepoServerClientIntegration() {
 // TEST546: isImage returns true only when image marker tag is present
 function test546_isImage() {
   assert(MediaUrn.fromString(MEDIA_PNG).isImage(), 'MEDIA_PNG should be image');
-  assert(MediaUrn.fromString(MEDIA_IMAGE_THUMBNAIL).isImage(), 'MEDIA_IMAGE_THUMBNAIL should be image');
+  assert(MediaUrn.fromString('media:image;png;thumbnail').isImage(), 'media:image;png;thumbnail should be image');
   assert(MediaUrn.fromString('media:image;jpg').isImage(), 'media:image;jpg should be image');
   // Non-image types
   assert(!MediaUrn.fromString(MEDIA_PDF).isImage(), 'MEDIA_PDF should not be image');
@@ -2432,8 +2432,8 @@ function test548_isVideo() {
 function test549_isNumeric() {
   assert(MediaUrn.fromString(MEDIA_INTEGER).isNumeric(), 'MEDIA_INTEGER should be numeric');
   assert(MediaUrn.fromString(MEDIA_NUMBER).isNumeric(), 'MEDIA_NUMBER should be numeric');
-  assert(MediaUrn.fromString(MEDIA_INTEGER_ARRAY).isNumeric(), 'MEDIA_INTEGER_ARRAY should be numeric');
-  assert(MediaUrn.fromString(MEDIA_NUMBER_ARRAY).isNumeric(), 'MEDIA_NUMBER_ARRAY should be numeric');
+  assert(MediaUrn.fromString(MEDIA_INTEGER_LIST).isNumeric(), 'MEDIA_INTEGER_LIST should be numeric');
+  assert(MediaUrn.fromString(MEDIA_NUMBER_LIST).isNumeric(), 'MEDIA_NUMBER_LIST should be numeric');
   // Non-numeric types
   assert(!MediaUrn.fromString(MEDIA_STRING).isNumeric(), 'MEDIA_STRING should not be numeric');
   assert(!MediaUrn.fromString(MEDIA_BOOLEAN).isNumeric(), 'MEDIA_BOOLEAN should not be numeric');
@@ -2443,9 +2443,9 @@ function test549_isNumeric() {
 // TEST550: isBool returns true only when bool marker tag is present
 function test550_isBool() {
   assert(MediaUrn.fromString(MEDIA_BOOLEAN).isBool(), 'MEDIA_BOOLEAN should be bool');
-  assert(MediaUrn.fromString(MEDIA_BOOLEAN_ARRAY).isBool(), 'MEDIA_BOOLEAN_ARRAY should be bool');
-  assert(MediaUrn.fromString(MEDIA_DECISION).isBool(), 'MEDIA_DECISION should be bool');
-  assert(MediaUrn.fromString(MEDIA_DECISION_ARRAY).isBool(), 'MEDIA_DECISION_ARRAY should be bool');
+  assert(MediaUrn.fromString(MEDIA_BOOLEAN_LIST).isBool(), 'MEDIA_BOOLEAN_LIST should be bool');
+  // MEDIA_DECISION is now a JSON record type (not bool)
+  assert(!MediaUrn.fromString(MEDIA_DECISION).isBool(), 'MEDIA_DECISION should not be bool (it is a JSON record now)');
   // Non-bool types
   assert(!MediaUrn.fromString(MEDIA_STRING).isBool(), 'MEDIA_STRING should not be bool');
   assert(!MediaUrn.fromString(MEDIA_INTEGER).isBool(), 'MEDIA_INTEGER should not be bool');
@@ -2468,7 +2468,7 @@ function test552_isFilePathArray() {
   // Scalar file-path is NOT isFilePathArray
   assert(!MediaUrn.fromString(MEDIA_FILE_PATH).isFilePathArray(), 'MEDIA_FILE_PATH should not be isFilePathArray');
   // Non-file-path types
-  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isFilePathArray(), 'MEDIA_STRING_ARRAY should not be file-path-array');
+  assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isFilePathArray(), 'MEDIA_STRING_LIST should not be file-path-array');
 }
 
 // TEST553: isAnyFilePath returns true for both scalar and array file-path
@@ -2477,7 +2477,7 @@ function test553_isAnyFilePath() {
   assert(MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isAnyFilePath(), 'MEDIA_FILE_PATH_ARRAY should be any-file-path');
   // Non-file-path types
   assert(!MediaUrn.fromString(MEDIA_STRING).isAnyFilePath(), 'MEDIA_STRING should not be any-file-path');
-  assert(!MediaUrn.fromString(MEDIA_STRING_ARRAY).isAnyFilePath(), 'MEDIA_STRING_ARRAY should not be any-file-path');
+  assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isAnyFilePath(), 'MEDIA_STRING_LIST should not be any-file-path');
 }
 
 // TEST554: isCollection returns true when collection marker tag is present
@@ -5408,8 +5408,8 @@ async function runTests() {
   runTest('TEST307: model_availability_urn', test307_modelAvailabilityUrn);
   runTest('TEST308: model_path_urn', test308_modelPathUrn);
   runTest('TEST309: model_availability_and_path_are_distinct', test309_modelAvailabilityAndPathAreDistinct);
-  runTest('TEST310: llm_conversation_urn_unconstrained', test310_llmConversationUrnUnconstrained);
-  runTest('TEST311: llm_conversation_urn_specs', test311_llmConversationUrnSpecs);
+  runTest('TEST310: llm_generate_text_urn', test310_llmGenerateTextUrn);
+  runTest('TEST311: llm_generate_text_urn_specs', test311_llmGenerateTextUrnSpecs);
   runTest('TEST312: all_urn_builders_produce_valid_urns', test312_allUrnBuildersProduceValidUrns);
 
   // JS-specific tests (no Rust number)
