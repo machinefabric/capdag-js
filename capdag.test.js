@@ -4217,11 +4217,11 @@ function testRenderer_buildStrandGraphData_nestedForEachThrows() {
   // must throw the same error to surface the issue rather than
   // render a malformed graph.
   const payload = {
-    source_spec: 'media:a;list;list',
+    source_spec: 'media:a;list',
     target_spec: 'media:a',
     steps: [
-      makeForEachStep('media:a;list;list'),
       makeForEachStep('media:a;list'),
+      makeForEachStep('media:a'),
       makeCapStep('cap:in="media:a";op=x;out="media:a"', 'x', 'media:a', 'media:a', false, false),
     ],
   };
@@ -5628,7 +5628,7 @@ async function runTests() {
   runTest('RENDERER: buildStrand_standaloneCollect',          testRenderer_buildStrandGraphData_standaloneCollect);
   runTest('RENDERER: buildStrand_unclosedForEachBody',        testRenderer_buildStrandGraphData_unclosedForEachBody);
   runTest('RENDERER: buildStrand_nestedForEachThrows',        testRenderer_buildStrandGraphData_nestedForEachThrows);
-  runTest('RENDERER: collapseStrand_singleCapBody',           testRenderer_collapseStrand_singleCapBodyShowsCapTitleWithIterCollectMarker);
+  runTest('RENDERER: collapseStrand_singleCapBody',           testRenderer_collapseStrand_singleCapBodyKeepsCapOwnLabel);
   runTest('RENDERER: collapseStrand_unclosedForEachBody',     testRenderer_collapseStrand_unclosedForEachBodyCollapses);
   runTest('RENDERER: collapseStrand_standaloneCollect',       testRenderer_collapseStrand_standaloneCollectCollapses);
   runTest('RENDERER: collapseStrand_seqCapBeforeForeach',     testRenderer_collapseStrand_sequenceProducingCapBeforeForeach);
