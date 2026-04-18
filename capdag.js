@@ -27,47 +27,102 @@ const ErrorCodes = {
   UNTERMINATED_QUOTE: 8,
   INVALID_ESCAPE_SEQUENCE: 9,
   MISSING_IN_SPEC: 10,
-  MISSING_OUT_SPEC: 11
+  MISSING_OUT_SPEC: 11,
+  EMPTY_VALUE: 12,
+  INVALID_IN_SPEC: 13,
+  INVALID_OUT_SPEC: 14
 };
 
 // Note: All parsing is delegated to TaggedUrn from tagged-urn-js
 // No duplicate state machine or parsing helpers needed here
 
 /**
- * Cap URN implementation with required direction (in/out) and optional tags
+ * Cap URN implementation with direction specs and optional tags.
  *
- * Direction is now a REQUIRED first-class field:
- * - inSpec: The input media URN (required, must start with "media:")
- * - outSpec: The output media URN (required, must start with "media:")
+ * Direction rules match the Rust reference:
+ * - missing `in` or `out` defaults to `media:`
+ * - `in=*` and `out=*` normalize to `media:`
+ * - empty `in=` / `out=` are rejected
  * - tags: Other optional tags (no longer contains in/out)
  */
 /**
- * Check if a value is a valid media URN or wildcard
- * @param {string} value - The value to check
- * @returns {boolean} True if valid media URN or wildcard
+ * Normalize a parsed direction tag to canonical wildcard semantics.
+ * Missing tags and `*` both become `media:`.
+ *
+ * @param {TaggedUrn} taggedUrn - Parsed tagged URN
+ * @param {string} tagName - `in` or `out`
+ * @returns {string} Normalized direction spec
  */
-function isValidMediaUrnOrWildcard(value) {
-  return value === '*' || (value && value.startsWith('media:'));
+function processDirectionTag(taggedUrn, tagName) {
+  const rawValue = taggedUrn.getTag(tagName);
+  if (rawValue === undefined || rawValue === '*') {
+    return 'media:';
+  }
+  if (rawValue === '') {
+    throw new CapUrnError(
+      tagName === 'in' ? ErrorCodes.INVALID_IN_SPEC : ErrorCodes.INVALID_OUT_SPEC,
+      `Empty value for '${tagName}' tag is not allowed`
+    );
+  }
+  return rawValue;
+}
+
+/**
+ * Canonicalize a direction spec via MediaUrn parsing.
+ *
+ * @param {string} spec - Media URN string
+ * @param {string} tagName - `in` or `out`
+ * @returns {string} Canonical media URN string
+ */
+function canonicalizeDirectionSpec(spec, tagName) {
+  if (spec === 'media:' || spec === '*') {
+    return spec;
+  }
+
+  try {
+    return MediaUrn.fromString(spec).toString();
+  } catch (error) {
+    throw new CapUrnError(
+      tagName === 'in' ? ErrorCodes.INVALID_IN_SPEC : ErrorCodes.INVALID_OUT_SPEC,
+      `Invalid media URN for ${tagName} spec '${spec}': ${error.message}`
+    );
+  }
+}
+
+/**
+ * Validate a direction spec while preserving the caller-provided string.
+ * This matches the reference `with_in_spec` / `with_out_spec` behavior.
+ *
+ * @param {string} spec - Media URN string
+ * @param {string} tagName - `in` or `out`
+ * @returns {string} The original spec when valid
+ */
+function validatePreservedDirectionSpec(spec, tagName) {
+  if (spec === 'media:' || spec === '*') {
+    return spec;
+  }
+
+  try {
+    MediaUrn.fromString(spec);
+    return spec;
+  } catch (error) {
+    throw new CapUrnError(
+      tagName === 'in' ? ErrorCodes.INVALID_IN_SPEC : ErrorCodes.INVALID_OUT_SPEC,
+      `Invalid media URN for ${tagName} spec '${spec}': ${error.message}`
+    );
+  }
 }
 
 class CapUrn {
   /**
-   * Create a new CapUrn with required direction specs
-   * @param {string} inSpec - Required input media URN (e.g., "media:void") or wildcard "*"
-   * @param {string} outSpec - Required output media URN (e.g., "media:object") or wildcard "*"
+   * Create a new CapUrn with direction specs.
+   * @param {string} inSpec - Input media URN (e.g., "media:void")
+   * @param {string} outSpec - Output media URN (e.g., "media:object")
    * @param {Object} tags - Other tags (must NOT contain 'in' or 'out')
    */
   constructor(inSpec, outSpec, tags = {}) {
-    // Validate in/out are media URNs or wildcards
-    if (!isValidMediaUrnOrWildcard(inSpec)) {
-      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'in' media URN: ${inSpec}. Must start with 'media:' or be '*'`);
-    }
-    if (!isValidMediaUrnOrWildcard(outSpec)) {
-      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'out' media URN: ${outSpec}. Must start with 'media:' or be '*'`);
-    }
-
-    this.inSpec = inSpec;
-    this.outSpec = outSpec;
+    this.inSpec = canonicalizeDirectionSpec(inSpec, 'in');
+    this.outSpec = canonicalizeDirectionSpec(outSpec, 'out');
     this.tags = {};
     // Copy tags, filtering out any 'in' or 'out' that might have slipped through
     for (const [key, value] of Object.entries(tags)) {
@@ -116,13 +171,14 @@ class CapUrn {
    * Create a Cap URN from string representation
    * Format: cap:in="<media-urn>";out="<media-urn>";key1=value1;key2=value2;...
    *
-   * IMPORTANT: 'in' and 'out' tags are REQUIRED and must be valid media URNs.
+   * Missing `in` / `out` default to `media:`. `in=*` / `out=*` are also
+   * normalized to `media:`.
    *
    * Uses TaggedUrn for parsing to ensure consistent behavior across implementations.
    *
    * @param {string} s - The Cap URN string
    * @returns {CapUrn} The parsed Cap URN
-   * @throws {CapUrnError} If parsing fails or in/out are missing/invalid
+   * @throws {CapUrnError} If parsing fails or direction specs are invalid
    */
   static fromString(s) {
     if (!s || typeof s !== 'string') {
@@ -162,24 +218,8 @@ class CapUrn {
       throw new CapUrnError(ErrorCodes.MISSING_CAP_PREFIX, `Expected 'cap:' prefix, got '${taggedUrn.getPrefix()}:'`);
     }
 
-    // Extract required 'in' and 'out' tags
-    const inSpec = taggedUrn.getTag('in');
-    const outSpec = taggedUrn.getTag('out');
-
-    if (!inSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input media URN");
-    }
-    if (!outSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag for output media URN");
-    }
-
-    // Validate in/out are media URNs or wildcards
-    if (!isValidMediaUrnOrWildcard(inSpec)) {
-      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'in' media URN: ${inSpec}. Must start with 'media:' or be '*'`);
-    }
-    if (!isValidMediaUrnOrWildcard(outSpec)) {
-      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'out' media URN: ${outSpec}. Must start with 'media:' or be '*'`);
-    }
+    const inSpec = processDirectionTag(taggedUrn, 'in');
+    const outSpec = processDirectionTag(taggedUrn, 'out');
 
     // Build remaining tags (excluding in/out)
     const remainingTags = {};
@@ -193,12 +233,12 @@ class CapUrn {
   }
 
   /**
-   * Create a Cap URN from a tags object
-   * Extracts 'in' and 'out' from tags (required), stores rest as regular tags
+   * Create a Cap URN from a tags object.
+   * Unlike string parsing, this path requires explicit `in` and `out` tags.
    *
    * @param {Object} tags - Object containing all tags including 'in' and 'out'
    * @returns {CapUrn} The parsed Cap URN
-   * @throws {CapUrnError} If 'in' or 'out' tags are missing or invalid
+   * @throws {CapUrnError} If `in` or `out` tags are missing or invalid
    */
   static fromTags(tags) {
     const inSpec = tags['in'] || tags['IN'];
@@ -211,12 +251,11 @@ class CapUrn {
       throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag for output media URN");
     }
 
-    // Validate in/out are media URNs or wildcards
-    if (!isValidMediaUrnOrWildcard(inSpec)) {
-      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'in' media URN: ${inSpec}. Must start with 'media:' or be '*'`);
+    if (inSpec === '') {
+      throw new CapUrnError(ErrorCodes.INVALID_IN_SPEC, "Empty value for 'in' tag is not allowed");
     }
-    if (!isValidMediaUrnOrWildcard(outSpec)) {
-      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, `Invalid 'out' media URN: ${outSpec}. Must start with 'media:' or be '*'`);
+    if (outSpec === '') {
+      throw new CapUrnError(ErrorCodes.INVALID_OUT_SPEC, "Empty value for 'out' tag is not allowed");
     }
 
     // Build remaining tags (excluding in/out)
@@ -289,15 +328,18 @@ class CapUrn {
   }
 
   /**
-   * Create a new cap URN with an added or updated tag
-   * Key is normalized to lowercase; value is preserved as-is
-   * SILENTLY IGNORES attempts to set "in" or "out" - use withInSpec/withOutSpec instead
+   * Create a new cap URN with an added or updated tag.
+   * Attempts to set `in` / `out` through `withTag` are ignored; use
+   * `withInSpec` / `withOutSpec` instead.
    *
    * @param {string} key - The tag key
    * @param {string} value - The tag value
    * @returns {CapUrn} A new CapUrn instance with the tag added/updated
    */
   withTag(key, value) {
+    if (value === '') {
+      throw new CapUrnError(ErrorCodes.EMPTY_VALUE, `Empty value for key '${key}' (use '*' for wildcard)`);
+    }
     const keyLower = key.toLowerCase();
     // Silently ignore attempts to set in/out via withTag
     if (keyLower === 'in' || keyLower === 'out') {
@@ -315,7 +357,9 @@ class CapUrn {
    * @returns {CapUrn} A new CapUrn instance with the updated inSpec
    */
   withInSpec(inSpec) {
-    return new CapUrn(inSpec, this.outSpec, this.tags);
+    const updated = new CapUrn(this.inSpec, this.outSpec, this.tags);
+    updated.inSpec = validatePreservedDirectionSpec(inSpec, 'in');
+    return updated;
   }
 
   /**
@@ -325,7 +369,9 @@ class CapUrn {
    * @returns {CapUrn} A new CapUrn instance with the updated outSpec
    */
   withOutSpec(outSpec) {
-    return new CapUrn(this.inSpec, outSpec, this.tags);
+    const updated = new CapUrn(this.inSpec, this.outSpec, this.tags);
+    updated.outSpec = validatePreservedDirectionSpec(outSpec, 'out');
+    return updated;
   }
 
   /**
@@ -366,11 +412,9 @@ class CapUrn {
       return true;
     }
 
-    // Direction specs: TaggedUrn semantic matching via MediaUrn
-    // Check in_urn: cap's input spec (pattern) accepts request's input (instance).
-    // "media:" on the PATTERN side (this.inSpec) means "I accept any input" — skip check.
-    // "*" is also treated as wildcard. "media:" on the instance side still participates.
-    if (this.inSpec !== '*' && this.inSpec !== 'media:' && request.inSpec !== '*') {
+    // Input direction: pattern accepts instance. `media:` on the pattern side is
+    // the wildcard top and skips the check.
+    if (this.inSpec !== 'media:' && this.inSpec !== '*') {
       const capIn = TaggedUrn.fromString(this.inSpec);
       const requestIn = TaggedUrn.fromString(request.inSpec);
       if (!capIn.accepts(requestIn)) {
@@ -378,10 +422,9 @@ class CapUrn {
       }
     }
 
-    // Check out_urn: cap's output (instance) conforms to request's output (pattern).
-    // "media:" on the PATTERN side (this.outSpec) means "I accept any output" — skip check.
-    // "*" is also treated as wildcard. "media:" on the instance side still participates.
-    if (this.outSpec !== '*' && this.outSpec !== 'media:' && request.outSpec !== '*') {
+    // Output direction: provider output must conform to requested output.
+    // `media:` on the pattern side is wildcard top and skips the check.
+    if (this.outSpec !== 'media:' && this.outSpec !== '*') {
       const capOut = TaggedUrn.fromString(this.outSpec);
       const requestOut = TaggedUrn.fromString(request.outSpec);
       if (!capOut.conformsTo(requestOut)) {
@@ -389,33 +432,23 @@ class CapUrn {
       }
     }
 
-    // Check all other tags that the request specifies
-    for (const [requestKey, requestValue] of Object.entries(request.tags)) {
-      const capValue = this.tags[requestKey];
+    // Check all tags required by the pattern. Missing tags in the instance reject.
+    for (const [patternKey, patternValue] of Object.entries(this.tags)) {
+      const requestValue = request.tags[patternKey];
 
-      if (capValue === undefined) {
-        // Missing tag in cap is treated as wildcard - can handle any value
+      if (requestValue === undefined) {
+        return false;
+      }
+
+      if (patternValue === '*' || requestValue === '*') {
         continue;
       }
 
-      if (capValue === '*') {
-        // Cap has wildcard - can handle any value
-        continue;
-      }
-
-      if (requestValue === '*') {
-        // Request accepts any value - cap's specific value matches
-        continue;
-      }
-
-      if (capValue !== requestValue) {
-        // Cap has specific value that doesn't match request's specific value
+      if (patternValue !== requestValue) {
         return false;
       }
     }
 
-    // If cap has additional specific tags that request doesn't specify, that's fine
-    // The cap is just more specific than needed
     return true;
   }
 
@@ -441,12 +474,13 @@ class CapUrn {
    */
   specificity() {
     let count = 0;
-    // Direction specs contribute their MediaUrn tag count
-    if (this.inSpec !== '*') {
+    // Direction specs contribute their MediaUrn tag count. `media:` is the
+    // wildcard top and contributes zero.
+    if (this.inSpec !== 'media:' && this.inSpec !== '*') {
       const inMedia = TaggedUrn.fromString(this.inSpec);
       count += Object.keys(inMedia.tags).length;
     }
-    if (this.outSpec !== '*') {
+    if (this.outSpec !== 'media:' && this.outSpec !== '*') {
       const outMedia = TaggedUrn.fromString(this.outSpec);
       count += Object.keys(outMedia.tags).length;
     }
@@ -686,7 +720,7 @@ class CapMatcher {
     let bestSpecificity = -1;
 
     for (const cap of caps) {
-      if (cap.accepts(request)) {
+      if (request.accepts(cap)) {
         const specificity = cap.specificity();
         if (specificity > bestSpecificity) {
           best = cap;
@@ -706,7 +740,7 @@ class CapMatcher {
    * @returns {CapUrn[]} Array of matching caps sorted by specificity (most specific first)
    */
   static findAllMatches(caps, request) {
-    const matches = caps.filter(cap => cap.accepts(request));
+    const matches = caps.filter(cap => request.accepts(cap));
 
     // Sort by specificity (most specific first)
     matches.sort((a, b) => b.specificity() - a.specificity());

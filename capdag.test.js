@@ -151,7 +151,7 @@ function matrixTestUrn(tags) {
 // cap_urn.rs: TEST001-TEST050, TEST890-TEST891
 // ============================================================================
 
-// TEST001: Cap URN created with tags, direction specs accessible
+// TEST001: Test that cap URN is created with tags parsed correctly and direction specs accessible
 function test001_capUrnCreation() {
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf;target=thumbnail'));
   assertEqual(cap.getTag('op'), 'generate', 'Should get op tag');
@@ -161,21 +161,18 @@ function test001_capUrnCreation() {
   assertEqual(cap.getOutSpec(), MEDIA_OBJECT, 'Should get outSpec');
 }
 
-// TEST002: Missing in -> MissingInSpec, missing out -> MissingOutSpec
+// TEST002: Test that missing 'in' or 'out' defaults to media: wildcard
 function test002_directionSpecsRequired() {
-  assertThrows(
-    () => CapUrn.fromString('cap:out="media:void";op=test'),
-    ErrorCodes.MISSING_IN_SPEC,
-    'Missing in should fail with MISSING_IN_SPEC'
-  );
-  assertThrows(
-    () => CapUrn.fromString('cap:in="media:void";op=test'),
-    ErrorCodes.MISSING_OUT_SPEC,
-    'Missing out should fail with MISSING_OUT_SPEC'
-  );
+  const missingIn = CapUrn.fromString('cap:out="media:void";op=test');
+  assertEqual(missingIn.getInSpec(), MEDIA_IDENTITY, 'Missing in should default to media:');
+  assertEqual(missingIn.getOutSpec(), MEDIA_VOID, 'Explicit out should be preserved');
+
+  const missingOut = CapUrn.fromString('cap:in="media:void";op=test');
+  assertEqual(missingOut.getInSpec(), MEDIA_VOID, 'Explicit in should be preserved');
+  assertEqual(missingOut.getOutSpec(), MEDIA_IDENTITY, 'Missing out should default to media:');
 }
 
-// TEST003: Direction specs must match exactly; wildcard matches any
+// TEST003: Test that direction specs must match exactly, different in/out types don't match, wildcard matches any
 function test003_directionMatching() {
   const cap = CapUrn.fromString(testUrn('op=generate'));
   const request = CapUrn.fromString(testUrn('op=generate'));
@@ -190,7 +187,7 @@ function test003_directionMatching() {
   assert(wildcardCap.accepts(request), 'Wildcard direction should match any');
 }
 
-// TEST004: Unquoted keys/values normalized to lowercase
+// TEST004: Test that unquoted keys and values are normalized to lowercase
 function test004_unquotedValuesLowercased() {
   const cap = CapUrn.fromString('cap:IN="media:void";OP=Generate;EXT=PDF;OUT="media:record;textable"');
   assertEqual(cap.getTag('op'), 'generate', 'Unquoted value should be lowercased');
@@ -199,33 +196,33 @@ function test004_unquotedValuesLowercased() {
   assertEqual(cap.getTag('OP'), 'generate', 'Key lookup should be case-insensitive');
 }
 
-// TEST005: Quoted values preserve case
+// TEST005: Test that quoted values preserve case while unquoted are lowercased
 function test005_quotedValuesPreserveCase() {
   const cap = CapUrn.fromString('cap:in="media:void";key="HelloWorld";out="media:void"');
   assertEqual(cap.getTag('key'), 'HelloWorld', 'Quoted value should preserve case');
 }
 
-// TEST006: Semicolons, equals, spaces in quoted values
+// TEST006: Test that quoted values can contain special characters (semicolons, equals, spaces)
 function test006_quotedValueSpecialChars() {
   const cap = CapUrn.fromString('cap:in="media:void";key="val;ue=with spaces";out="media:void"');
   assertEqual(cap.getTag('key'), 'val;ue=with spaces', 'Quoted value should preserve special chars');
 }
 
-// TEST007: Escaped quotes and backslashes in quoted values
+// TEST007: Test that escape sequences in quoted values (\" and \\) are parsed correctly
 function test007_quotedValueEscapeSequences() {
   const s = String.raw`cap:in="media:void";key="val\"ue\\test";out="media:void"`;
   const cap = CapUrn.fromString(s);
   assertEqual(cap.getTag('key'), 'val"ue\\test', 'Escaped quote and backslash should be unescaped');
 }
 
-// TEST008: Mix of quoted and unquoted values
+// TEST008: Test that mixed quoted and unquoted values in same URN parse correctly
 function test008_mixedQuotedUnquoted() {
   const cap = CapUrn.fromString('cap:a=simple;b="Quoted";in="media:void";out="media:void"');
   assertEqual(cap.getTag('a'), 'simple', 'Unquoted value should be lowercase');
   assertEqual(cap.getTag('b'), 'Quoted', 'Quoted value should preserve case');
 }
 
-// TEST009: Unterminated quote produces error
+// TEST009: Test that unterminated quote produces UnterminatedQuote error
 function test009_unterminatedQuoteError() {
   let threw = false;
   try {
@@ -238,7 +235,7 @@ function test009_unterminatedQuoteError() {
   assert(threw, 'Unterminated quote should produce CapUrnError');
 }
 
-// TEST010: Invalid escape sequences produce error
+// TEST010: Test that invalid escape sequences (like \n, \x) produce InvalidEscapeSequence error
 function test010_invalidEscapeSequenceError() {
   let threw = false;
   try {
@@ -252,7 +249,7 @@ function test010_invalidEscapeSequenceError() {
   assert(threw, 'Invalid escape sequence should produce CapUrnError');
 }
 
-// TEST011: Smart quoting: no quotes for simple lowercase, quotes for special
+// TEST011: Test that serialization uses smart quoting (no quotes for simple lowercase, quotes for special chars/uppercase)
 function test011_serializationSmartQuoting() {
   const cap = CapUrn.fromString('cap:a=simple;b="Has Space";in="media:void";out="media:void"');
   const s = cap.toString();
@@ -261,7 +258,7 @@ function test011_serializationSmartQuoting() {
   assert(s.includes('b="Has Space"'), 'Value with space should be quoted');
 }
 
-// TEST012: Simple cap URN parse -> serialize -> parse equals original
+// TEST012: Test that simple cap URN round-trips (parse -> serialize -> parse equals original)
 function test012_roundTripSimple() {
   const original = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const serialized = original.toString();
@@ -269,7 +266,7 @@ function test012_roundTripSimple() {
   assert(original.equals(reparsed), 'Simple round-trip should produce equal URN');
 }
 
-// TEST013: Quoted values round-trip preserving case
+// TEST013: Test that quoted values round-trip preserving case and spaces
 function test013_roundTripQuoted() {
   const original = CapUrn.fromString('cap:in="media:void";key="HelloWorld";out="media:void"');
   const serialized = original.toString();
@@ -278,7 +275,7 @@ function test013_roundTripQuoted() {
   assertEqual(reparsed.getTag('key'), 'HelloWorld', 'Quoted value should survive round-trip');
 }
 
-// TEST014: Escape sequences round-trip correctly
+// TEST014: Test that escape sequences round-trip correctly
 function test014_roundTripEscapes() {
   const s = String.raw`cap:in="media:void";key="val\"ue\\test";out="media:void"`;
   const original = CapUrn.fromString(s);
@@ -288,7 +285,7 @@ function test014_roundTripEscapes() {
   assertEqual(reparsed.getTag('key'), 'val"ue\\test', 'Escaped value should survive round-trip');
 }
 
-// TEST015: cap: prefix required, case-insensitive
+// TEST015: Test that cap: prefix is required and case-insensitive
 function test015_capPrefixRequired() {
   assertThrows(
     () => CapUrn.fromString('in="media:void";out="media:void";op=generate'),
@@ -300,7 +297,7 @@ function test015_capPrefixRequired() {
   assertEqual(cap.getTag('op'), 'generate', 'Should parse with valid cap: prefix');
 }
 
-// TEST016: With/without trailing semicolon are equivalent
+// TEST016: Test that trailing semicolon is equivalent (same hash, same string, matches)
 function test016_trailingSemicolonEquivalence() {
   const cap1 = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const cap2 = CapUrn.fromString(testUrn('op=generate;ext=pdf') + ';');
@@ -308,49 +305,51 @@ function test016_trailingSemicolonEquivalence() {
   assertEqual(cap1.toString(), cap2.toString(), 'Canonical forms should match');
 }
 
-// TEST017: Exact match, subset match, wildcard match, value mismatch
+// TEST017: Test tag matching: exact match, subset match, wildcard match, value mismatch
 function test017_tagMatching() {
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf;target=thumbnail'));
 
-  // Exact match
+  // Exact match — both directions accept
   const exact = CapUrn.fromString(testUrn('op=generate;ext=pdf;target=thumbnail'));
   assert(cap.accepts(exact), 'Should accept exact match');
+  assert(exact.accepts(cap), 'Exact match should accept in reverse too');
 
-  // Subset match
+  // Routing direction: request(op=generate) accepts cap(op,ext,target)
   const subset = CapUrn.fromString(testUrn('op=generate'));
-  assert(cap.accepts(subset), 'Should accept subset request');
+  assert(subset.accepts(cap), 'General request should accept more specific instance');
+  assert(!cap.accepts(subset), 'Specific pattern should reject subset instance');
 
-  // Wildcard match
+  // Routing direction: request(ext=*) accepts cap(ext=pdf)
   const wildcard = CapUrn.fromString(testUrn('ext=*'));
-  assert(cap.accepts(wildcard), 'Should accept wildcard request');
+  assert(wildcard.accepts(cap), 'Wildcard request should accept specific instance');
 
-  // Value mismatch
+  // Conflicting value — neither direction accepts
   const mismatch = CapUrn.fromString(testUrn('op=extract'));
   assert(!cap.accepts(mismatch), 'Should not accept value mismatch');
+  assert(!mismatch.accepts(cap), 'Reverse mismatch should also reject');
 }
 
-// TEST018: Quoted uppercase values don't match lowercase (case sensitive)
+// TEST018: Test that quoted values with different case do NOT match (case-sensitive)
 function test018_matchingCaseSensitiveValues() {
   const cap = CapUrn.fromString('cap:in="media:void";key="HelloWorld";out="media:void"');
   const request = CapUrn.fromString('cap:in="media:void";key=helloworld;out="media:void"');
   assert(!cap.accepts(request), 'Quoted HelloWorld should not match unquoted helloworld');
 }
 
-// TEST019: Missing tags treated as wildcards
+// TEST019: Missing tag in instance causes rejection — pattern's tags are constraints
 function test019_missingTagHandling() {
   const cap = CapUrn.fromString(testUrn('op=generate'));
-
-  // Request with tag cap doesn't have -> cap's missing tag is implicit wildcard
   const request = CapUrn.fromString(testUrn('ext=pdf'));
-  assert(cap.accepts(request), 'Missing tag in cap should be treated as wildcard');
+  assert(!cap.accepts(request), 'Pattern requiring op should reject instance missing op');
+  assert(!request.accepts(cap), 'Pattern requiring ext should reject instance missing ext');
 
-  // Cap with extra tags can accept subset requests
   const cap2 = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request2 = CapUrn.fromString(testUrn('op=generate'));
-  assert(cap2.accepts(request2), 'Cap with extra tags should accept subset request');
+  assert(!cap2.accepts(request2), 'Specific pattern should reject instance missing ext');
+  assert(request2.accepts(cap2), 'General request should accept more specific instance');
 }
 
-// TEST020: Direction specs use MediaUrn tag count, other tags count non-wildcard
+// TEST020: Test specificity calculation (direction specs use MediaUrn tag count, wildcards don't count)
 function test020_specificity() {
   // Direction specs contribute their MediaUrn tag count:
   // MEDIA_VOID = "media:void" -> 1 tag (void)
@@ -369,7 +368,7 @@ function test020_specificity() {
   assertEqual(cap4.specificity(), 2, 'record(1) + op(1) (in wildcard doesn\'t count)');
 }
 
-// TEST021: CapUrnBuilder creates valid URN
+// TEST021: Test builder creates cap URN with correct tags and direction specs
 function test021_builder() {
   const cap = new CapUrnBuilder()
     .inSpec('media:void')
@@ -383,7 +382,7 @@ function test021_builder() {
   assertEqual(cap.getOutSpec(), 'media:object', 'Builder should set outSpec');
 }
 
-// TEST022: Builder requires both inSpec and outSpec
+// TEST022: Test builder requires both in_spec and out_spec
 function test022_builderRequiresDirection() {
   assertThrows(
     () => new CapUrnBuilder().tag('op', 'test').build(),
@@ -397,7 +396,7 @@ function test022_builderRequiresDirection() {
   );
 }
 
-// TEST023: Builder lowercases keys but preserves value case
+// TEST023: Test builder lowercases keys but preserves value case
 function test023_builderPreservesCase() {
   const cap = new CapUrnBuilder()
     .inSpec('media:void')
@@ -408,27 +407,27 @@ function test023_builderPreservesCase() {
   assertEqual(cap.getTag('MyKey'), 'MyValue', 'getTag should be case-insensitive for keys');
 }
 
-// TEST024: Directional accepts checks
+// TEST024: Directional accepts — pattern's tags are constraints, instance must satisfy
 function test024_compatibility() {
-  // General cap accepts specific request (missing tags = wildcards)
-  const general = CapUrn.fromString(testUrn('op=generate'));
-  const specific = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  assert(general.accepts(specific), 'General cap should accept specific request');
-  // Specific cap also accepts general request (cap has extra tag, not blocking)
-  assert(specific.accepts(general), 'Specific cap accepts general request (extra tags ok)');
-
-  // Different op values: neither accepts the other
   const cap1 = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
+  const cap2 = CapUrn.fromString(testUrn('op=generate;format=*'));
   const cap3 = CapUrn.fromString(testUrn('type=image;op=extract'));
-  assert(!cap1.accepts(cap3), 'Different op should not accept');
-  assert(!cap3.accepts(cap1), 'Different op should not accept (reverse)');
 
-  // Different in/out should not accept
-  const cap5 = CapUrn.fromString('cap:in="media:textable";out="media:object";op=generate');
-  assert(!cap1.accepts(cap5), 'Different inSpec should not accept');
+  assert(!cap1.accepts(cap2), 'Pattern requiring ext should reject instance missing ext');
+  assert(!cap2.accepts(cap1), 'Pattern requiring format should reject instance missing format');
+  assert(!cap1.accepts(cap3), 'Different op should not accept');
+  assert(!cap3.accepts(cap1), 'Different op should not accept in reverse');
+
+  const general = CapUrn.fromString(testUrn('op=generate'));
+  assert(general.accepts(cap1), 'General request should accept more specific instance');
+  assert(!cap1.accepts(general), 'Specific pattern should reject general instance');
+
+  const broadIn = CapUrn.fromString('cap:in="media:";op=generate;out="media:record;textable"');
+  assert(!cap1.accepts(broadIn), 'Specific input should not accept broad wildcard input');
+  assert(broadIn.accepts(cap1), 'Wildcard input should accept specific input');
 }
 
-// TEST025: CapMatcher.findBestMatch returns most specific
+// TEST025: Test find_best_match returns most specific matching cap
 function test025_bestMatch() {
   const caps = [
     CapUrn.fromString('cap:in=*;out=*;op=*'),
@@ -441,7 +440,7 @@ function test025_bestMatch() {
   assertEqual(best.getTag('ext'), 'pdf', 'Best match should be the most specific (ext=pdf)');
 }
 
-// TEST026: merge combines tags, subset keeps only specified
+// TEST026: Test merge combines tags from both caps, subset keeps only specified tags
 function test026_mergeAndSubset() {
   const cap1 = CapUrn.fromString(testUrn('op=generate'));
   const cap2 = CapUrn.fromString('cap:in="media:textable";ext=pdf;format=binary;out="media:"');
@@ -460,7 +459,7 @@ function test026_mergeAndSubset() {
   assertEqual(sub.getInSpec(), 'media:textable', 'Subset should preserve inSpec');
 }
 
-// TEST027: withWildcardTag sets tag to wildcard including in/out
+// TEST027: Test with_wildcard_tag sets tag to wildcard, including in/out
 function test027_wildcardTag() {
   const cap = CapUrn.fromString(testUrn('ext=pdf'));
   const wildcardExt = cap.withWildcardTag('ext');
@@ -473,16 +472,14 @@ function test027_wildcardTag() {
   assertEqual(wildcardOut.getOutSpec(), '*', 'Should set out to wildcard');
 }
 
-// TEST028: Empty cap URN without in/out fails (MissingInSpec)
+// TEST028: Test empty cap URN defaults to media: wildcard
 function test028_emptyCapUrnNotAllowed() {
-  assertThrows(
-    () => CapUrn.fromString('cap:'),
-    ErrorCodes.MISSING_IN_SPEC,
-    'Empty cap URN should fail with MISSING_IN_SPEC'
-  );
+  const empty = CapUrn.fromString('cap:');
+  assertEqual(empty.getInSpec(), MEDIA_IDENTITY, 'Empty cap should default in to media:');
+  assertEqual(empty.getOutSpec(), MEDIA_IDENTITY, 'Empty cap should default out to media:');
 }
 
-// TEST029: Minimal valid cap URN: just in and out, empty tags
+// TEST029: Test minimal valid cap URN has just in and out, empty tags
 function test029_minimalCapUrn() {
   const minimal = CapUrn.fromString('cap:in="media:void";out="media:void"');
   assertEqual(Object.keys(minimal.tags).length, 0, 'Should have no other tags');
@@ -490,14 +487,14 @@ function test029_minimalCapUrn() {
   assertEqual(minimal.getOutSpec(), 'media:void', 'Should have outSpec');
 }
 
-// TEST030: Forward slashes and colons in tag values
+// TEST030: Test extended characters (forward slashes, colons) in tag values
 function test030_extendedCharacterSupport() {
   const cap = CapUrn.fromString(testUrn('url=https://example_org/api;path=/some/file'));
   assertEqual(cap.getTag('url'), 'https://example_org/api', 'Should support colons and slashes');
   assertEqual(cap.getTag('path'), '/some/file', 'Should support forward slashes');
 }
 
-// TEST031: Wildcard rejected in keys, accepted in values
+// TEST031: Test wildcard rejected in keys but accepted in values
 function test031_wildcardRestrictions() {
   assertThrows(
     () => CapUrn.fromString(testUrn('*=value')),
@@ -509,13 +506,13 @@ function test031_wildcardRestrictions() {
   const cap = CapUrn.fromString(testUrn('key=*'));
   assertEqual(cap.getTag('key'), '*', 'Should accept wildcard in value');
 
-  // Wildcard in in/out
+  // Wildcard in in/out normalizes to media:
   const capWild = CapUrn.fromString('cap:in=*;out=*;key=value');
-  assertEqual(capWild.getInSpec(), '*', 'Should accept wildcard in inSpec');
-  assertEqual(capWild.getOutSpec(), '*', 'Should accept wildcard in outSpec');
+  assertEqual(capWild.getInSpec(), MEDIA_IDENTITY, 'Wildcard inSpec should normalize to media:');
+  assertEqual(capWild.getOutSpec(), MEDIA_IDENTITY, 'Wildcard outSpec should normalize to media:');
 }
 
-// TEST032: Duplicate keys rejected
+// TEST032: Test duplicate keys are rejected with DuplicateKey error
 function test032_duplicateKeyRejection() {
   assertThrows(
     () => CapUrn.fromString(testUrn('key=value1;key=value2')),
@@ -524,7 +521,7 @@ function test032_duplicateKeyRejection() {
   );
 }
 
-// TEST033: Pure numeric keys rejected, mixed alphanumeric OK
+// TEST033: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed
 function test033_numericKeyRestriction() {
   assertThrows(
     () => CapUrn.fromString(testUrn('123=value')),
@@ -538,7 +535,7 @@ function test033_numericKeyRestriction() {
   assertEqual(cap2.getTag('x123key'), 'value', 'Mixed alphanumeric key should be allowed');
 }
 
-// TEST034: key= (empty value) is rejected
+// TEST034: Test empty values are rejected
 function test034_emptyValueError() {
   let threw = false;
   try {
@@ -551,7 +548,7 @@ function test034_emptyValueError() {
   assert(threw, 'Empty value (key=) should be rejected');
 }
 
-// TEST035: hasTag case-sensitive for values, case-insensitive for keys, works for in/out
+// TEST035: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out
 function test035_hasTagCaseSensitive() {
   const cap = CapUrn.fromString('cap:in="media:void";key="Value";out="media:void"');
   assert(cap.hasTag('key', 'Value'), 'hasTag should match exact value');
@@ -563,26 +560,24 @@ function test035_hasTagCaseSensitive() {
   assert(cap.hasTag('out', 'media:void'), 'hasTag should work for out');
 }
 
-// TEST036: withTag preserves value case
+// TEST036: Test with_tag preserves value case
 function test036_withTagPreservesValue() {
   const cap = CapUrn.fromString('cap:in="media:void";out="media:void"');
   const modified = cap.withTag('key', 'MyValue');
   assertEqual(modified.getTag('key'), 'MyValue', 'withTag should preserve value case');
 }
 
-// TEST037: withTag('key', '') -> error
-// Note: In JS, withTag does not currently reject empty values (it stores them).
-// The Rust implementation rejects empty values. We test the JS behavior as-is.
+// TEST037: Test with_tag rejects empty value
 function test037_withTagRejectsEmptyValue() {
-  // The JS implementation does not throw for empty values in withTag.
-  // This test verifies the current behavior: withTag stores empty string.
-  // If the implementation is updated to reject empty values, update this test.
   const cap = CapUrn.fromString('cap:in="media:void";out="media:void"');
-  const modified = cap.withTag('key', '');
-  assertEqual(modified.getTag('key'), '', 'withTag stores empty string (JS behavior)');
+  assertThrows(
+    () => cap.withTag('key', ''),
+    ErrorCodes.EMPTY_VALUE,
+    'withTag should reject empty string values'
+  );
 }
 
-// TEST038: Unquoted 'simple' == quoted '"simple"' (lowercase)
+// TEST038: Test semantic equivalence of unquoted and quoted simple lowercase values
 function test038_semanticEquivalence() {
   const c1 = CapUrn.fromString('cap:in="media:void";key=simple;out="media:void"');
   const c2 = CapUrn.fromString('cap:in="media:void";key="simple";out="media:void"');
@@ -590,7 +585,7 @@ function test038_semanticEquivalence() {
   assertEqual(c1.getTag('key'), c2.getTag('key'), 'Values should be identical');
 }
 
-// TEST039: getTag('in') and getTag('out') work, case-insensitive
+// TEST039: Test get_tag returns direction specs (in/out) with case-insensitive lookup
 function test039_getTagReturnsDirectionSpecs() {
   const cap = CapUrn.fromString(`cap:in="${MEDIA_VOID}";out="${MEDIA_OBJECT}"`);
   assertEqual(cap.getTag('in'), MEDIA_VOID, 'getTag(in) should return inSpec');
@@ -599,77 +594,81 @@ function test039_getTagReturnsDirectionSpecs() {
   assertEqual(cap.getTag('OUT'), MEDIA_OBJECT, 'getTag(OUT) should return outSpec (case-insensitive)');
 }
 
-// TEST040: Cap and request same tags -> accepts=true
+// TEST040: Matching semantics - exact match succeeds
 function test040_matchingSemanticsExactMatch() {
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   assert(cap.accepts(request), 'Exact match should accept');
 }
 
-// TEST041: Cap missing tag -> implicit wildcard -> accepts=true
+// TEST041: Matching semantics - cap missing tag matches (implicit wildcard)
 function test041_matchingSemanticsCapMissingTag() {
   const cap = CapUrn.fromString(testUrn('op=generate'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  assert(cap.accepts(request), 'Cap missing ext tag should accept (implicit wildcard)');
+  assert(cap.accepts(request), 'General pattern with only op should accept specific instance');
+  assert(!request.accepts(cap), 'Pattern requiring ext should reject instance missing ext');
 }
 
-// TEST042: Cap extra tag -> still matches
+// TEST042: Pattern rejects instance missing required tags
 function test042_matchingSemanticsCapHasExtraTag() {
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf;version=2'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
-  assert(cap.accepts(request), 'Cap with extra tag should still accept');
+  assert(!cap.accepts(request), 'Pattern requiring version should reject instance missing version');
+  assert(request.accepts(cap), 'General request should accept refined instance');
 }
 
-// TEST043: Request ext=* matches cap ext=pdf
+// TEST043: Matching semantics - request wildcard matches specific cap value
 function test043_matchingSemanticsRequestHasWildcard() {
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=*'));
   assert(cap.accepts(request), 'Request wildcard should match specific cap value');
 }
 
-// TEST044: Cap ext=* matches request ext=pdf
+// TEST044: Matching semantics - cap wildcard matches specific request value
 function test044_matchingSemanticsCapHasWildcard() {
   const cap = CapUrn.fromString(testUrn('op=generate;ext=*'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   assert(cap.accepts(request), 'Cap wildcard should match specific request value');
 }
 
-// TEST045: ext=pdf vs ext=docx -> no match
+// TEST045: Matching semantics - value mismatch does not match
 function test045_matchingSemanticsValueMismatch() {
   const cap = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   const request = CapUrn.fromString(testUrn('op=generate;ext=docx'));
   assert(!cap.accepts(request), 'Value mismatch should not accept');
 }
 
-// TEST046: Cap without ext matches request with ext=wav (uses media:binary directions)
+// TEST046: Matching semantics - fallback pattern (cap missing tag = implicit wildcard)
 function test046_matchingSemanticsFallbackPattern() {
   const cap = CapUrn.fromString('cap:in="media:binary";op=generate_thumbnail;out="media:binary"');
   const request = CapUrn.fromString('cap:ext=wav;in="media:binary";op=generate_thumbnail;out="media:binary"');
-  assert(cap.accepts(request), 'Cap missing ext should accept (implicit wildcard for ext)');
+  assert(cap.accepts(request), 'General pattern without ext should accept specific instance');
+  assert(!request.accepts(cap), 'Pattern requiring ext should reject instance missing ext');
 }
 
-// TEST047: Thumbnail with void input matches specific ext request
+// TEST047: Matching semantics - thumbnail fallback with void input
 function test047_matchingSemanticsThumbnailVoidInput() {
   const cap = CapUrn.fromString('cap:in="media:void";op=generate_thumbnail;out="media:image;png;thumbnail"');
   const request = CapUrn.fromString('cap:ext=pdf;in="media:void";op=generate_thumbnail;out="media:image"');
   assert(cap.accepts(request), 'Void input cap should accept request; cap output conforms to less-specific request output');
 }
 
-// TEST048: Cap in=* out=* matches any request
+// TEST048: Matching semantics - wildcard direction matches anything
 function test048_matchingSemanticsWildcardDirection() {
   const cap = CapUrn.fromString('cap:in=*;out=*');
   const request = CapUrn.fromString(testUrn('op=generate;ext=pdf'));
   assert(cap.accepts(request), 'Wildcard cap should accept any request');
 }
 
-// TEST049: Cap op=generate accepts request ext=pdf (independent tags)
+// TEST049: Non-overlapping tags — neither direction accepts
 function test049_matchingSemanticsCrossDimension() {
   const cap = CapUrn.fromString(testUrn('op=generate'));
   const request = CapUrn.fromString(testUrn('ext=pdf'));
-  assert(cap.accepts(request), 'Independent tags should not block matching');
+  assert(!cap.accepts(request), 'Pattern requiring op should reject instance missing op');
+  assert(!request.accepts(cap), 'Pattern requiring ext should reject instance missing ext');
 }
 
-// TEST050: media:string vs media: (wildcard) -> no match
+// TEST050: Matching semantics - direction mismatch prevents matching
 function test050_matchingSemanticsDirectionMismatch() {
   const cap = CapUrn.fromString(
     `cap:in="${MEDIA_STRING}";op=generate;out="${MEDIA_OBJECT}"`
@@ -758,7 +757,7 @@ function test891_directionSemanticSpecificity() {
 
 // TEST053: N/A for JS (Rust-only validation infrastructure)
 
-// TEST054: Inline media spec redefinition of registry spec is detected
+// TEST054: XV5 - Test inline media spec redefinition of existing registry spec is detected and rejected
 function test054_xv5InlineSpecRedefinitionDetected() {
   const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
   const mediaSpecs = [
@@ -775,7 +774,7 @@ function test054_xv5InlineSpecRedefinitionDetected() {
   assert(result.redefines && result.redefines.includes(MEDIA_STRING), 'Should identify MEDIA_STRING as redefined');
 }
 
-// TEST055: New inline media spec not in registry is allowed
+// TEST055: XV5 - Test new inline media spec (not in registry) is allowed
 function test055_xv5NewInlineSpecAllowed() {
   const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
   const mediaSpecs = [
@@ -790,7 +789,7 @@ function test055_xv5NewInlineSpecAllowed() {
   assert(result.valid, 'New spec not in registry should pass validation');
 }
 
-// TEST056: Empty/null media_specs passes validation
+// TEST056: XV5 - Test empty media_specs (no inline specs) passes XV5 validation
 function test056_xv5EmptyMediaSpecsAllowed() {
   const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
   assert(validateNoMediaSpecRedefinitionSync({}, registryLookup).valid, 'Empty object should pass');
@@ -802,7 +801,7 @@ function test056_xv5EmptyMediaSpecsAllowed() {
 // media_urn.rs: TEST060-TEST078
 // ============================================================================
 
-// TEST060: MediaUrn.fromString('cap:string') -> INVALID_PREFIX error
+// TEST060: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix
 function test060_wrongPrefixFails() {
   assertThrowsMediaUrn(
     () => MediaUrn.fromString('cap:string'),
@@ -811,7 +810,7 @@ function test060_wrongPrefixFails() {
   );
 }
 
-// TEST061: isBinary true when textable tag is absent (binary = not textable)
+// TEST061: Test is_binary returns true when textable tag is absent (binary = not textable)
 function test061_isBinary() {
   // Binary types: no textable tag
   assert(MediaUrn.fromString(MEDIA_IDENTITY).isBinary(), 'MEDIA_IDENTITY (media:) should be binary');
@@ -827,8 +826,7 @@ function test061_isBinary() {
   assert(!MediaUrn.fromString(MEDIA_MD).isBinary(), 'MEDIA_MD should not be binary');
 }
 
-// TEST062: isMap true for MEDIA_OBJECT (record); false for MEDIA_STRING (form=scalar), MEDIA_STRING_LIST (list)
-// TEST062: is_record returns true if record marker tag is present (key-value structure)
+// TEST062: Test is_record returns true when record marker tag is present indicating key-value structure
 function test062_isRecord() {
   assert(MediaUrn.fromString(MEDIA_OBJECT).isRecord(), 'MEDIA_OBJECT should be record');
   assert(MediaUrn.fromString('media:custom;record').isRecord(), 'custom;record should be record');
@@ -839,7 +837,7 @@ function test062_isRecord() {
   assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isRecord(), 'MEDIA_STRING_LIST should not be record');
 }
 
-// TEST063: is_scalar returns true if NO list marker (scalar is default cardinality)
+// TEST063: Test is_scalar returns true when list marker tag is absent (scalar is default)
 function test063_isScalar() {
   assert(MediaUrn.fromString(MEDIA_STRING).isScalar(), 'MEDIA_STRING should be scalar');
   assert(MediaUrn.fromString(MEDIA_INTEGER).isScalar(), 'MEDIA_INTEGER should be scalar');
@@ -852,8 +850,7 @@ function test063_isScalar() {
   assert(!MediaUrn.fromString(MEDIA_OBJECT_LIST).isScalar(), 'MEDIA_OBJECT_LIST should not be scalar');
 }
 
-// TEST064: isList true for MEDIA_STRING_LIST, MEDIA_INTEGER_LIST, MEDIA_OBJECT_LIST;
-//          false for MEDIA_STRING, MEDIA_OBJECT
+// TEST064: Test is_list returns true when list marker tag is present indicating ordered collection
 function test064_isList() {
   assert(MediaUrn.fromString(MEDIA_STRING_LIST).isList(), 'MEDIA_STRING_LIST should be list');
   assert(MediaUrn.fromString(MEDIA_INTEGER_LIST).isList(), 'MEDIA_INTEGER_LIST should be list');
@@ -862,7 +859,7 @@ function test064_isList() {
   assert(!MediaUrn.fromString(MEDIA_OBJECT).isList(), 'MEDIA_OBJECT should not be list');
 }
 
-// TEST065: is_opaque returns true if NO record marker (opaque is default structure)
+// TEST065: Test is_opaque returns true when record marker is absent (opaque is default)
 function test065_isOpaque() {
   assert(MediaUrn.fromString(MEDIA_STRING).isOpaque(), 'MEDIA_STRING should be opaque');
   assert(MediaUrn.fromString(MEDIA_STRING_LIST).isOpaque(), 'MEDIA_STRING_LIST (list but no record) should be opaque');
@@ -873,13 +870,13 @@ function test065_isOpaque() {
   assert(!MediaUrn.fromString(MEDIA_JSON).isOpaque(), 'MEDIA_JSON should not be opaque');
 }
 
-// TEST066: isJson true for MEDIA_JSON; false for MEDIA_OBJECT (map but not json)
+// TEST066: Test is_json returns true only when json marker tag is present for JSON representation
 function test066_isJson() {
   assert(MediaUrn.fromString(MEDIA_JSON).isJson(), 'MEDIA_JSON should be json');
   assert(!MediaUrn.fromString(MEDIA_OBJECT).isJson(), 'MEDIA_OBJECT should not be json');
 }
 
-// TEST067: is_text returns true only if "textable" marker tag is present
+// TEST067: Test is_text returns true only when textable marker tag is present
 function test067_isText() {
   assert(MediaUrn.fromString(MEDIA_STRING).isText(), 'MEDIA_STRING should be text');
   assert(MediaUrn.fromString(MEDIA_INTEGER).isText(), 'MEDIA_INTEGER should be text');
@@ -890,7 +887,7 @@ function test067_isText() {
   assert(!MediaUrn.fromString(MEDIA_OBJECT).isText(), 'MEDIA_OBJECT (no textable) should not be text');
 }
 
-// TEST068: isVoid true for media:void; false for media:string
+// TEST068: Test is_void returns true when void flag or type=void tag is present
 function test068_isVoid() {
   assert(MediaUrn.fromString('media:void').isVoid(), 'media:void should be void');
   assert(!MediaUrn.fromString(MEDIA_STRING).isVoid(), 'MEDIA_STRING should not be void');
@@ -898,7 +895,7 @@ function test068_isVoid() {
 
 // TEST069-TEST070: N/A for JS (Rust-only binary_media_urn_for_ext/text_media_urn_for_ext)
 
-// TEST071: Parse -> toString -> parse equals original
+// TEST071: Test to_string roundtrip ensures serialization and deserialization preserve URN structure
 function test071_toStringRoundtrip() {
   const constants = [MEDIA_STRING, MEDIA_INTEGER, MEDIA_OBJECT, MEDIA_IDENTITY, MEDIA_PDF, MEDIA_JSON];
   for (const constant of constants) {
@@ -908,7 +905,7 @@ function test071_toStringRoundtrip() {
   }
 }
 
-// TEST072: All MEDIA_* constants parse as valid MediaUrns
+// TEST072: Test all media URN constants parse successfully as valid media URNs
 function test072_constantsParse() {
   const constants = [
     MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
@@ -928,7 +925,7 @@ function test072_constantsParse() {
 
 // TEST073: N/A for JS (Rust has binary_media_urn_for_ext/text_media_urn_for_ext)
 
-// TEST074: MEDIA_PDF (media:pdf) conformsTo media:pdf; MEDIA_MD conformsTo media:md; same URNs conform
+// TEST074: Test media URN conforms_to using tagged URN semantics with specific and generic requirements
 function test074_mediaUrnMatching() {
   const pdfUrn = MediaUrn.fromString(MEDIA_PDF);
   const pdfPattern = MediaUrn.fromString('media:pdf');
@@ -942,7 +939,7 @@ function test074_mediaUrnMatching() {
   assert(pdfUrn.conformsTo(pdfUrn), 'Same URN should conform to itself');
 }
 
-// TEST075: handler accepts same request, general handler accepts request
+// TEST075: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests
 function test075_accepts() {
   const handler = MediaUrn.fromString(MEDIA_PDF);
   const sameReq = MediaUrn.fromString(MEDIA_PDF);
@@ -953,7 +950,7 @@ function test075_accepts() {
   assert(generalHandler.accepts(specificReq), 'General handler should accept specific request');
 }
 
-// TEST076: More tags = higher specificity
+// TEST076: Test specificity increases with more tags for ranking conformance
 function test076_specificity() {
   const s1 = MediaUrn.fromString('media:');
   const s2 = MediaUrn.fromString('media:pdf');
@@ -962,7 +959,7 @@ function test076_specificity() {
   assert(s3.specificity() > s2.specificity(), 'image;png;thumbnail should be more specific than pdf');
 }
 
-// TEST077: N/A for JS (Rust serde) - but we test JSON.stringify round-trip
+// TEST077: Test serde roundtrip serializes to JSON string and deserializes back correctly
 function test077_serdeRoundtrip() {
   const original = MediaUrn.fromString(MEDIA_PDF);
   const json = JSON.stringify({ urn: original.toString() });
@@ -971,7 +968,7 @@ function test077_serdeRoundtrip() {
   assert(original.equals(restored), 'JSON round-trip should preserve MediaUrn');
 }
 
-// TEST078: MEDIA_OBJECT does NOT conform to MEDIA_STRING
+// TEST078: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING
 function test078_debugMatchingBehavior() {
   const objUrn = MediaUrn.fromString(MEDIA_OBJECT);
   const strUrn = MediaUrn.fromString(MEDIA_STRING);
@@ -1714,8 +1711,8 @@ function test310_llmGenerateTextUrn() {
   assert(urn.getTag('ml-model') !== undefined, 'Must have ml-model tag');
 }
 
-// TEST311: llm_generate_text_urn in/out specs match MEDIA_STRING
-function test311_llmGenerateTextUrnSpecs() {
+// Mirror-specific coverage: llm_generate_text_urn input/output specs conform to MEDIA_STRING
+function testLlmGenerateTextUrnSpecs() {
   const urn = llmGenerateTextUrn();
   const inSpec = TaggedUrn.fromString(urn.getInSpec());
   const expectedIn = TaggedUrn.fromString(MEDIA_STRING);
@@ -2480,9 +2477,9 @@ function test553_isAnyFilePath() {
   assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isAnyFilePath(), 'MEDIA_STRING_LIST should not be any-file-path');
 }
 
-// TEST554: isCollection returns true when collection marker tag is present
-// TEST554: N/A for JS (MEDIA_COLLECTION constants removed - no longer exists)
-function test554_isCollection() {
+// Mirror-specific coverage: isCollection returns true when collection marker tag is present
+// Mirror-specific coverage: N/A for JS (MEDIA_COLLECTION constants removed - no longer exists)
+function testisCollection() {
   // Skip - collection types removed from capdag
 }
 
@@ -2532,7 +2529,7 @@ function test558_predicateConstantConsistency() {
 // cap_urn.rs: TEST559-TEST567 (CapUrn tier tests)
 // ============================================================================
 
-// TEST559: withoutTag removes tag, ignores in/out, case-insensitive for keys
+// TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys
 function test559_withoutTag() {
   const cap = CapUrn.fromString('cap:in="media:void";op=test;ext=pdf;out="media:void"');
   const removed = cap.withoutTag('ext');
@@ -2554,7 +2551,7 @@ function test559_withoutTag() {
   assert(same3.equals(cap), 'Removing non-existent tag is no-op');
 }
 
-// TEST560: withInSpec and withOutSpec change direction specs
+// TEST560: with_in_spec and with_out_spec change direction specs
 function test560_withInOutSpec() {
   const cap = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
 
@@ -2568,16 +2565,16 @@ function test560_withInOutSpec() {
   assertEqual(changedOut.getOutSpec(), 'media:string', 'withOutSpec should change outSpec');
 
   // Chain both
-  const changedBoth = cap.withInSpec('media:pdf').withOutSpec('media:txt;textable');
+  const changedBoth = cap.withInSpec('media:pdf').withOutSpec(MEDIA_TXT);
   assertEqual(changedBoth.getInSpec(), 'media:pdf', 'Chain should set inSpec');
-  assertEqual(changedBoth.getOutSpec(), 'media:txt;textable', 'Chain should set outSpec');
+  assertEqual(changedBoth.getOutSpec(), MEDIA_TXT, 'Chain should set outSpec');
 }
 
 // TEST561: N/A for JS (in_media_urn/out_media_urn not in JS CapUrn)
 
 // TEST562: N/A for JS (canonical_option not in JS CapUrn)
 
-// TEST563: CapMatcher.findAllMatches returns all matching caps sorted by specificity
+// TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity
 function test563_findAllMatches() {
   const caps = [
     CapUrn.fromString('cap:in="media:void";op=test;out="media:void"'),
@@ -2595,7 +2592,7 @@ function test563_findAllMatches() {
   assertEqual(matches[0].getTag('ext'), 'pdf', 'Most specific match should have ext=pdf');
 }
 
-// TEST564: CapMatcher.areCompatible detects bidirectional overlap
+// TEST564: CapMatcher::are_compatible detects bidirectional overlap
 function test564_areCompatible() {
   const caps1 = [
     CapUrn.fromString('cap:in="media:void";op=test;out="media:void"'),
@@ -2620,7 +2617,7 @@ function test564_areCompatible() {
 
 // TEST565: N/A for JS (tags_to_string not in JS CapUrn)
 
-// TEST566: withTag silently ignores in/out keys
+// TEST566: with_tag silently ignores in/out keys
 function test566_withTagIgnoresInOut() {
   const cap = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
   // Attempting to set in/out via withTag is silently ignored
@@ -2637,35 +2634,73 @@ function test566_withTagIgnoresInOut() {
 // cap_urn.rs: TEST639-TEST653 (Cap URN wildcard tests)
 // ============================================================================
 
-// Note: Rust allows missing in/out to default to "media:" wildcard.
-// JS currently requires in/out (throws MISSING_IN_SPEC/MISSING_OUT_SPEC).
-// The following tests cover the wildcard behavior that IS applicable to JS.
+// TEST639: cap: (empty) defaults to in=media:;out=media:
+function test639_emptyCapDefaultsToMediaWildcard() {
+  const cap = CapUrn.fromString('cap:');
+  assertEqual(cap.getInSpec(), MEDIA_IDENTITY, 'Empty cap should default in to media:');
+  assertEqual(cap.getOutSpec(), MEDIA_IDENTITY, 'Empty cap should default out to media:');
+  assertEqual(Object.keys(cap.tags).length, 0, 'Empty cap should have no extra tags');
+}
 
-// TEST639-642: N/A for JS (JS requires in/out, does not default to media: wildcard)
+// TEST640: cap:in defaults out to media:
+function test640_inOnlyDefaultsOutToMedia() {
+  const cap = CapUrn.fromString('cap:in');
+  assertEqual(cap.getInSpec(), MEDIA_IDENTITY, 'Bare in should normalize to media:');
+  assertEqual(cap.getOutSpec(), MEDIA_IDENTITY, 'Missing out should default to media:');
+}
 
-// TEST643: cap:in=*;out=* treated as wildcards
+// TEST641: cap:out defaults in to media:
+function test641_outOnlyDefaultsInToMedia() {
+  const cap = CapUrn.fromString('cap:out');
+  assertEqual(cap.getInSpec(), MEDIA_IDENTITY, 'Missing in should default to media:');
+  assertEqual(cap.getOutSpec(), MEDIA_IDENTITY, 'Bare out should normalize to media:');
+}
+
+// TEST642: cap:in;out both become media:
+function test642_inOutWithoutValuesBecomeMedia() {
+  const cap = CapUrn.fromString('cap:in;out');
+  assertEqual(cap.getInSpec(), MEDIA_IDENTITY, 'Bare in should normalize to media:');
+  assertEqual(cap.getOutSpec(), MEDIA_IDENTITY, 'Bare out should normalize to media:');
+}
+
+// TEST643: cap:in=*;out=* becomes media:
 function test643_explicitAsteriskIsWildcard() {
   const cap = CapUrn.fromString('cap:in=*;out=*');
-  assertEqual(cap.getInSpec(), '*', 'in=* should be stored as wildcard');
-  assertEqual(cap.getOutSpec(), '*', 'out=* should be stored as wildcard');
+  assertEqual(cap.getInSpec(), MEDIA_IDENTITY, 'in=* should normalize to media:');
+  assertEqual(cap.getOutSpec(), MEDIA_IDENTITY, 'out=* should normalize to media:');
 }
 
 // TEST644: cap:in=media:;out=* has specific in, wildcard out
 function test644_specificInWildcardOut() {
   const cap = CapUrn.fromString('cap:in=media:;out=*');
   assertEqual(cap.getInSpec(), 'media:', 'Should have specific in');
-  assertEqual(cap.getOutSpec(), '*', 'Should have wildcard out');
+  assertEqual(cap.getOutSpec(), 'media:', 'Wildcard out should normalize to media:');
 }
 
 // TEST645: cap:in=*;out=media:text has wildcard in, specific out
 function test645_wildcardInSpecificOut() {
   const cap = CapUrn.fromString('cap:in=*;out=media:text');
-  assertEqual(cap.getInSpec(), '*', 'Should have wildcard in');
+  assertEqual(cap.getInSpec(), 'media:', 'Wildcard in should normalize to media:');
   assertEqual(cap.getOutSpec(), 'media:text', 'Should have specific out');
 }
 
-// TEST646: N/A for JS (JS allows in=foo since it just checks for media: or *)
-// TEST647: N/A for JS (JS allows out=bar since it just checks for media: or *)
+// TEST646: cap:in=foo fails (invalid media URN)
+function test646_invalidInSpecFails() {
+  assertThrows(
+    () => CapUrn.fromString('cap:in=foo;out=media:'),
+    ErrorCodes.INVALID_IN_SPEC,
+    'Invalid in spec should fail hard'
+  );
+}
+
+// TEST647: cap:in=media:;out=bar fails (invalid media URN)
+function test647_invalidOutSpecFails() {
+  assertThrows(
+    () => CapUrn.fromString('cap:in=media:;out=bar'),
+    ErrorCodes.INVALID_OUT_SPEC,
+    'Invalid out spec should fail hard'
+  );
+}
 
 // TEST648: Wildcard in/out match specific caps
 function test648_wildcardAcceptsSpecific() {
@@ -2687,7 +2722,7 @@ function test649_specificityScoring() {
 
 // TEST650: N/A for JS (JS requires in/out, cap:in;out;op=test would fail parsing)
 
-// TEST651: All identity forms with explicit wildcards produce the same CapUrn
+// TEST651: All identity forms produce the same CapUrn
 function test651_identityFormsEquivalent() {
   const forms = [
     'cap:in=*;out=*',
@@ -2707,7 +2742,7 @@ function test651_identityFormsEquivalent() {
 
 // TEST652: N/A for JS (CAP_IDENTITY constant not in JS)
 
-// TEST653: Identity (no extra tags) does not steal routes from specific handlers
+// TEST653: Identity (no tags) does not match specific requests via routing
 function test653_identityRoutingIsolation() {
   const identity = CapUrn.fromString('cap:in=*;out=*');
   const specificRequest = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
@@ -5409,7 +5444,7 @@ async function runTests() {
   runTest('TEST308: model_path_urn', test308_modelPathUrn);
   runTest('TEST309: model_availability_and_path_are_distinct', test309_modelAvailabilityAndPathAreDistinct);
   runTest('TEST310: llm_generate_text_urn', test310_llmGenerateTextUrn);
-  runTest('TEST311: llm_generate_text_urn_specs', test311_llmGenerateTextUrnSpecs);
+  runTest('llm_generate_text_urn_specs', testLlmGenerateTextUrnSpecs);
   runTest('TEST312: all_urn_builders_produce_valid_urns', test312_allUrnBuildersProduceValidUrns);
 
   // JS-specific tests (no Rust number)
@@ -5479,11 +5514,15 @@ async function runTests() {
 
   // cap_urn.rs: TEST639-TEST653 (Cap URN wildcard tests)
   console.log('\n--- cap_urn.rs (wildcard tests) ---');
-  console.log('  SKIP TEST639-642: N/A for JS (implicit wildcard defaults)');
+  runTest('TEST639: empty_cap_defaults_to_media_wildcard', test639_emptyCapDefaultsToMediaWildcard);
+  runTest('TEST640: in_only_defaults_out_to_media', test640_inOnlyDefaultsOutToMedia);
+  runTest('TEST641: out_only_defaults_in_to_media', test641_outOnlyDefaultsInToMedia);
+  runTest('TEST642: in_out_without_values_become_media', test642_inOutWithoutValuesBecomeMedia);
   runTest('TEST643: explicit_asterisk_is_wildcard', test643_explicitAsteriskIsWildcard);
   runTest('TEST644: specific_in_wildcard_out', test644_specificInWildcardOut);
   runTest('TEST645: wildcard_in_specific_out', test645_wildcardInSpecificOut);
-  console.log('  SKIP TEST646-647: N/A for JS (invalid spec validation differs)');
+  runTest('TEST646: invalid_in_spec_fails', test646_invalidInSpecFails);
+  runTest('TEST647: invalid_out_spec_fails', test647_invalidOutSpecFails);
   runTest('TEST648: wildcard_accepts_specific', test648_wildcardAcceptsSpecific);
   runTest('TEST649: specificity_scoring', test649_specificityScoring);
   console.log('  SKIP TEST650: N/A for JS (requires in/out)');
