@@ -934,6 +934,8 @@ const MEDIA_TEXTABLE_PAGE = 'media:textable;page';
 // Collection types
 const MEDIA_COLLECTION = 'media:collection;record';
 const MEDIA_COLLECTION_LIST = 'media:collection;list;record';
+// Media URN for adapter selection output - JSON record
+const MEDIA_ADAPTER_SELECTION = 'media:adapter-selection;json;record';
 
 // =============================================================================
 // STANDARD CAP URN CONSTANTS
@@ -942,6 +944,10 @@ const MEDIA_COLLECTION_LIST = 'media:collection;list;record';
 // Standard echo capability URN
 // Accepts any media type as input and outputs any media type
 const CAP_IDENTITY = 'cap:in=media:;out=media:';
+
+// Adapter-selection capability. Default implementation returns empty END (no match).
+// Cartridges that inspect file content override this with a handler that returns {"media_urns": [...]}.
+const CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;json;record"';
 
 // =============================================================================
 // MEDIA URN CLASS
@@ -5662,6 +5668,9 @@ module.exports = {
   // Collection types
   MEDIA_COLLECTION,
   MEDIA_COLLECTION_LIST,
+  MEDIA_ADAPTER_SELECTION,
+  // Standard cap URN constants
+  CAP_ADAPTER_SELECTION,
   // Cap execution result
   CapResult,
   // Unified argument type
