@@ -983,7 +983,7 @@ function test078_debugMatchingBehavior() {
 // TEST089: N/A for JS
 // TEST090: N/A for JS
 
-// TEST091: resolveMediaUrn resolves custom from local mediaSpecs
+// TEST091: Test resolving custom media URN from local media_specs takes precedence over registry
 function test091_resolveCustomMediaSpec() {
   const mediaSpecs = [
     { urn: 'media:custom-json', media_type: 'application/json', title: 'Custom JSON', profile_uri: 'https://example.com/schema/custom' }
@@ -993,7 +993,7 @@ function test091_resolveCustomMediaSpec() {
   assertEqual(spec.profile, 'https://example.com/schema/custom', 'Should have custom profile');
 }
 
-// TEST092: resolveMediaUrn resolves with schema from local mediaSpecs
+// TEST092: Test resolving custom record media spec with schema from local media_specs
 function test092_resolveCustomWithSchema() {
   const mediaSpecs = [
     {
@@ -1010,7 +1010,7 @@ function test092_resolveCustomWithSchema() {
   assertEqual(spec.schema.type, 'object', 'Schema should have correct type');
 }
 
-// TEST093: resolveMediaUrn fails hard on unknown URN
+// TEST093: Test resolving unknown media URN fails with UnresolvableMediaUrn error
 function test093_resolveUnresolvableFailsHard() {
   let caught = false;
   try {
@@ -1029,43 +1029,43 @@ function test093_resolveUnresolvableFailsHard() {
 // TEST097: N/A for JS (Rust validation function)
 // TEST098: N/A for JS
 
-// TEST099: MediaSpec with media: (no textable tag) -> isBinary() true
+// TEST099: Test ResolvedMediaSpec is_binary returns true when textable tag is absent
 function test099_resolvedIsBinary() {
   const spec = new MediaSpec('application/octet-stream', null, null, 'Binary', null, MEDIA_IDENTITY);
   assert(spec.isBinary(), 'Resolved binary spec should be binary');
 }
 
-// TEST100: MediaSpec with record -> isRecord() true
+// TEST100: Test ResolvedMediaSpec is_record returns true when record marker is present
 function test100_resolvedIsRecord() {
   const spec = new MediaSpec('application/json', null, null, 'Object', null, MEDIA_OBJECT);
   assert(spec.isRecord(), 'Resolved object spec should be record');
 }
 
-// TEST101: MediaSpec with form=scalar -> isScalar() true
+// TEST101: Test ResolvedMediaSpec is_scalar returns true when list marker is absent
 function test101_resolvedIsScalar() {
   const spec = new MediaSpec('text/plain', null, null, 'String', null, MEDIA_STRING);
   assert(spec.isScalar(), 'Resolved string spec should be scalar');
 }
 
-// TEST102: MediaSpec with list -> isList() true
+// TEST102: Test ResolvedMediaSpec is_list returns true when list marker is present
 function test102_resolvedIsList() {
   const spec = new MediaSpec('text/plain', null, null, 'String List', null, MEDIA_STRING_LIST);
   assert(spec.isList(), 'Resolved string_list spec should be list');
 }
 
-// TEST103: MediaSpec with json tag -> isJSON() true
+// TEST103: Test ResolvedMediaSpec is_json returns true when json tag is present
 function test103_resolvedIsJson() {
   const spec = new MediaSpec('application/json', null, null, 'JSON', null, MEDIA_JSON);
   assert(spec.isJSON(), 'Resolved json spec should be JSON');
 }
 
-// TEST104: MediaSpec with textable tag -> isText() true
+// TEST104: Test ResolvedMediaSpec is_text returns true when textable tag is present
 function test104_resolvedIsText() {
   const spec = new MediaSpec('text/plain', null, null, 'String', null, MEDIA_STRING);
   assert(spec.isText(), 'Resolved string spec should be text');
 }
 
-// TEST105: Metadata propagated from media spec definition
+// TEST105: Test metadata propagates from media spec def to resolved media spec
 function test105_metadataPropagation() {
   const mediaSpecs = [
     {
@@ -1088,7 +1088,7 @@ function test105_metadataPropagation() {
   assertEqual(resolved.metadata.display_index, 5, 'Should propagate display_index');
 }
 
-// TEST106: Metadata and validation coexist
+// TEST106: Test metadata and validation can coexist in media spec definition
 function test106_metadataWithValidation() {
   const mediaSpecs = [
     {
@@ -1107,7 +1107,7 @@ function test106_metadataWithValidation() {
   assertEqual(resolved.metadata.category_key, 'inference', 'Should have category_key');
 }
 
-// TEST107: Extensions field propagated
+// TEST107: Test extensions field propagates from media spec def to resolved
 function test107_extensionsPropagation() {
   const mediaSpecs = [
     {
@@ -1123,7 +1123,7 @@ function test107_extensionsPropagation() {
   assertEqual(resolved.extensions[0], 'pdf', 'Should have pdf extension');
 }
 
-// TEST108: N/A for JS (Rust serde) - but we test MediaSpec with extensions
+// TEST108: Test creating new cap with URN, title, and command verifies correct initialization
 function test108_extensionsSerialization() {
   // Test that MediaSpec can hold extensions correctly
   const spec = new MediaSpec('application/pdf', null, null, 'PDF', null, 'media:pdf', null, null, ['pdf']);
@@ -1131,7 +1131,7 @@ function test108_extensionsSerialization() {
   assertEqual(spec.extensions[0], 'pdf', 'Should have pdf extension');
 }
 
-// TEST109: Extensions coexist with metadata and validation
+// TEST109: Test creating cap with metadata initializes and retrieves metadata correctly
 function test109_extensionsWithMetadataAndValidation() {
   const mediaSpecs = [
     {
@@ -1150,7 +1150,7 @@ function test109_extensionsWithMetadataAndValidation() {
   assertEqual(resolved.extensions[0], 'json', 'Should have json extension');
 }
 
-// TEST110: Multiple extensions in a media spec
+// TEST110: Test cap matching with subset semantics for request fulfillment
 function test110_multipleExtensions() {
   const mediaSpecs = [
     {
@@ -1170,7 +1170,7 @@ function test110_multipleExtensions() {
 // cap_matrix.rs: TEST117-TEST131
 // ============================================================================
 
-// TEST117: CapBlock finds more specific cap across registries
+// TEST117: Test registering cap set and finding by exact and subset matching
 function test117_capBlockMoreSpecificWins() {
   const providerRegistry = new CapMatrix();
   const cartridgeRegistry = new CapMatrix();
@@ -1200,7 +1200,7 @@ function test117_capBlockMoreSpecificWins() {
   assertEqual(best.cap.title, 'Cartridge PDF Thumbnail Generator (specific)', 'Should get cartridge cap');
 }
 
-// TEST118: CapBlock tie-breaking prefers first registry in order
+// TEST118: Test selecting best cap set based on specificity ranking With is_dispatchable semantics: - Provider must satisfy ALL request constraints - General request matches specific provider (provider refines request) - Specific request does NOT match general provider (provider lacks constraints)
 function test118_capBlockTieGoesToFirst() {
   const registry1 = new CapMatrix();
   const registry2 = new CapMatrix();
@@ -1221,7 +1221,7 @@ function test118_capBlockTieGoesToFirst() {
   assertEqual(best.registryName, 'first', 'On tie, first registry should win');
 }
 
-// TEST119: CapBlock polls all registries to find best match
+// TEST119: Test invalid URN returns InvalidUrn error
 function test119_capBlockPollsAll() {
   const registry1 = new CapMatrix();
   const registry2 = new CapMatrix();
@@ -1248,7 +1248,7 @@ function test119_capBlockPollsAll() {
   assertEqual(best.registryName, 'r3', 'Most specific registry should win');
 }
 
-// TEST120: CapBlock returns error when no cap matches request
+// TEST120: Test accepts_request checks if registry can handle a capability request
 function test120_capBlockNoMatch() {
   const registry = new CapMatrix();
   const composite = new CapBlock();
@@ -1263,7 +1263,7 @@ function test120_capBlockNoMatch() {
   }
 }
 
-// TEST121: CapBlock fallback scenario where generic cap handles unknown file types
+// TEST121: Test CapBlock selects more specific cap over less specific regardless of registry order
 function test121_capBlockFallbackScenario() {
   const providerRegistry = new CapMatrix();
   const cartridgeRegistry = new CapMatrix();
@@ -1295,7 +1295,7 @@ function test121_capBlockFallbackScenario() {
   assertEqual(bestWav.registryName, 'providers', 'Provider should win for wav (fallback)');
 }
 
-// TEST122: CapBlock can method returns execution info and acceptsRequest checks capability
+// TEST122: Test CapBlock breaks specificity ties by first registered registry
 function test122_capBlockCanMethod() {
   const providerRegistry = new CapMatrix();
   const providerHost = new MockCapSet('test_provider');
@@ -1312,7 +1312,7 @@ function test122_capBlockCanMethod() {
   assert(!composite.acceptsRequest(matrixTestUrn('op=nonexistent')), 'Should not accept non-matching cap');
 }
 
-// TEST123: CapBlock registry management add, get, remove operations
+// TEST123: Test CapBlock polls all registries to find most specific match
 function test123_capBlockRegistryManagement() {
   const composite = new CapBlock();
   const registry1 = new CapMatrix();
@@ -1331,7 +1331,7 @@ function test123_capBlockRegistryManagement() {
   assertEqual(composite.getRegistry('nonexistent'), null, 'Should return null for non-existent');
 }
 
-// TEST124: CapGraph basic construction builds nodes and edges from caps
+// TEST124: Test CapBlock returns error when no registries match the request
 function test124_capGraphBasicConstruction() {
   const registry = new CapMatrix();
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
@@ -1350,7 +1350,7 @@ function test124_capGraphBasicConstruction() {
   assertEqual(graph.stats().edgeCount, 2, 'Expected 2 edges in stats');
 }
 
-// TEST125: CapGraph getOutgoing and getIncoming return correct edges for media URN
+// TEST125: Test CapBlock prefers specific cartridge over generic provider fallback
 function test125_capGraphOutgoingIncoming() {
   const registry = new CapMatrix();
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
@@ -1368,7 +1368,7 @@ function test125_capGraphOutgoingIncoming() {
   assertEqual(graph.getIncoming('media:object').length, 1, 'object should have 1 incoming');
 }
 
-// TEST126: CapGraph canConvert checks direct and transitive conversion paths
+// TEST126: Test composite can method returns CapCaller for capability execution
 function test126_capGraphCanConvert() {
   const registry = new CapMatrix();
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
@@ -1389,7 +1389,7 @@ function test126_capGraphCanConvert() {
   assert(!graph.canConvert('media:nonexistent', 'media:string'), 'Nonexistent node');
 }
 
-// TEST127: CapGraph findPath returns shortest path between media URNs
+// TEST127: Test CapGraph adds nodes and edges from capability definitions
 function test127_capGraphFindPath() {
   const registry = new CapMatrix();
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
@@ -1422,7 +1422,7 @@ function test127_capGraphFindPath() {
   assertEqual(path.length, 0, 'Same spec path should be empty');
 }
 
-// TEST128: CapGraph findAllPaths returns all paths sorted by length
+// TEST128: Test CapGraph tracks outgoing and incoming edges for spec conversions
 function test128_capGraphFindAllPaths() {
   const registry = new CapMatrix();
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
@@ -1442,7 +1442,7 @@ function test128_capGraphFindAllPaths() {
   assertEqual(paths[1].length, 2, 'Longer path second (via string)');
 }
 
-// TEST129: CapGraph getDirectEdges returns edges sorted by specificity
+// TEST129: Test CapGraph detects direct and indirect conversion paths between specs
 function test129_capGraphGetDirectEdges() {
   const registry1 = new CapMatrix();
   const registry2 = new CapMatrix();
@@ -1467,7 +1467,7 @@ function test129_capGraphGetDirectEdges() {
   assert(edges[0].specificity > edges[1].specificity, 'First edge should have higher specificity');
 }
 
-// TEST130: CapGraph stats returns node count, edge count, input/output URN counts
+// TEST130: Test CapGraph finds shortest path for spec conversion chain
 function test130_capGraphStats() {
   const registry = new CapMatrix();
   const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
@@ -1488,7 +1488,7 @@ function test130_capGraphStats() {
   assertEqual(stats.outputUrnCount, 3, '3 output URNs');
 }
 
-// TEST131: CapGraph with CapBlock builds graph from multiple registries
+// TEST131: Test CapGraph finds all conversion paths sorted by length
 function test131_capGraphWithCapBlock() {
   const providerRegistry = new CapMatrix();
   const cartridgeRegistry = new CapMatrix();
@@ -1522,7 +1522,7 @@ function test131_capGraphWithCapBlock() {
 // caller.rs: TEST156-TEST159
 // ============================================================================
 
-// TEST156: Creating StdinSource Data variant with byte vector
+// TEST156: Test creating StdinSource Data variant with byte vector
 function test156_stdinSourceFromData() {
   const testData = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]); // "Hello"
   const source = StdinSource.fromData(testData);
@@ -1533,7 +1533,7 @@ function test156_stdinSourceFromData() {
   assertEqual(source.data, testData, 'Should store data');
 }
 
-// TEST157: Creating StdinSource FileReference variant with all required fields
+// TEST157: Test creating StdinSource FileReference variant with all required fields
 function test157_stdinSourceFromFileReference() {
   const trackedFileId = 'tracked-file-123';
   const originalPath = '/path/to/original.pdf';
@@ -1550,7 +1550,7 @@ function test157_stdinSourceFromFileReference() {
   assertEqual(source.mediaUrn, mediaUrn, 'Should store mediaUrn');
 }
 
-// TEST158: StdinSource Data with empty vector stores and retrieves correctly
+// TEST158: Test StdinSource Data with empty vector stores and retrieves correctly
 function test158_stdinSourceWithEmptyData() {
   const emptyData = new Uint8Array(0);
   const source = StdinSource.fromData(emptyData);
@@ -1558,7 +1558,7 @@ function test158_stdinSourceWithEmptyData() {
   assertEqual(source.data.length, 0, 'Data length should be 0');
 }
 
-// TEST159: StdinSource Data with binary content like PNG header bytes
+// TEST159: Test StdinSource Data with binary content like PNG header bytes
 function test159_stdinSourceWithBinaryContent() {
   const pngHeader = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
   const source = StdinSource.fromData(pngHeader);
@@ -1572,27 +1572,27 @@ function test159_stdinSourceWithBinaryContent() {
 // caller.rs: TEST274-TEST283
 // ============================================================================
 
-// TEST274: CapArgumentValue constructor stores media_urn and raw byte value
+// TEST274: Test CapArgumentValue::new stores media_urn and raw byte value
 function test274_capArgumentValueNew() {
   const arg = new CapArgumentValue('media:model-spec;textable', new Uint8Array([103, 112, 116, 45, 52]));
   assertEqual(arg.mediaUrn, 'media:model-spec;textable', 'mediaUrn must match');
   assertEqual(arg.value.length, 5, 'value must have 5 bytes');
 }
 
-// TEST275: CapArgumentValue.fromStr converts string to UTF-8 bytes
+// TEST275: Test CapArgumentValue::from_str converts string to UTF-8 bytes
 function test275_capArgumentValueFromStr() {
   const arg = CapArgumentValue.fromStr('media:string;textable', 'hello world');
   assertEqual(arg.mediaUrn, 'media:string;textable', 'mediaUrn must match');
   assertEqual(new TextDecoder().decode(arg.value), 'hello world', 'value must decode correctly');
 }
 
-// TEST276: CapArgumentValue.valueAsStr succeeds for UTF-8 data
+// TEST276: Test CapArgumentValue::value_as_str succeeds for UTF-8 data
 function test276_capArgumentValueAsStrValid() {
   const arg = CapArgumentValue.fromStr('media:string', 'test');
   assertEqual(arg.valueAsStr(), 'test', 'valueAsStr must return test');
 }
 
-// TEST277: CapArgumentValue.valueAsStr fails for non-UTF-8 binary data
+// TEST277: Test CapArgumentValue::value_as_str fails for non-UTF-8 binary data
 function test277_capArgumentValueAsStrInvalidUtf8() {
   const arg = new CapArgumentValue('media:pdf', new Uint8Array([0xFF, 0xFE, 0x80]));
   let threw = false;
@@ -1604,7 +1604,7 @@ function test277_capArgumentValueAsStrInvalidUtf8() {
   assert(threw, 'non-UTF-8 data must fail on valueAsStr with fatal decoder');
 }
 
-// TEST278: CapArgumentValue with empty value stores empty Uint8Array
+// TEST278: Test CapArgumentValue::new with empty value stores empty vec
 function test278_capArgumentValueEmpty() {
   const arg = new CapArgumentValue('media:void', new Uint8Array([]));
   assertEqual(arg.value.length, 0, 'empty value must have 0 bytes');
@@ -1613,13 +1613,13 @@ function test278_capArgumentValueEmpty() {
 
 // TEST279-281: N/A for JS (Rust Debug/Clone/Send traits)
 
-// TEST282: CapArgumentValue.fromStr with Unicode string preserves all characters
+// TEST282: Test CapArgumentValue::from_str with Unicode string preserves all characters
 function test282_capArgumentValueUnicode() {
   const arg = CapArgumentValue.fromStr('media:string', 'hello \u4e16\u754c \ud83c\udf0d');
   assertEqual(arg.valueAsStr(), 'hello \u4e16\u754c \ud83c\udf0d', 'Unicode must roundtrip');
 }
 
-// TEST283: CapArgumentValue with large binary payload preserves all bytes
+// TEST283: Test CapArgumentValue with large binary payload preserves all bytes
 function test283_capArgumentValueLargeBinary() {
   const data = new Uint8Array(10000);
   for (let i = 0; i < 10000; i++) {
@@ -1638,7 +1638,7 @@ function test283_capArgumentValueLargeBinary() {
 
 const { TaggedUrn } = require('tagged-urn');
 
-// TEST304: MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags
+// TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags
 function test304_mediaAvailabilityOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
   assert(urn.getTag('textable') !== undefined, 'model-availability must be textable');
@@ -1648,7 +1648,7 @@ function test304_mediaAvailabilityOutputConstant() {
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
 }
 
-// TEST305: MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags
+// TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags
 function test305_mediaPathOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
   assert(urn.getTag('textable') !== undefined, 'model-path must be textable');
@@ -1658,7 +1658,7 @@ function test305_mediaPathOutputConstant() {
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
 }
 
-// TEST306: MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs
+// TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs
 function test306_availabilityAndPathOutputDistinct() {
   assert(MEDIA_AVAILABILITY_OUTPUT !== MEDIA_PATH_OUTPUT, 'Must be distinct');
   const avail = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
@@ -1672,7 +1672,7 @@ function test306_availabilityAndPathOutputDistinct() {
   assert(!matchResult, 'availability must not conform to path');
 }
 
-// TEST307: model_availability_urn builds valid cap URN with correct op and media specs
+// TEST307: Test model_availability_urn builds valid cap URN with correct op and media specs
 function test307_modelAvailabilityUrn() {
   const urn = modelAvailabilityUrn();
   assert(urn.hasTag('op', 'model-availability'), 'Must have op=model-availability');
@@ -1684,7 +1684,7 @@ function test307_modelAvailabilityUrn() {
   assert(outSpec.conformsTo(expectedOut), 'output must conform to MEDIA_AVAILABILITY_OUTPUT');
 }
 
-// TEST308: model_path_urn builds valid cap URN with correct op and media specs
+// TEST308: Test model_path_urn builds valid cap URN with correct op and media specs
 function test308_modelPathUrn() {
   const urn = modelPathUrn();
   assert(urn.hasTag('op', 'model-path'), 'Must have op=model-path');
@@ -1696,14 +1696,13 @@ function test308_modelPathUrn() {
   assert(outSpec.conformsTo(expectedOut), 'output must conform to MEDIA_PATH_OUTPUT');
 }
 
-// TEST309: model_availability_urn and model_path_urn produce distinct URNs
+// TEST309: Test model_availability_urn and model_path_urn produce distinct URNs
 function test309_modelAvailabilityAndPathAreDistinct() {
   const avail = modelAvailabilityUrn();
   const path = modelPathUrn();
   assert(avail.toString() !== path.toString(), 'availability and path must be distinct');
 }
 
-// TEST310: llm_generate_text_urn has correct op and ml-model tags
 function test310_llmGenerateTextUrn() {
   const urn = llmGenerateTextUrn();
   assert(urn.hasTag('op', 'generate_text'), 'Must have op=generate_text');
@@ -1722,7 +1721,7 @@ function testLlmGenerateTextUrnSpecs() {
   assert(outSpec.conformsTo(expectedOut), 'out_spec must conform to MEDIA_STRING');
 }
 
-// TEST312: All URN builders produce parseable cap URNs
+// TEST312: Test all URN builders produce parseable cap URNs
 function test312_allUrnBuildersProduceValidUrns() {
   const avail = modelAvailabilityUrn();
   const path = modelPathUrn();
@@ -2087,7 +2086,7 @@ const sampleRegistry = {
   }
 };
 
-// TEST320: Cartridge info construction
+// TEST320-335: CartridgeRepoServer and CartridgeRepoClient tests
 function test320_cartridgeInfoConstruction() {
   const data = {
     id: 'testcartridge',
@@ -2114,7 +2113,6 @@ function test320_cartridgeInfoConstruction() {
   assert(cartridge.caps[0].urn === 'cap:in="media:void";op=test;out="media:void"', 'Cap URN should match');
 }
 
-// TEST321: Cartridge info is signed check
 function test321_cartridgeInfoIsSigned() {
   const signed = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '2026-01-01', caps: []});
   assert(signed.isSigned() === true, 'Cartridge with teamId and signedAt should be signed');
@@ -2126,7 +2124,6 @@ function test321_cartridgeInfoIsSigned() {
   assert(unsigned2.isSigned() === false, 'Cartridge without signedAt should not be signed');
 }
 
-// TEST322: Cartridge info build for platform and available platforms
 function test322_cartridgeInfoBuildForPlatform() {
   const withBuilds = new CartridgeInfo({
     id: 'test', version: '1.0.0', caps: [],
@@ -2160,7 +2157,6 @@ function test322_cartridgeInfoBuildForPlatform() {
   assert(noBuilds.availablePlatforms().length === 0, 'Should have no platforms');
 }
 
-// TEST323: CartridgeRepoServer validate registry
 function test323_cartridgeRepoServerValidateRegistry() {
   // Valid registry
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2187,7 +2183,6 @@ function test323_cartridgeRepoServerValidateRegistry() {
   assert(threw, 'Should throw for missing cartridges');
 }
 
-// TEST324: CartridgeRepoServer transform to array
 function test324_cartridgeRepoServerTransformToArray() {
   const server = new CartridgeRepoServer(sampleRegistry);
   const cartridges = server.transformToCartridgeArray();
@@ -2212,7 +2207,6 @@ function test324_cartridgeRepoServerTransformToArray() {
   assert(pdf.caps.length === 2, 'Should have 2 caps');
 }
 
-// TEST325: CartridgeRepoServer get cartridges
 function test325_cartridgeRepoServerGetCartridges() {
   const server = new CartridgeRepoServer(sampleRegistry);
   const response = server.getCartridges();
@@ -2222,7 +2216,6 @@ function test325_cartridgeRepoServerGetCartridges() {
   assert(response.cartridges.length === 2, 'Should have 2 cartridges');
 }
 
-// TEST326: CartridgeRepoServer get cartridge by ID
 function test326_cartridgeRepoServerGetCartridgeById() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -2234,7 +2227,6 @@ function test326_cartridgeRepoServerGetCartridgeById() {
   assert(notFound === undefined, 'Should return undefined for missing cartridge');
 }
 
-// TEST327: CartridgeRepoServer search cartridges
 function test327_cartridgeRepoServerSearchCartridges() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -2249,7 +2241,6 @@ function test327_cartridgeRepoServerSearchCartridges() {
   assert(noResults.length === 0, 'Should return empty for no matches');
 }
 
-// TEST328: CartridgeRepoServer get by category
 function test328_cartridgeRepoServerGetByCategory() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -2262,7 +2253,6 @@ function test328_cartridgeRepoServerGetByCategory() {
   assert(textCartridges[0].id === 'txtcartridge', 'Should be txtcartridge');
 }
 
-// TEST329: CartridgeRepoServer get by cap
 function test329_cartridgeRepoServerGetByCap() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -2277,7 +2267,6 @@ function test329_cartridgeRepoServerGetByCap() {
   assert(metadataCartridges.length === 1, 'Should find metadata cap');
 }
 
-// TEST330: CartridgeRepoClient update cache
 function test330_cartridgeRepoClientUpdateCache() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2291,7 +2280,6 @@ function test330_cartridgeRepoClientUpdateCache() {
   assert(cache.capToCartridges.size > 0, 'Should have cap mappings');
 }
 
-// TEST331: CartridgeRepoClient get suggestions
 function test331_cartridgeRepoClientGetSuggestions() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2308,7 +2296,6 @@ function test331_cartridgeRepoClientGetSuggestions() {
   assert(suggestions[0].capTitle === 'Disbind PDF', 'Should have cap title');
 }
 
-// TEST332: CartridgeRepoClient get cartridge
 function test332_cartridgeRepoClientGetCartridge() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2324,7 +2311,6 @@ function test332_cartridgeRepoClientGetCartridge() {
   assert(notFound === null, 'Should return null for missing cartridge');
 }
 
-// TEST333: CartridgeRepoClient get all caps
 function test333_cartridgeRepoClientGetAllCaps() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2338,7 +2324,6 @@ function test333_cartridgeRepoClientGetAllCaps() {
   assert(caps.every(c => typeof c === 'string'), 'All caps should be strings');
 }
 
-// TEST334: CartridgeRepoClient needs sync
 function test334_cartridgeRepoClientNeedsSync() {
   const client = new CartridgeRepoClient(1); // 1 second TTL
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2359,7 +2344,6 @@ function test334_cartridgeRepoClientNeedsSync() {
   // Note: Can't test this synchronously, would need async test
 }
 
-// TEST335: CartridgeRepoServer and Client integration
 function test335_cartridgeRepoServerClientIntegration() {
   // Server creates API response
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2392,7 +2376,7 @@ function test335_cartridgeRepoServerClientIntegration() {
 // media_urn.rs: TEST546-TEST558 (MediaUrn predicates)
 // ============================================================================
 
-// TEST546: isImage returns true only when image marker tag is present
+// TEST546: is_image returns true only when image marker tag is present
 function test546_isImage() {
   assert(MediaUrn.fromString(MEDIA_PNG).isImage(), 'MEDIA_PNG should be image');
   assert(MediaUrn.fromString('media:image;png;thumbnail').isImage(), 'media:image;png;thumbnail should be image');
@@ -2404,7 +2388,7 @@ function test546_isImage() {
   assert(!MediaUrn.fromString(MEDIA_VIDEO).isImage(), 'MEDIA_VIDEO should not be image');
 }
 
-// TEST547: isAudio returns true only when audio marker tag is present
+// TEST547: is_audio returns true only when audio marker tag is present
 function test547_isAudio() {
   assert(MediaUrn.fromString(MEDIA_AUDIO).isAudio(), 'MEDIA_AUDIO should be audio');
   assert(MediaUrn.fromString(MEDIA_AUDIO_SPEECH).isAudio(), 'MEDIA_AUDIO_SPEECH should be audio');
@@ -2415,7 +2399,7 @@ function test547_isAudio() {
   assert(!MediaUrn.fromString(MEDIA_STRING).isAudio(), 'MEDIA_STRING should not be audio');
 }
 
-// TEST548: isVideo returns true only when video marker tag is present
+// TEST548: is_video returns true only when video marker tag is present
 function test548_isVideo() {
   assert(MediaUrn.fromString(MEDIA_VIDEO).isVideo(), 'MEDIA_VIDEO should be video');
   assert(MediaUrn.fromString('media:video;mp4').isVideo(), 'media:video;mp4 should be video');
@@ -2425,7 +2409,7 @@ function test548_isVideo() {
   assert(!MediaUrn.fromString(MEDIA_STRING).isVideo(), 'MEDIA_STRING should not be video');
 }
 
-// TEST549: isNumeric returns true only when numeric marker tag is present
+// TEST549: is_numeric returns true only when numeric marker tag is present
 function test549_isNumeric() {
   assert(MediaUrn.fromString(MEDIA_INTEGER).isNumeric(), 'MEDIA_INTEGER should be numeric');
   assert(MediaUrn.fromString(MEDIA_NUMBER).isNumeric(), 'MEDIA_NUMBER should be numeric');
@@ -2437,7 +2421,7 @@ function test549_isNumeric() {
   assert(!MediaUrn.fromString(MEDIA_IDENTITY).isNumeric(), 'MEDIA_IDENTITY should not be numeric');
 }
 
-// TEST550: isBool returns true only when bool marker tag is present
+// TEST550: is_bool returns true only when bool marker tag is present
 function test550_isBool() {
   assert(MediaUrn.fromString(MEDIA_BOOLEAN).isBool(), 'MEDIA_BOOLEAN should be bool');
   assert(MediaUrn.fromString(MEDIA_BOOLEAN_LIST).isBool(), 'MEDIA_BOOLEAN_LIST should be bool');
@@ -2449,7 +2433,7 @@ function test550_isBool() {
   assert(!MediaUrn.fromString(MEDIA_IDENTITY).isBool(), 'MEDIA_IDENTITY should not be bool');
 }
 
-// TEST551: isFilePath returns true for scalar file-path, false for array
+// TEST551: is_file_path returns true for scalar file-path, false for array
 function test551_isFilePath() {
   assert(MediaUrn.fromString(MEDIA_FILE_PATH).isFilePath(), 'MEDIA_FILE_PATH should be file-path');
   // Array file-path is NOT isFilePath (it's isFilePathArray)
@@ -2459,7 +2443,7 @@ function test551_isFilePath() {
   assert(!MediaUrn.fromString(MEDIA_IDENTITY).isFilePath(), 'MEDIA_IDENTITY should not be file-path');
 }
 
-// TEST552: isFilePathArray returns true for list file-path, false for scalar
+// TEST552: is_file_path_array returns true for list file-path, false for scalar
 function test552_isFilePathArray() {
   assert(MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isFilePathArray(), 'MEDIA_FILE_PATH_ARRAY should be file-path-array');
   // Scalar file-path is NOT isFilePathArray
@@ -2468,7 +2452,7 @@ function test552_isFilePathArray() {
   assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isFilePathArray(), 'MEDIA_STRING_LIST should not be file-path-array');
 }
 
-// TEST553: isAnyFilePath returns true for both scalar and array file-path
+// TEST553: is_any_file_path returns true for both scalar and array file-path
 function test553_isAnyFilePath() {
   assert(MediaUrn.fromString(MEDIA_FILE_PATH).isAnyFilePath(), 'MEDIA_FILE_PATH should be any-file-path');
   assert(MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isAnyFilePath(), 'MEDIA_FILE_PATH_ARRAY should be any-file-path');
@@ -2489,7 +2473,7 @@ function testisCollection() {
 
 // TEST557: N/A for JS (audio_media_urn_for_ext helper not in JS)
 
-// TEST558: predicates are consistent with constants - every constant triggers exactly the expected predicates
+// TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates
 function test558_predicateConstantConsistency() {
   // MEDIA_INTEGER must be numeric, text, scalar, NOT binary/bool/image/audio/video
   const intUrn = MediaUrn.fromString(MEDIA_INTEGER);
