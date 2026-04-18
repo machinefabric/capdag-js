@@ -1703,11 +1703,16 @@ function test309_modelAvailabilityAndPathAreDistinct() {
   assert(avail.toString() !== path.toString(), 'availability and path must be distinct');
 }
 
+// TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs
 function test310_llmGenerateTextUrn() {
   const urn = llmGenerateTextUrn();
   assert(urn.hasTag('op', 'generate_text'), 'Must have op=generate_text');
   assert(urn.getTag('llm') !== undefined, 'Must have llm tag');
   assert(urn.getTag('ml-model') !== undefined, 'Must have ml-model tag');
+  assert(TaggedUrn.fromString(urn.getInSpec()).conformsTo(TaggedUrn.fromString(MEDIA_STRING)),
+    'in_spec must conform to MEDIA_STRING');
+  assert(TaggedUrn.fromString(urn.getOutSpec()).conformsTo(TaggedUrn.fromString(MEDIA_STRING)),
+    'out_spec must conform to MEDIA_STRING');
 }
 
 // Mirror-specific coverage: llm_generate_text_urn input/output specs conform to MEDIA_STRING
@@ -2113,6 +2118,7 @@ function test320_cartridgeInfoConstruction() {
   assert(cartridge.caps[0].urn === 'cap:in="media:void";op=test;out="media:void"', 'Cap URN should match');
 }
 
+// TEST321: CartridgeInfo.is_signed() returns true when signature is present
 function test321_cartridgeInfoIsSigned() {
   const signed = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '2026-01-01', caps: []});
   assert(signed.isSigned() === true, 'Cartridge with teamId and signedAt should be signed');
@@ -2124,6 +2130,7 @@ function test321_cartridgeInfoIsSigned() {
   assert(unsigned2.isSigned() === false, 'Cartridge without signedAt should not be signed');
 }
 
+// TEST322: CartridgeInfo.build_for_platform() returns the build matching the current platform
 function test322_cartridgeInfoBuildForPlatform() {
   const withBuilds = new CartridgeInfo({
     id: 'test', version: '1.0.0', caps: [],
@@ -2157,6 +2164,7 @@ function test322_cartridgeInfoBuildForPlatform() {
   assert(noBuilds.availablePlatforms().length === 0, 'Should have no platforms');
 }
 
+// TEST323: CartridgeRepoServer validates registry JSON schema version
 function test323_cartridgeRepoServerValidateRegistry() {
   // Valid registry
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2183,6 +2191,7 @@ function test323_cartridgeRepoServerValidateRegistry() {
   assert(threw, 'Should throw for missing cartridges');
 }
 
+// TEST324: CartridgeRepoServer transforms v3 registry JSON into flat cartridge array
 function test324_cartridgeRepoServerTransformToArray() {
   const server = new CartridgeRepoServer(sampleRegistry);
   const cartridges = server.transformToCartridgeArray();
@@ -2207,6 +2216,7 @@ function test324_cartridgeRepoServerTransformToArray() {
   assert(pdf.caps.length === 2, 'Should have 2 caps');
 }
 
+// TEST325: CartridgeRepoServer.get_cartridges() returns all parsed cartridges
 function test325_cartridgeRepoServerGetCartridges() {
   const server = new CartridgeRepoServer(sampleRegistry);
   const response = server.getCartridges();
@@ -2216,6 +2226,7 @@ function test325_cartridgeRepoServerGetCartridges() {
   assert(response.cartridges.length === 2, 'Should have 2 cartridges');
 }
 
+// TEST326: CartridgeRepoServer.get_cartridge() returns cartridge matching the given ID
 function test326_cartridgeRepoServerGetCartridgeById() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -2227,6 +2238,7 @@ function test326_cartridgeRepoServerGetCartridgeById() {
   assert(notFound === undefined, 'Should return undefined for missing cartridge');
 }
 
+// TEST327: CartridgeRepoServer.search_cartridges() filters by text query against name and description
 function test327_cartridgeRepoServerSearchCartridges() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -2241,6 +2253,7 @@ function test327_cartridgeRepoServerSearchCartridges() {
   assert(noResults.length === 0, 'Should return empty for no matches');
 }
 
+// TEST328: CartridgeRepoServer.get_by_category() filters cartridges by category tag
 function test328_cartridgeRepoServerGetByCategory() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -2253,6 +2266,7 @@ function test328_cartridgeRepoServerGetByCategory() {
   assert(textCartridges[0].id === 'txtcartridge', 'Should be txtcartridge');
 }
 
+// TEST329: CartridgeRepoServer.get_suggestions_for_cap() finds cartridges providing a given cap URN
 function test329_cartridgeRepoServerGetByCap() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -2267,6 +2281,7 @@ function test329_cartridgeRepoServerGetByCap() {
   assert(metadataCartridges.length === 1, 'Should find metadata cap');
 }
 
+// TEST330: CartridgeRepoClient updates its local cache from server response
 function test330_cartridgeRepoClientUpdateCache() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2280,6 +2295,7 @@ function test330_cartridgeRepoClientUpdateCache() {
   assert(cache.capToCartridges.size > 0, 'Should have cap mappings');
 }
 
+// TEST331: CartridgeRepoClient.get_suggestions_for_cap() returns cartridge suggestions for a cap URN
 function test331_cartridgeRepoClientGetSuggestions() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2296,6 +2312,7 @@ function test331_cartridgeRepoClientGetSuggestions() {
   assert(suggestions[0].capTitle === 'Disbind PDF', 'Should have cap title');
 }
 
+// TEST332: CartridgeRepoClient.get_cartridge() retrieves a specific cartridge by ID from cache
 function test332_cartridgeRepoClientGetCartridge() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2311,6 +2328,7 @@ function test332_cartridgeRepoClientGetCartridge() {
   assert(notFound === null, 'Should return null for missing cartridge');
 }
 
+// TEST333: CartridgeRepoClient.get_all_caps() returns aggregate cap URNs from all cached cartridges
 function test333_cartridgeRepoClientGetAllCaps() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2324,6 +2342,7 @@ function test333_cartridgeRepoClientGetAllCaps() {
   assert(caps.every(c => typeof c === 'string'), 'All caps should be strings');
 }
 
+// TEST334: CartridgeRepoClient.needs_sync() returns true when cache TTL has expired
 function test334_cartridgeRepoClientNeedsSync() {
   const client = new CartridgeRepoClient(1); // 1 second TTL
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2344,6 +2363,7 @@ function test334_cartridgeRepoClientNeedsSync() {
   // Note: Can't test this synchronously, would need async test
 }
 
+// TEST335: Server creates registry response and client consumes it end-to-end
 function test335_cartridgeRepoServerClientIntegration() {
   // Server creates API response
   const server = new CartridgeRepoServer(sampleRegistry);
