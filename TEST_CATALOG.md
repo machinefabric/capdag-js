@@ -150,20 +150,6 @@ This catalog lists all tests in the CapDag-JS codebase.
 | test333 | `test333_cartridgeRepoClientGetAllCaps` | TEST333: CartridgeRepoClient.get_all_caps() returns aggregate cap URNs from all cached cartridges | capdag.test.js:2332 |
 | test334 | `test334_cartridgeRepoClientNeedsSync` | TEST334: CartridgeRepoClient.needs_sync() returns true when cache TTL has expired | capdag.test.js:2346 |
 | test335 | `test335_cartridgeRepoServerClientIntegration` | TEST335: Server creates registry response and client consumes it end-to-end | capdag.test.js:2367 |
-| test546 | `test546_isImage` | TEST546: is_image returns true only when image marker tag is present | capdag.test.js:2400 |
-| test547 | `test547_isAudio` | TEST547: is_audio returns true only when audio marker tag is present | capdag.test.js:2412 |
-| test548 | `test548_isVideo` | TEST548: is_video returns true only when video marker tag is present | capdag.test.js:2423 |
-| test549 | `test549_isNumeric` | TEST549: is_numeric returns true only when numeric marker tag is present | capdag.test.js:2433 |
-| test550 | `test550_isBool` | TEST550: is_bool returns true only when bool marker tag is present | capdag.test.js:2445 |
-| test551 | `test551_isFilePath` | TEST551: is_file_path returns true for scalar file-path, false for array | capdag.test.js:2457 |
-| test552 | `test552_isFilePathArray` | TEST552: is_file_path_array returns true for list file-path, false for scalar | capdag.test.js:2467 |
-| test553 | `test553_isAnyFilePath` | TEST553: is_any_file_path returns true for both scalar and array file-path | capdag.test.js:2476 |
-| test558 | `test558_predicateConstantConsistency` | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates | capdag.test.js:2497 |
-| test559 | `test559_withoutTag` | TEST559: without_tag removes tag, ignores in/out, case-insensitive for keys | capdag.test.js:2537 |
-| test560 | `test560_withInOutSpec` | TEST560: with_in_spec and with_out_spec change direction specs | capdag.test.js:2559 |
-| test563 | `test563_findAllMatches` | TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity | capdag.test.js:2582 |
-| test564 | `test564_areCompatible` | TEST564: CapMatcher::are_compatible detects bidirectional overlap | capdag.test.js:2600 |
-| test566 | `test566_withTagIgnoresInOut` | TEST566: with_tag silently ignores in/out keys | capdag.test.js:2625 |
 | test639 | `test639_emptyCapDefaultsToMediaWildcard` | TEST639: cap: (empty) defaults to in=media:;out=media: | capdag.test.js:2642 |
 | test640 | `test640_inOnlyDefaultsOutToMedia` | TEST640: cap:in defaults out to media: | capdag.test.js:2650 |
 | test641 | `test641_outOnlyDefaultsInToMedia` | TEST641: cap:out defaults in to media: | capdag.test.js:2657 |
@@ -179,6 +165,20 @@ This catalog lists all tests in the CapDag-JS codebase.
 | test653 | `test653_identityRoutingIsolation` | TEST653: Identity (no tags) does not match specific requests via routing | capdag.test.js:2750 |
 | test890 | `test890_directionSemanticMatching` | TEST890: Semantic direction matching - generic provider matches specific request | capdag.test.js:683 |
 | test891 | `test891_directionSemanticSpecificity` | TEST891: Semantic direction specificity - more media URN tags = higher specificity | capdag.test.js:733 |
+| test1294 | `test1294_isImage` | TEST1294: is_image returns true only when image marker tag is present | capdag.test.js:2400 |
+| test1295 | `test1295_isAudio` | TEST1295: is_audio returns true only when audio marker tag is present | capdag.test.js:2412 |
+| test1296 | `test1296_isVideo` | TEST1296: is_video returns true only when video marker tag is present | capdag.test.js:2423 |
+| test1297 | `test1297_isNumeric` | TEST1297: is_numeric returns true only when numeric marker tag is present | capdag.test.js:2433 |
+| test1298 | `test1298_isBool` | TEST1298: is_bool returns true only when bool marker tag is present | capdag.test.js:2445 |
+| test1299 | `test1299_isFilePath` | TEST1299: is_file_path returns true for scalar file-path, false for array | capdag.test.js:2457 |
+| test1300 | `test1300_isFilePathArray` | TEST1300: is_file_path_array returns true for list file-path, false for scalar | capdag.test.js:2467 |
+| test1301 | `test1301_isAnyFilePath` | TEST1301: is_any_file_path returns true for both scalar and array file-path | capdag.test.js:2476 |
+| test1302 | `test1302_predicateConstantConsistency` | TEST1302: predicates are consistent with constants — every constant triggers exactly the expected predicates | capdag.test.js:2497 |
+| test1303 | `test1303_withoutTag` | TEST1303: without_tag removes tag, ignores in/out, case-insensitive for keys | capdag.test.js:2537 |
+| test1304 | `test1304_withInOutSpec` | TEST1304: with_in_spec and with_out_spec change direction specs | capdag.test.js:2559 |
+| test1305 | `test1305_findAllMatches` | TEST1305: CapMatcher::find_all_matches returns all matching caps sorted by specificity | capdag.test.js:2582 |
+| test1306 | `test1306_areCompatible` | TEST1306: CapMatcher::are_compatible detects bidirectional overlap | capdag.test.js:2600 |
+| test1307 | `test1307_withTagIgnoresInOut` | TEST1307: with_tag silently ignores in/out keys | capdag.test.js:2625 |
 | | | | |
 | unnumbered | `testJS_argsPassedToExecuteCap` |  | capdag.test.js:1933 |
 | unnumbered | `testJS_binaryArgPassedToExecuteCap` |  | capdag.test.js:1967 |

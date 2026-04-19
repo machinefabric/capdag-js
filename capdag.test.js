@@ -2393,11 +2393,11 @@ function test335_cartridgeRepoServerClientIntegration() {
 }
 
 // ============================================================================
-// media_urn.rs: TEST578-TEST586 (MediaUrn predicates)
+// media_urn.rs: TEST1294-TEST1302 (MediaUrn predicates)
 // ============================================================================
 
-// TEST578: is_image returns true only when image marker tag is present
-function test578_isImage() {
+// TEST1294: is_image returns true only when image marker tag is present
+function test1294_isImage() {
   assert(MediaUrn.fromString(MEDIA_PNG).isImage(), 'MEDIA_PNG should be image');
   assert(MediaUrn.fromString('media:image;png;thumbnail').isImage(), 'media:image;png;thumbnail should be image');
   assert(MediaUrn.fromString('media:image;jpg').isImage(), 'media:image;jpg should be image');
@@ -2408,8 +2408,8 @@ function test578_isImage() {
   assert(!MediaUrn.fromString(MEDIA_VIDEO).isImage(), 'MEDIA_VIDEO should not be image');
 }
 
-// TEST579: is_audio returns true only when audio marker tag is present
-function test579_isAudio() {
+// TEST1295: is_audio returns true only when audio marker tag is present
+function test1295_isAudio() {
   assert(MediaUrn.fromString(MEDIA_AUDIO).isAudio(), 'MEDIA_AUDIO should be audio');
   assert(MediaUrn.fromString(MEDIA_AUDIO_SPEECH).isAudio(), 'MEDIA_AUDIO_SPEECH should be audio');
   assert(MediaUrn.fromString('media:audio;mp3').isAudio(), 'media:audio;mp3 should be audio');
@@ -2419,8 +2419,8 @@ function test579_isAudio() {
   assert(!MediaUrn.fromString(MEDIA_STRING).isAudio(), 'MEDIA_STRING should not be audio');
 }
 
-// TEST580: is_video returns true only when video marker tag is present
-function test580_isVideo() {
+// TEST1296: is_video returns true only when video marker tag is present
+function test1296_isVideo() {
   assert(MediaUrn.fromString(MEDIA_VIDEO).isVideo(), 'MEDIA_VIDEO should be video');
   assert(MediaUrn.fromString('media:video;mp4').isVideo(), 'media:video;mp4 should be video');
   // Non-video types
@@ -2429,8 +2429,8 @@ function test580_isVideo() {
   assert(!MediaUrn.fromString(MEDIA_STRING).isVideo(), 'MEDIA_STRING should not be video');
 }
 
-// TEST581: is_numeric returns true only when numeric marker tag is present
-function test581_isNumeric() {
+// TEST1297: is_numeric returns true only when numeric marker tag is present
+function test1297_isNumeric() {
   assert(MediaUrn.fromString(MEDIA_INTEGER).isNumeric(), 'MEDIA_INTEGER should be numeric');
   assert(MediaUrn.fromString(MEDIA_NUMBER).isNumeric(), 'MEDIA_NUMBER should be numeric');
   assert(MediaUrn.fromString(MEDIA_INTEGER_LIST).isNumeric(), 'MEDIA_INTEGER_LIST should be numeric');
@@ -2441,8 +2441,8 @@ function test581_isNumeric() {
   assert(!MediaUrn.fromString(MEDIA_IDENTITY).isNumeric(), 'MEDIA_IDENTITY should not be numeric');
 }
 
-// TEST582: is_bool returns true only when bool marker tag is present
-function test582_isBool() {
+// TEST1298: is_bool returns true only when bool marker tag is present
+function test1298_isBool() {
   assert(MediaUrn.fromString(MEDIA_BOOLEAN).isBool(), 'MEDIA_BOOLEAN should be bool');
   assert(MediaUrn.fromString(MEDIA_BOOLEAN_LIST).isBool(), 'MEDIA_BOOLEAN_LIST should be bool');
   // MEDIA_DECISION is now a JSON record type (not bool)
@@ -2453,8 +2453,8 @@ function test582_isBool() {
   assert(!MediaUrn.fromString(MEDIA_IDENTITY).isBool(), 'MEDIA_IDENTITY should not be bool');
 }
 
-// TEST583: is_file_path returns true for scalar file-path, false for array
-function test583_isFilePath() {
+// TEST1299: is_file_path returns true for scalar file-path, false for array
+function test1299_isFilePath() {
   assert(MediaUrn.fromString(MEDIA_FILE_PATH).isFilePath(), 'MEDIA_FILE_PATH should be file-path');
   // Array file-path is NOT isFilePath (it's isFilePathArray)
   assert(!MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isFilePath(), 'MEDIA_FILE_PATH_ARRAY should not be isFilePath');
@@ -2463,8 +2463,8 @@ function test583_isFilePath() {
   assert(!MediaUrn.fromString(MEDIA_IDENTITY).isFilePath(), 'MEDIA_IDENTITY should not be file-path');
 }
 
-// TEST584: is_file_path_array returns true for list file-path, false for scalar
-function test584_isFilePathArray() {
+// TEST1300: is_file_path_array returns true for list file-path, false for scalar
+function test1300_isFilePathArray() {
   assert(MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isFilePathArray(), 'MEDIA_FILE_PATH_ARRAY should be file-path-array');
   // Scalar file-path is NOT isFilePathArray
   assert(!MediaUrn.fromString(MEDIA_FILE_PATH).isFilePathArray(), 'MEDIA_FILE_PATH should not be isFilePathArray');
@@ -2472,8 +2472,8 @@ function test584_isFilePathArray() {
   assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isFilePathArray(), 'MEDIA_STRING_LIST should not be file-path-array');
 }
 
-// TEST585: is_any_file_path returns true for both scalar and array file-path
-function test585_isAnyFilePath() {
+// TEST1301: is_any_file_path returns true for both scalar and array file-path
+function test1301_isAnyFilePath() {
   assert(MediaUrn.fromString(MEDIA_FILE_PATH).isAnyFilePath(), 'MEDIA_FILE_PATH should be any-file-path');
   assert(MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isAnyFilePath(), 'MEDIA_FILE_PATH_ARRAY should be any-file-path');
   // Non-file-path types
@@ -2493,8 +2493,8 @@ function testisCollection() {
 
 // TEST557: N/A for JS (audio_media_urn_for_ext helper not in JS)
 
-// TEST586: predicates are consistent with constants — every constant triggers exactly the expected predicates
-function test586_predicateConstantConsistency() {
+// TEST1302: predicates are consistent with constants — every constant triggers exactly the expected predicates
+function test1302_predicateConstantConsistency() {
   // MEDIA_INTEGER must be numeric, text, scalar, NOT binary/bool/image/audio/video
   const intUrn = MediaUrn.fromString(MEDIA_INTEGER);
   assert(intUrn.isNumeric(), 'MEDIA_INTEGER must be numeric');
@@ -2530,11 +2530,11 @@ function test586_predicateConstantConsistency() {
 }
 
 // ============================================================================
-// cap_urn.rs: TEST587-TEST591 (CapUrn tier tests)
+// cap_urn.rs: TEST1303-TEST1307 (CapUrn tier tests)
 // ============================================================================
 
-// TEST587: without_tag removes tag, ignores in/out, case-insensitive for keys
-function test587_withoutTag() {
+// TEST1303: without_tag removes tag, ignores in/out, case-insensitive for keys
+function test1303_withoutTag() {
   const cap = CapUrn.fromString('cap:in="media:void";op=test;ext=pdf;out="media:void"');
   const removed = cap.withoutTag('ext');
   assertEqual(removed.getTag('ext'), undefined, 'withoutTag should remove ext');
@@ -2555,8 +2555,8 @@ function test587_withoutTag() {
   assert(same3.equals(cap), 'Removing non-existent tag is no-op');
 }
 
-// TEST588: with_in_spec and with_out_spec change direction specs
-function test588_withInOutSpec() {
+// TEST1304: with_in_spec and with_out_spec change direction specs
+function test1304_withInOutSpec() {
   const cap = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
 
   const changedIn = cap.withInSpec('media:');
@@ -2578,8 +2578,8 @@ function test588_withInOutSpec() {
 
 // TEST562: N/A for JS (canonical_option not in JS CapUrn)
 
-// TEST589: CapMatcher::find_all_matches returns all matching caps sorted by specificity
-function test589_findAllMatches() {
+// TEST1305: CapMatcher::find_all_matches returns all matching caps sorted by specificity
+function test1305_findAllMatches() {
   const caps = [
     CapUrn.fromString('cap:in="media:void";op=test;out="media:void"'),
     CapUrn.fromString('cap:in="media:void";op=test;ext=pdf;out="media:void"'),
@@ -2596,8 +2596,8 @@ function test589_findAllMatches() {
   assertEqual(matches[0].getTag('ext'), 'pdf', 'Most specific match should have ext=pdf');
 }
 
-// TEST590: CapMatcher::are_compatible detects bidirectional overlap
-function test590_areCompatible() {
+// TEST1306: CapMatcher::are_compatible detects bidirectional overlap
+function test1306_areCompatible() {
   const caps1 = [
     CapUrn.fromString('cap:in="media:void";op=test;out="media:void"'),
   ];
@@ -2621,8 +2621,8 @@ function test590_areCompatible() {
 
 // TEST565: N/A for JS (tags_to_string not in JS CapUrn)
 
-// TEST591: with_tag silently ignores in/out keys
-function test591_withTagIgnoresInOut() {
+// TEST1307: with_tag silently ignores in/out keys
+function test1307_withTagIgnoresInOut() {
   const cap = CapUrn.fromString('cap:in="media:void";op=test;out="media:void"');
   // Attempting to set in/out via withTag is silently ignored
   const same = cap.withTag('in', 'media:');
@@ -5488,25 +5488,25 @@ async function runTests() {
   runTest('TEST334: cartridge_repo_client_needs_sync', test334_cartridgeRepoClientNeedsSync);
   runTest('TEST335: cartridge_repo_server_client_integration', test335_cartridgeRepoServerClientIntegration);
 
-  // media_urn.rs: TEST578-TEST586 (MediaUrn predicates)
+  // media_urn.rs: TEST1294-TEST1302 (MediaUrn predicates)
   console.log('\n--- media_urn.rs (predicates) ---');
-  runTest('TEST578: is_image', test578_isImage);
-  runTest('TEST579: is_audio', test579_isAudio);
-  runTest('TEST580: is_video', test580_isVideo);
-  runTest('TEST581: is_numeric', test581_isNumeric);
-  runTest('TEST582: is_bool', test582_isBool);
-  runTest('TEST583: is_file_path', test583_isFilePath);
-  runTest('TEST584: is_file_path_array', test584_isFilePathArray);
-  runTest('TEST585: is_any_file_path', test585_isAnyFilePath);
-  runTest('TEST586: predicate_constant_consistency', test586_predicateConstantConsistency);
+  runTest('TEST1294: is_image', test1294_isImage);
+  runTest('TEST1295: is_audio', test1295_isAudio);
+  runTest('TEST1296: is_video', test1296_isVideo);
+  runTest('TEST1297: is_numeric', test1297_isNumeric);
+  runTest('TEST1298: is_bool', test1298_isBool);
+  runTest('TEST1299: is_file_path', test1299_isFilePath);
+  runTest('TEST1300: is_file_path_array', test1300_isFilePathArray);
+  runTest('TEST1301: is_any_file_path', test1301_isAnyFilePath);
+  runTest('TEST1302: predicate_constant_consistency', test1302_predicateConstantConsistency);
 
-  // cap_urn.rs: TEST587-TEST591 (CapUrn tier tests)
+  // cap_urn.rs: TEST1303-TEST1307 (CapUrn tier tests)
   console.log('\n--- cap_urn.rs (tier tests) ---');
-  runTest('TEST587: without_tag', test587_withoutTag);
-  runTest('TEST588: with_in_out_spec', test588_withInOutSpec);
-  runTest('TEST589: find_all_matches', test589_findAllMatches);
-  runTest('TEST590: are_compatible', test590_areCompatible);
-  runTest('TEST591: with_tag_ignores_in_out', test591_withTagIgnoresInOut);
+  runTest('TEST1303: without_tag', test1303_withoutTag);
+  runTest('TEST1304: with_in_out_spec', test1304_withInOutSpec);
+  runTest('TEST1305: find_all_matches', test1305_findAllMatches);
+  runTest('TEST1306: are_compatible', test1306_areCompatible);
+  runTest('TEST1307: with_tag_ignores_in_out', test1307_withTagIgnoresInOut);
 
   // cap_urn.rs: TEST639-TEST653 (Cap URN wildcard tests)
   console.log('\n--- cap_urn.rs (wildcard tests) ---');
