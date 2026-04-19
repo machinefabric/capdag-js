@@ -2513,6 +2513,23 @@ function validateCapArgs(cap) {
     }
   }
 
+  // RULE11: Stdin source consistency with in= spec
+  // If in= is media:void, no args may have stdin sources.
+  // If in= is anything other than media:void, at least one arg must have a stdin source.
+  const inMediaUrn = cap.urn.inMediaUrn();
+  const voidUrn = MediaUrn.fromString(MEDIA_VOID);
+  const inIsVoid = inMediaUrn.isEquivalent(voidUrn);
+  if (inIsVoid && stdinUrns.length > 0) {
+    throw new ValidationError('InvalidCapSchema', capUrn, {
+      issue: `RULE11: Cap has in="${MEDIA_VOID}" but argument(s) declare stdin source`
+    });
+  }
+  if (!inIsVoid && stdinUrns.length === 0 && args.length > 0) {
+    throw new ValidationError('InvalidCapSchema', capUrn, {
+      issue: `RULE11: Cap has non-void in= spec but no argument declares a stdin source`
+    });
+  }
+
   // RULE5: No two args may have same position
   const positionSet = new Set();
   for (const { position, mediaUrn } of positions) {
@@ -2547,9 +2564,6 @@ function validateCapArgs(cap) {
     flagSet.add(flag);
   }
 
-  // RULE8: No unknown keys in source objects - this is handled in ArgSource.fromJSON()
-  // RULE11: cli_flag used verbatim as specified - enforced by design
-  // RULE12: media_urn is the key, no name field - enforced by CapArg structure
 }
 
 /**

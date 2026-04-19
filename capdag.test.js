@@ -12,7 +12,7 @@ const {
   CapGraphEdge, CapGraphStats, CapGraph,
   StdinSource, StdinSourceKind,
   validateNoMediaSpecRedefinitionSync,
-  CapArgumentValue,
+  CapArgumentValue, CapArg, ArgSource, validateCapArgs, ValidationError,
   llmGenerateTextUrn, modelAvailabilityUrn, modelPathUrn,
   MachineSyntaxError, MachineSyntaxErrorCodes, MachineEdge, Machine, MachineBuilder, parseMachine, parseMachineWithAST,
   CapRegistryEntry, MediaRegistryEntry, CapRegistryClient,
@@ -2396,8 +2396,8 @@ function test335_cartridgeRepoServerClientIntegration() {
 // media_urn.rs: TEST1294-TEST1302 (MediaUrn predicates)
 // ============================================================================
 
-// TEST1294: is_image returns true only when image marker tag is present
-function test1294_isImage() {
+// TEST1312: is_image returns true only when image marker tag is present
+function test1312_isImage() {
   assert(MediaUrn.fromString(MEDIA_PNG).isImage(), 'MEDIA_PNG should be image');
   assert(MediaUrn.fromString('media:image;png;thumbnail').isImage(), 'media:image;png;thumbnail should be image');
   assert(MediaUrn.fromString('media:image;jpg').isImage(), 'media:image;jpg should be image');
@@ -2408,8 +2408,8 @@ function test1294_isImage() {
   assert(!MediaUrn.fromString(MEDIA_VIDEO).isImage(), 'MEDIA_VIDEO should not be image');
 }
 
-// TEST1295: is_audio returns true only when audio marker tag is present
-function test1295_isAudio() {
+// TEST1313: is_audio returns true only when audio marker tag is present
+function test1313_isAudio() {
   assert(MediaUrn.fromString(MEDIA_AUDIO).isAudio(), 'MEDIA_AUDIO should be audio');
   assert(MediaUrn.fromString(MEDIA_AUDIO_SPEECH).isAudio(), 'MEDIA_AUDIO_SPEECH should be audio');
   assert(MediaUrn.fromString('media:audio;mp3').isAudio(), 'media:audio;mp3 should be audio');
@@ -2419,8 +2419,8 @@ function test1295_isAudio() {
   assert(!MediaUrn.fromString(MEDIA_STRING).isAudio(), 'MEDIA_STRING should not be audio');
 }
 
-// TEST1296: is_video returns true only when video marker tag is present
-function test1296_isVideo() {
+// TEST1314: is_video returns true only when video marker tag is present
+function test1314_isVideo() {
   assert(MediaUrn.fromString(MEDIA_VIDEO).isVideo(), 'MEDIA_VIDEO should be video');
   assert(MediaUrn.fromString('media:video;mp4').isVideo(), 'media:video;mp4 should be video');
   // Non-video types
@@ -2429,8 +2429,8 @@ function test1296_isVideo() {
   assert(!MediaUrn.fromString(MEDIA_STRING).isVideo(), 'MEDIA_STRING should not be video');
 }
 
-// TEST1297: is_numeric returns true only when numeric marker tag is present
-function test1297_isNumeric() {
+// TEST1315: is_numeric returns true only when numeric marker tag is present
+function test1315_isNumeric() {
   assert(MediaUrn.fromString(MEDIA_INTEGER).isNumeric(), 'MEDIA_INTEGER should be numeric');
   assert(MediaUrn.fromString(MEDIA_NUMBER).isNumeric(), 'MEDIA_NUMBER should be numeric');
   assert(MediaUrn.fromString(MEDIA_INTEGER_LIST).isNumeric(), 'MEDIA_INTEGER_LIST should be numeric');
@@ -2630,6 +2630,56 @@ function test1307_withTagIgnoresInOut() {
 
   const same2 = cap.withTag('out', 'media:');
   assertEqual(same2.getOutSpec(), 'media:void', 'withTag must not change out_spec');
+}
+
+// TEST1294: RULE11 - void-input cap with stdin source rejected
+function test1294_rule11VoidInputWithStdinRejected() {
+  const urn = CapUrn.fromString('cap:in="media:void";op=test;out="media:string"');
+  const cap = new Cap(urn, 'Test', 'test-cmd');
+  const stdinSource = ArgSource.fromJSON({ stdin: 'media:string' });
+  cap.args = [new CapArg('media:string', true, [stdinSource])];
+  try {
+    validateCapArgs(cap);
+    assert(false, 'Should have thrown RULE11 for void input with stdin');
+  } catch (e) {
+    assert(e instanceof ValidationError, 'Should be ValidationError');
+    assert(e.message.includes('RULE11'), 'Should mention RULE11: ' + e.message);
+  }
+}
+
+// TEST1295: RULE11 - non-void-input cap without stdin source rejected
+function test1295_rule11NonVoidInputWithoutStdinRejected() {
+  const urn = CapUrn.fromString('cap:in="media:string";op=test;out="media:string"');
+  const cap = new Cap(urn, 'Test', 'test-cmd');
+  const posSource = ArgSource.fromJSON({ cli_flag: '--name' });
+  cap.args = [new CapArg('media:string', true, [posSource])];
+  try {
+    validateCapArgs(cap);
+    assert(false, 'Should have thrown RULE11 for non-void input without stdin');
+  } catch (e) {
+    assert(e instanceof ValidationError, 'Should be ValidationError');
+    assert(e.message.includes('RULE11'), 'Should mention RULE11: ' + e.message);
+  }
+}
+
+// TEST1296: RULE11 - void-input cap with only cli_flag sources passes
+function test1296_rule11VoidInputCliFlagOnly() {
+  const urn = CapUrn.fromString('cap:in="media:void";op=test;out="media:string"');
+  const cap = new Cap(urn, 'Test', 'test-cmd');
+  const flagSource = ArgSource.fromJSON({ cli_flag: '--name' });
+  cap.args = [new CapArg('media:string', true, [flagSource])];
+  // Should not throw
+  validateCapArgs(cap);
+}
+
+// TEST1297: RULE11 - non-void-input cap with stdin source passes
+function test1297_rule11NonVoidInputWithStdin() {
+  const urn = CapUrn.fromString('cap:in="media:string";op=test;out="media:string"');
+  const cap = new Cap(urn, 'Test', 'test-cmd');
+  const stdinSource = ArgSource.fromJSON({ stdin: 'media:string' });
+  cap.args = [new CapArg('media:string', true, [stdinSource])];
+  // Should not throw
+  validateCapArgs(cap);
 }
 
 // TEST567: N/A for JS (conforms_to_str/accepts_str not in JS CapUrn)
@@ -5488,12 +5538,12 @@ async function runTests() {
   runTest('TEST334: cartridge_repo_client_needs_sync', test334_cartridgeRepoClientNeedsSync);
   runTest('TEST335: cartridge_repo_server_client_integration', test335_cartridgeRepoServerClientIntegration);
 
-  // media_urn.rs: TEST1294-TEST1302 (MediaUrn predicates)
+  // media_urn.rs: TEST1312-TEST1315, TEST1298-TEST1302 (MediaUrn predicates)
   console.log('\n--- media_urn.rs (predicates) ---');
-  runTest('TEST1294: is_image', test1294_isImage);
-  runTest('TEST1295: is_audio', test1295_isAudio);
-  runTest('TEST1296: is_video', test1296_isVideo);
-  runTest('TEST1297: is_numeric', test1297_isNumeric);
+  runTest('TEST1312: is_image', test1312_isImage);
+  runTest('TEST1313: is_audio', test1313_isAudio);
+  runTest('TEST1314: is_video', test1314_isVideo);
+  runTest('TEST1315: is_numeric', test1315_isNumeric);
   runTest('TEST1298: is_bool', test1298_isBool);
   runTest('TEST1299: is_file_path', test1299_isFilePath);
   runTest('TEST1300: is_file_path_array', test1300_isFilePathArray);
@@ -5507,6 +5557,10 @@ async function runTests() {
   runTest('TEST1305: find_all_matches', test1305_findAllMatches);
   runTest('TEST1306: are_compatible', test1306_areCompatible);
   runTest('TEST1307: with_tag_ignores_in_out', test1307_withTagIgnoresInOut);
+  runTest('TEST1294: rule11_void_input_with_stdin_rejected', test1294_rule11VoidInputWithStdinRejected);
+  runTest('TEST1295: rule11_non_void_input_without_stdin_rejected', test1295_rule11NonVoidInputWithoutStdinRejected);
+  runTest('TEST1296: rule11_void_input_cli_flag_only', test1296_rule11VoidInputCliFlagOnly);
+  runTest('TEST1297: rule11_non_void_input_with_stdin', test1297_rule11NonVoidInputWithStdin);
 
   // cap_urn.rs: TEST639-TEST653 (Cap URN wildcard tests)
   console.log('\n--- cap_urn.rs (wildcard tests) ---');
