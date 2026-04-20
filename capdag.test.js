@@ -24,7 +24,7 @@ const {
   MEDIA_HTML, MEDIA_XML, MEDIA_JSON, MEDIA_YAML, MEDIA_JSON_SCHEMA,
   MEDIA_MODEL_SPEC, MEDIA_AVAILABILITY_OUTPUT, MEDIA_PATH_OUTPUT,
   MEDIA_LLM_INFERENCE_OUTPUT,
-  MEDIA_FILE_PATH, MEDIA_FILE_PATH_ARRAY,
+  MEDIA_FILE_PATH,
   MEDIA_COLLECTION, MEDIA_COLLECTION_LIST,
   MEDIA_DECISION,
   MEDIA_AUDIO_SPEECH
@@ -2453,32 +2453,13 @@ function test1298_isBool() {
   assert(!MediaUrn.fromString(MEDIA_IDENTITY).isBool(), 'MEDIA_IDENTITY should not be bool');
 }
 
-// TEST1299: is_file_path returns true for scalar file-path, false for array
+// TEST1299: isFilePath returns true for the single file-path media URN,
+// false for everything else. There is no "array" variant — cardinality is
+// carried by is_sequence on the wire, not by URN tags.
 function test1299_isFilePath() {
   assert(MediaUrn.fromString(MEDIA_FILE_PATH).isFilePath(), 'MEDIA_FILE_PATH should be file-path');
-  // Array file-path is NOT isFilePath (it's isFilePathArray)
-  assert(!MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isFilePath(), 'MEDIA_FILE_PATH_ARRAY should not be isFilePath');
-  // Non-file-path types
   assert(!MediaUrn.fromString(MEDIA_STRING).isFilePath(), 'MEDIA_STRING should not be file-path');
   assert(!MediaUrn.fromString(MEDIA_IDENTITY).isFilePath(), 'MEDIA_IDENTITY should not be file-path');
-}
-
-// TEST1300: is_file_path_array returns true for list file-path, false for scalar
-function test1300_isFilePathArray() {
-  assert(MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isFilePathArray(), 'MEDIA_FILE_PATH_ARRAY should be file-path-array');
-  // Scalar file-path is NOT isFilePathArray
-  assert(!MediaUrn.fromString(MEDIA_FILE_PATH).isFilePathArray(), 'MEDIA_FILE_PATH should not be isFilePathArray');
-  // Non-file-path types
-  assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isFilePathArray(), 'MEDIA_STRING_LIST should not be file-path-array');
-}
-
-// TEST1301: is_any_file_path returns true for both scalar and array file-path
-function test1301_isAnyFilePath() {
-  assert(MediaUrn.fromString(MEDIA_FILE_PATH).isAnyFilePath(), 'MEDIA_FILE_PATH should be any-file-path');
-  assert(MediaUrn.fromString(MEDIA_FILE_PATH_ARRAY).isAnyFilePath(), 'MEDIA_FILE_PATH_ARRAY should be any-file-path');
-  // Non-file-path types
-  assert(!MediaUrn.fromString(MEDIA_STRING).isAnyFilePath(), 'MEDIA_STRING should not be any-file-path');
-  assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isAnyFilePath(), 'MEDIA_STRING_LIST should not be any-file-path');
 }
 
 // Mirror-specific coverage: isCollection returns true when collection marker tag is present
@@ -5546,8 +5527,6 @@ async function runTests() {
   runTest('TEST1315: is_numeric', test1315_isNumeric);
   runTest('TEST1298: is_bool', test1298_isBool);
   runTest('TEST1299: is_file_path', test1299_isFilePath);
-  runTest('TEST1300: is_file_path_array', test1300_isFilePathArray);
-  runTest('TEST1301: is_any_file_path', test1301_isAnyFilePath);
   runTest('TEST1302: predicate_constant_consistency', test1302_predicateConstantConsistency);
 
   // cap_urn.rs: TEST1303-TEST1307 (CapUrn tier tests)

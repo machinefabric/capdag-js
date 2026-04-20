@@ -890,11 +890,10 @@ const MEDIA_YAML_LIST_RECORD = 'media:list;record;textable;yaml';
 const MEDIA_CSV = 'media:csv;list;record;textable';
 const MEDIA_CSV_LIST = 'media:csv;list;textable';
 
-// File path types - for arguments that represent filesystem paths
-// Media URN for a single file path - textable, scalar by default (no list marker)
+// File path type — for arguments that represent filesystem paths.
+// There is a single media URN; cardinality (single file vs many files)
+// is carried on the wire via is_sequence, not via URN tags.
 const MEDIA_FILE_PATH = 'media:file-path;textable';
-// Media URN for an array of file paths - textable with list marker
-const MEDIA_FILE_PATH_ARRAY = 'media:file-path;list;textable';
 
 // Semantic text input types - distinguished by their purpose/context
 // Media URN for model spec (provider:model format, HuggingFace name, etc.) - scalar by default
@@ -1095,25 +1094,12 @@ class MediaUrn {
   }
 
   /**
-   * Check if this represents a single file path type (not array).
-   * Returns true if the "file-path" marker tag is present AND no list marker.
+   * True if this URN specializes `media:file-path`. There is a single
+   * file-path media URN; cardinality (single file vs many) is carried on
+   * the wire via `is_sequence`, not via URN tags.
    * @returns {boolean}
    */
-  isFilePath() { return this._hasMarkerTag('file-path') && !this.isList(); }
-
-  /**
-   * Check if this represents a file path array type.
-   * Returns true if the "file-path" marker tag is present AND has list marker.
-   * @returns {boolean}
-   */
-  isFilePathArray() { return this._hasMarkerTag('file-path') && this.isList(); }
-
-  /**
-   * Check if this represents any file path type (single or array).
-   * Returns true if "file-path" marker tag is present.
-   * @returns {boolean}
-   */
-  isAnyFilePath() { return this._hasMarkerTag('file-path'); }
+  isFilePath() { return this._hasMarkerTag('file-path'); }
 
   /**
    * Check if this represents a collection type.
@@ -5675,9 +5661,8 @@ module.exports = {
   MEDIA_LLM_INFERENCE_OUTPUT,
   MEDIA_IMAGE_DESCRIPTION,
   MEDIA_TRANSCRIPTION_OUTPUT,
-  // File path types
+  // File path type — single URN; cardinality lives on is_sequence.
   MEDIA_FILE_PATH,
-  MEDIA_FILE_PATH_ARRAY,
   MEDIA_MLX_MODEL_PATH,
   // Collection types
   MEDIA_COLLECTION,
