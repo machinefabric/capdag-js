@@ -108,24 +108,24 @@ function canonicalMediaUrn(mediaUrnString) {
   return MediaUrn.fromString(mediaUrnString).toString();
 }
 
-// Produce a multi-line node label from a canonical media URN, one line
-// per tag. Marker tags render as bare keys; value tags render as
-// `key: value`. TaggedUrn.getTags() is iterated in sorted order matching
-// the canonical serialization.
-function mediaNodeLabel(canonicalUrn) {
-  const TaggedUrn = requireHostDependency('TaggedUrn');
-  const parsed = TaggedUrn.fromString(canonicalUrn);
-  const tags = parsed.tags;
-  const lines = [];
-  for (const key of Object.keys(tags).sort()) {
-    const value = tags[key];
-    if (value === '*') {
-      lines.push(key);
-    } else {
-      lines.push(`${key}: ${value}`);
-    }
+// Graph labels must be provided explicitly by the host. The renderer is not
+// allowed to synthesize user-facing labels from URNs.
+function mediaNodeLabel() {
+  throw new Error(
+    'CapGraphRenderer: mediaNodeLabel() is no longer supported. ' +
+    'Pass explicit media titles/display names to the renderer.'
+  );
+}
+
+function requireExplicitDisplayName(canonicalUrn, displayEntries, context) {
+  const MediaUrn = requireHostDependency('MediaUrn');
+  const candidate = MediaUrn.fromString(canonicalUrn);
+  for (const entry of displayEntries) {
+    if (candidate.isEquivalent(entry.media)) return entry.display;
   }
-  return lines.join('\n');
+  throw new Error(
+    `CapGraphRenderer: missing explicit display name for ${context} '${canonicalUrn}'`
+  );
 }
 
 // =============================================================================
@@ -461,6 +461,9 @@ function validateBrowseData(data) {
     assertString(cap.urn, `browse mode data[${idx}].urn`);
     assertString(cap.in_spec, `browse mode data[${idx}].in_spec (cap urn: ${cap.urn})`);
     assertString(cap.out_spec, `browse mode data[${idx}].out_spec (cap urn: ${cap.urn})`);
+    assertString(cap.title, `browse mode data[${idx}].title (cap urn: ${cap.urn})`);
+    assertString(cap.in_media_title, `browse mode data[${idx}].in_media_title (cap urn: ${cap.urn})`);
+    assertString(cap.out_media_title, `browse mode data[${idx}].out_media_title (cap urn: ${cap.urn})`);
   });
 }
 
@@ -631,6 +634,7 @@ function validateResolvedMachinePayload(data) {
       }
       assertString(n.id, `machine mode data.strands[${sIdx}].nodes[${nIdx}].id`);
       assertString(n.urn, `machine mode data.strands[${sIdx}].nodes[${nIdx}].urn`);
+      assertString(n.title, `machine mode data.strands[${sIdx}].nodes[${nIdx}].title`);
     });
     assertArray(strand.edges, `machine mode data.strands[${sIdx}].edges`);
     strand.edges.forEach((e, eIdx) => {
@@ -639,6 +643,7 @@ function validateResolvedMachinePayload(data) {
       }
       assertString(e.alias, `machine mode data.strands[${sIdx}].edges[${eIdx}].alias`);
       assertString(e.cap_urn, `machine mode data.strands[${sIdx}].edges[${eIdx}].cap_urn`);
+      assertString(e.title, `machine mode data.strands[${sIdx}].edges[${eIdx}].title`);
       if (typeof e.is_loop !== 'boolean') {
         throw new Error(`CapGraphRenderer machine mode: data.strands[${sIdx}].edges[${eIdx}].is_loop must be boolean`);
       }
@@ -744,6 +749,13 @@ function buildBrowseGraphData(capabilities) {
   });
 
   const nodes = Array.from(nodesMap.values());
+  for (const node of nodes) {
+    if (!mediaTitles.has(node.id)) {
+      throw new Error(
+        `CapGraphRenderer browse mode: missing explicit media title for '${node.id}'`
+      );
+    }
+  }
 
   const adjacency = new Map();
   const reverseAdj = new Map();
@@ -762,8 +774,8 @@ function browseCytoscapeElements(built) {
     group: 'nodes',
     data: {
       id: node.id,
-      label: mediaNodeLabel(node.id),
-      mediaTitle: built.mediaTitles.get(node.id) || '',
+      label: built.mediaTitles.get(node.id),
+      mediaTitle: built.mediaTitles.get(node.id),
       fullUrn: node.id,
     },
   }));
@@ -863,11 +875,7 @@ function buildStrandGraphData(data) {
     }
   }
   function displayNameFor(canonicalUrn) {
-    const candidate = MediaUrn.fromString(canonicalUrn);
-    for (const entry of displayEntries) {
-      if (candidate.isEquivalent(entry.media)) return entry.display;
-    }
-    return mediaNodeLabel(canonicalUrn);
+    return requireExplicitDisplayName(canonicalUrn, displayEntries, 'strand node');
   }
 
   const nodes = [];
@@ -1497,11 +1505,7 @@ function buildRunGraphData(data) {
     } catch (_) { /* ignore malformed keys */ }
   }
   function displayNameFor(canonicalUrn) {
-    const candidate = MediaUrn.fromString(canonicalUrn);
-    for (const entry of displayEntries) {
-      if (candidate.isEquivalent(entry.media)) return entry.display;
-    }
-    return mediaNodeLabel(canonicalUrn);
+    return requireExplicitDisplayName(canonicalUrn, displayEntries, 'run node');
   }
 
   // The per-body "entry" node represents one item of the
@@ -1946,7 +1950,7 @@ function buildResolvedMachineGraphData(data) {
         group: 'nodes',
         data: {
           id: node.id,
-          label: mediaNodeLabel(canonicalMediaUrn(node.urn)),
+          label: node.title,
           fullUrn: node.urn,
           strandIndex: strandIdx,
         },
@@ -1957,11 +1961,7 @@ function buildResolvedMachineGraphData(data) {
     for (const edge of strand.edges) {
       const cardinality = edge.is_loop ? 'n\u21921' : '1\u21921';
       const capUrn = edge.cap_urn;
-      // Title falls back to the canonical cap URN. The host can
-      // pre-resolve a friendlier title via `step_titles` on the
-      // proto message and use it elsewhere in the UI; the graph
-      // renderer is intentionally registry-free.
-      const capTitle = capUrn;
+      const capTitle = edge.title;
       const label = cardinality === '1\u21921'
         ? edge.alias
         : `${edge.alias} (${cardinality})`;

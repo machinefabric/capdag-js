@@ -3853,6 +3853,7 @@ const {
   cardinalityFromCap: rendererCardinalityFromCap,
   canonicalMediaUrn: rendererCanonicalMediaUrn,
   mediaNodeLabel: rendererMediaNodeLabel,
+  buildBrowseGraphData: rendererBuildBrowseGraphData,
   buildStrandGraphData: rendererBuildStrandGraphData,
   collapseStrandShapeTransitions: rendererCollapseStrandShapeTransitions,
   buildRunGraphData: rendererBuildRunGraphData,
@@ -3999,24 +4000,41 @@ function testRenderer_canonicalMediaUrn_rejectsCapUrn() {
   assert(threw, 'canonicalMediaUrn must reject non-media URNs');
 }
 
-function testRenderer_mediaNodeLabel_oneLinePerTag_valueAndMarker() {
-  // A media URN with one value tag and one marker tag renders two lines:
-  // value tag as "key: value", marker tag as bare key. Order is canonical
-  // (alphabetical, matching TaggedUrn's sorted key iteration).
-  const label = rendererMediaNodeLabel('media:video;quant=q4');
-  const lines = label.split('\n');
-  assertEqual(lines.length, 2, 'two tags must produce two lines');
-  assert(lines.includes('quant: q4'), 'value tag rendered as key: value');
-  assert(lines.includes('video'),     'marker tag rendered as bare key');
+function testRenderer_mediaNodeLabel_rejectsUrnDerivedLabels() {
+  let threw = false;
+  let message = '';
+  try {
+    rendererMediaNodeLabel('media:video;quant=q4');
+  } catch (e) {
+    threw = true;
+    message = e.message || '';
+  }
+  assert(threw, 'mediaNodeLabel must reject URN-derived labels');
+  assert(message.includes('no longer supported'),
+    'error must explain that explicit titles are required');
 }
 
-function testRenderer_mediaNodeLabel_stableAcrossTagOrder() {
-  // Labels must be tag-order-independent so that the same media URN
-  // produces the same multi-line label regardless of how the source
-  // happened to spell it.
-  const a = rendererMediaNodeLabel(rendererCanonicalMediaUrn('media:list;textable'));
-  const b = rendererMediaNodeLabel(rendererCanonicalMediaUrn('media:textable;list'));
-  assertEqual(a, b, 'label must be stable across tag orderings');
+function testRenderer_buildBrowseGraphData_rejectsMissingMediaTitles() {
+  let threw = false;
+  let message = '';
+  try {
+    rendererBuildBrowseGraphData([
+      {
+        urn: 'cap:in="media:pdf";op=extract;out="media:txt;textable"',
+        title: 'Extract Text',
+        in_spec: 'media:pdf',
+        out_spec: 'media:txt;textable',
+        in_media_title: 'PDF',
+        out_media_title: '',
+      },
+    ]);
+  } catch (e) {
+    threw = true;
+    message = e.message || '';
+  }
+  assert(threw, 'browse builder must reject missing explicit media titles');
+  assert(message.includes('out_media_title'),
+    'error must identify the missing explicit media title field');
 }
 
 // ---------------- strand builder ----------------
@@ -4137,18 +4155,27 @@ function findEdge(edges, source, target) {
   return edges.find(e => e.source === source && e.target === target);
 }
 
+function withMediaDisplayNames(payload, mediaDisplayNames) {
+  return Object.assign({}, payload, {
+    media_display_names: Object.assign({}, mediaDisplayNames),
+  });
+}
+
 function testRenderer_buildStrandGraphData_singleCapPlain() {
   // Minimal strand with one plain 1→1 cap. Plan builder produces:
   //   input_slot → step_0 (cap) → output
   // (two edges, three nodes). No cardinality marker in the cap label
   // because input_is_sequence == output_is_sequence == false.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:a',
     target_spec: 'media:b',
     steps: [
       makeCapStep('cap:in="media:a";op=x;out="media:b"', 'x', 'media:a', 'media:b', false, false),
     ],
-  };
+  }, {
+    'media:a': 'Source A',
+    'media:b': 'Target B',
+  });
   const built = rendererBuildStrandGraphData(payload);
   const nodeIds = built.nodes.map(n => n.id).sort();
   assertEqual(JSON.stringify(nodeIds), JSON.stringify(['input_slot', 'output', 'step_0']),
@@ -4164,13 +4191,16 @@ function testRenderer_buildStrandGraphData_singleCapPlain() {
 function testRenderer_buildStrandGraphData_sequenceShowsCardinality() {
   // A cap with input_is_sequence=true MUST emit "(n→1)" on its edge
   // label.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:a;list',
     target_spec: 'media:b',
     steps: [
       makeCapStep('cap:in="media:a;list";op=x;out="media:b"', 'x', 'media:a;list', 'media:b', true, false),
     ],
-  };
+  }, {
+    'media:a;list': 'Source A List',
+    'media:b': 'Target B',
+  });
   const built = rendererBuildStrandGraphData(payload);
   const capEdge = findEdge(built.edges, 'input_slot', 'step_0');
   assert(capEdge !== undefined, 'cap edge exists');
@@ -4191,7 +4221,7 @@ function testRenderer_buildStrandGraphData_foreachCollectSpan() {
   // edges.) ForEach and Collect are REAL nodes in the graph, not
   // labels on cap edges — they're distinct processing units in the
   // plan. This mirrors capdag's plan_builder.rs exactly.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:pdf;list',
     target_spec: 'media:txt;list',
     steps: [
@@ -4199,7 +4229,11 @@ function testRenderer_buildStrandGraphData_foreachCollectSpan() {
       makeCapStep('cap:in="media:pdf";op=extract;out="media:txt"', 'extract', 'media:pdf', 'media:txt', false, false),
       makeCollectStep('media:txt'),
     ],
-  };
+  }, {
+    'media:pdf;list': 'PDF List',
+    'media:txt': 'Plain Text',
+    'media:txt;list': 'Text List',
+  });
   const built = rendererBuildStrandGraphData(payload);
   const nodeIds = built.nodes.map(n => n.id).sort();
   assertEqual(JSON.stringify(nodeIds),
@@ -4229,14 +4263,18 @@ function testRenderer_buildStrandGraphData_standaloneCollect() {
   // Strand with a standalone Collect (no enclosing ForEach). Plan
   // builder creates a Collect node consuming prev directly — plain
   // direct edge, no iteration/collection semantics.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:a',
     target_spec: 'media:b;list',
     steps: [
       makeCapStep('cap:in="media:a";op=x;out="media:b"', 'x', 'media:a', 'media:b', false, false),
       makeCollectStep('media:b'),
     ],
-  };
+  }, {
+    'media:a': 'Source A',
+    'media:b': 'Target B',
+    'media:b;list': 'Target B List',
+  });
   const built = rendererBuildStrandGraphData(payload);
   assert(findEdge(built.edges, 'input_slot', 'step_0') !== undefined,
     'cap edge input_slot → step_0');
@@ -4253,7 +4291,7 @@ function testRenderer_buildStrandGraphData_unclosedForEachBody() {
   // builder's "unclosed ForEach" branch creates a ForEach node
   // connecting Cap_a to Cap_b via iteration, with prev becoming the
   // body exit (Cap_b).
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:a',
     target_spec: 'media:c',
     steps: [
@@ -4261,7 +4299,11 @@ function testRenderer_buildStrandGraphData_unclosedForEachBody() {
       makeForEachStep('media:b'),
       makeCapStep('cap:in="media:b";op=b;out="media:c"', 'b', 'media:b', 'media:c', false, false),
     ],
-  };
+  }, {
+    'media:a': 'Source A',
+    'media:b': 'Intermediate B',
+    'media:c': 'Target C',
+  });
   const built = rendererBuildStrandGraphData(payload);
   // Cap_a connects from input_slot.
   assert(findEdge(built.edges, 'input_slot', 'step_0') !== undefined,
@@ -4286,7 +4328,7 @@ function testRenderer_buildStrandGraphData_nestedForEachThrows() {
   // ForEach is an illegal nesting per plan_builder. The renderer
   // must throw the same error to surface the issue rather than
   // render a malformed graph.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:a;list',
     target_spec: 'media:a',
     steps: [
@@ -4294,7 +4336,10 @@ function testRenderer_buildStrandGraphData_nestedForEachThrows() {
       makeForEachStep('media:a'),
       makeCapStep('cap:in="media:a";op=x;out="media:a"', 'x', 'media:a', 'media:a', false, false),
     ],
-  };
+  }, {
+    'media:a;list': 'Source A List',
+    'media:a': 'Source A',
+  });
   let threw = false;
   try {
     rendererBuildStrandGraphData(payload);
@@ -4320,7 +4365,7 @@ function testRenderer_collapseStrand_singleCapBodyKeepsCapOwnLabel() {
   // Expected render shape: 3 nodes (input_slot, step_1, output),
   // with the entry edge labeled "extract" and an unlabeled
   // connector bridge to the output.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:pdf;list',
     target_spec: 'media:txt;list',
     steps: [
@@ -4328,7 +4373,11 @@ function testRenderer_collapseStrand_singleCapBodyKeepsCapOwnLabel() {
       makeCapStep('cap:in="media:pdf";op=extract;out="media:txt"', 'extract', 'media:pdf', 'media:txt', false, false),
       makeCollectStep('media:txt'),
     ],
-  };
+  }, {
+    'media:pdf;list': 'PDF List',
+    'media:txt': 'Plain Text',
+    'media:txt;list': 'Text List',
+  });
   const built = rendererBuildStrandGraphData(payload);
   const collapsed = rendererCollapseStrandShapeTransitions(built);
 
@@ -4365,7 +4414,7 @@ function testRenderer_collapseStrand_unclosedForEachBodyCollapses() {
   // no relabeling.
   //
   // Final: 3 nodes (input_slot, step_0, step_2), 2 edges.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:a',
     target_spec: 'media:c',
     steps: [
@@ -4373,7 +4422,11 @@ function testRenderer_collapseStrand_unclosedForEachBodyCollapses() {
       makeForEachStep('media:b'),
       makeCapStep('cap:in="media:b";op=b;out="media:c"', 'b', 'media:b', 'media:c', false, false),
     ],
-  };
+  }, {
+    'media:a': 'Source A',
+    'media:b': 'Intermediate B',
+    'media:c': 'Target C',
+  });
   const built = rendererBuildStrandGraphData(payload);
   const collapsed = rendererCollapseStrandShapeTransitions(built);
 
@@ -4418,14 +4471,18 @@ function testRenderer_collapseStrand_standaloneCollectCollapses() {
   //     cap is not inside any foreach body.
   //
   // Final: 3 nodes (input_slot, step_0, output), 2 edges.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:a',
     target_spec: 'media:b;list',
     steps: [
       makeCapStep('cap:in="media:a";op=x;out="media:b"', 'x', 'media:a', 'media:b', false, false),
       makeCollectStep('media:b'),
     ],
-  };
+  }, {
+    'media:a': 'Source A',
+    'media:b': 'Target B',
+    'media:b;list': 'Target B List',
+  });
   const built = rendererBuildStrandGraphData(payload);
   const collapsed = rendererCollapseStrandShapeTransitions(built);
 
@@ -4462,7 +4519,7 @@ function testRenderer_collapseStrand_sequenceProducingCapBeforeForeach() {
   //       (Disbind), NOT the cap that consumes one item from it.
   //   No separate output node because step_2's to_spec equals the
   //       strand target.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:pdf',
     target_spec: 'media:decision',
     steps: [
@@ -4470,7 +4527,11 @@ function testRenderer_collapseStrand_sequenceProducingCapBeforeForeach() {
       makeForEachStep('media:page'),
       makeCapStep('cap:in="media:page";op=decide;out="media:decision"', 'Make a Decision', 'media:page', 'media:decision', false, false),
     ],
-  };
+  }, {
+    'media:pdf': 'PDF',
+    'media:page': 'Page',
+    'media:decision': 'Decision',
+  });
   const built = rendererBuildStrandGraphData(payload);
   const collapsed = rendererCollapseStrandShapeTransitions(built);
 
@@ -4513,13 +4574,16 @@ function testRenderer_collapseStrand_plainCapMergesTrailingOutput() {
   // step_0 and output represent the same URN (media:b).
   //
   // Final: 2 nodes (input_slot, step_0), 1 edge.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:a',
     target_spec: 'media:b',
     steps: [
       makeCapStep('cap:in="media:a";op=x;out="media:b"', 'x', 'media:a', 'media:b', false, false),
     ],
-  };
+  }, {
+    'media:a': 'Source A',
+    'media:b': 'Target B',
+  });
   const built = rendererBuildStrandGraphData(payload);
   const collapsed = rendererCollapseStrandShapeTransitions(built);
 
@@ -4542,13 +4606,17 @@ function testRenderer_collapseStrand_plainCapDistinctTargetNoMerge() {
   // A strand with a single plain cap whose to_spec is NOT
   // equivalent to target_spec. The output node must be retained
   // and the trailing connector edge preserved.
-  const payload = {
+  const payload = withMediaDisplayNames({
     source_spec: 'media:a',
     target_spec: 'media:b;list',
     steps: [
       makeCapStep('cap:in="media:a";op=x;out="media:b"', 'x', 'media:a', 'media:b', false, false),
     ],
-  };
+  }, {
+    'media:a': 'Source A',
+    'media:b': 'Target B',
+    'media:b;list': 'Target B List',
+  });
   const built = rendererBuildStrandGraphData(payload);
   const collapsed = rendererCollapseStrandShapeTransitions(built);
 
@@ -4622,6 +4690,12 @@ function testRenderer_buildRunGraphData_pagesSuccessesAndFailures() {
   }
   const payload = {
     resolved_strand: strand,
+    media_display_names: {
+      'media:pdf;list': 'PDF List',
+      'media:pdf': 'PDF',
+      'media:png': 'PNG',
+      'media:txt': 'Text',
+    },
     body_outcomes: outcomes,
     visible_success_count: 3,
     visible_failure_count: 2,
@@ -4665,6 +4739,11 @@ function testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace(
   };
   const payload = {
     resolved_strand: strand,
+    media_display_names: {
+      'media:pdf;list': 'PDF List',
+      'media:pdf': 'PDF',
+      'media:txt': 'Text',
+    },
     body_outcomes: [
       { body_index: 0, success: false, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0, error: 'unknown' },
     ],
@@ -4707,6 +4786,12 @@ function testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap() {
   // will match. Feed a fully-specified form that is equivalent.
   const payload = {
     resolved_strand: strand,
+    media_display_names: {
+      'media:a': 'Source A',
+      'media:a;list': 'Source A List',
+      'media:b': 'Intermediate B',
+      'media:c': 'Target C',
+    },
     body_outcomes: [
       {
         body_index: 0,
@@ -4756,6 +4841,11 @@ function testRenderer_buildRunGraphData_backboneHasNoForeachNode() {
   };
   const payload = {
     resolved_strand: strand,
+    media_display_names: {
+      'media:pdf': 'PDF',
+      'media:page': 'Page',
+      'media:decision': 'Decision',
+    },
     body_outcomes: [],
     visible_success_count: 0,
     visible_failure_count: 0,
@@ -4800,6 +4890,11 @@ function testRenderer_buildRunGraphData_allFailedDropsTargetPlaceholder() {
   const failedCapUrn = 'cap:in="media:page";op=decide;out="media:decision"';
   const payload = {
     resolved_strand: strand,
+    media_display_names: {
+      'media:pdf': 'PDF',
+      'media:page': 'Page',
+      'media:decision': 'Decision',
+    },
     body_outcomes: [
       { body_index: 0, success: false, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0, failed_cap: failedCapUrn, error: 'boom' },
       { body_index: 1, success: false, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0, failed_cap: failedCapUrn, error: 'boom' },
@@ -4864,6 +4959,11 @@ function testRenderer_buildRunGraphData_unclosedForeachSuccessNoMerge() {
   };
   const payload = {
     resolved_strand: strand,
+    media_display_names: {
+      'media:pdf': 'PDF',
+      'media:page': 'Page',
+      'media:decision': 'Decision',
+    },
     body_outcomes: [
       { body_index: 0, success: true, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0 },
     ],
@@ -4918,6 +5018,12 @@ function testRenderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarge
   };
   const payload = {
     resolved_strand: strand,
+    media_display_names: {
+      'media:pdf;list': 'PDF List',
+      'media:pdf': 'PDF',
+      'media:txt': 'Text',
+      'media:txt;list': 'Text List',
+    },
     body_outcomes: [
       { body_index: 0, success: true, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0 },
     ],
@@ -5079,14 +5185,15 @@ function testRenderer_buildResolvedMachineGraphData_singleStrandLinearChain() {
     strands: [
       {
         nodes: [
-          { id: 'n0', urn: 'media:pdf' },
-          { id: 'n1', urn: 'media:txt;textable' },
-          { id: 'n2', urn: 'media:embedding;record' },
+          { id: 'n0', urn: 'media:pdf', title: 'PDF' },
+          { id: 'n1', urn: 'media:txt;textable', title: 'Plain Text' },
+          { id: 'n2', urn: 'media:embedding;record', title: 'Embedding Record' },
         ],
         edges: [
           {
             alias: 'edge_0',
             cap_urn: 'cap:in=media:pdf;op=extract;out=media:txt;textable',
+            title: 'Extract Text',
             is_loop: false,
             assignment: [
               { cap_arg_media_urn: 'media:pdf', source_node: 'n0' },
@@ -5096,6 +5203,7 @@ function testRenderer_buildResolvedMachineGraphData_singleStrandLinearChain() {
           {
             alias: 'edge_1',
             cap_urn: 'cap:in=media:textable;op=embed;out=media:embedding;record',
+            title: 'Generate Embedding',
             is_loop: false,
             assignment: [
               { cap_arg_media_urn: 'media:textable', source_node: 'n1' },
@@ -5118,6 +5226,7 @@ function testRenderer_buildResolvedMachineGraphData_singleStrandLinearChain() {
   // Anchor nodes carry the strand-source / strand-target classes.
   const n0 = built.nodes.find(n => n.data.id === 'n0');
   const n2 = built.nodes.find(n => n.data.id === 'n2');
+  assertEqual(n0.data.label, 'PDF', 'node label must come from explicit title');
   assert(n0.classes.indexOf('strand-source') >= 0,
     'input anchor node carries strand-source class');
   assert(n2.classes.indexOf('strand-target') >= 0,
@@ -5132,13 +5241,14 @@ function testRenderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass() {
     strands: [
       {
         nodes: [
-          { id: 'n0', urn: 'media:page;textable' },
-          { id: 'n1', urn: 'media:decision;json;record;textable' },
+          { id: 'n0', urn: 'media:page;textable', title: 'Page' },
+          { id: 'n1', urn: 'media:decision;json;record;textable', title: 'Decision Record' },
         ],
         edges: [
           {
             alias: 'edge_0',
             cap_urn: 'cap:in=media:textable;op=make_decision;out=media:decision;json;record;textable',
+            title: 'Make Decision',
             is_loop: true,
             assignment: [
               { cap_arg_media_urn: 'media:textable', source_node: 'n0' },
@@ -5166,14 +5276,15 @@ function testRenderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignme
     strands: [
       {
         nodes: [
-          { id: 'n0', urn: 'media:image;png' },
-          { id: 'n1', urn: 'media:model-spec;textable' },
-          { id: 'n2', urn: 'media:image-description;textable' },
+          { id: 'n0', urn: 'media:image;png', title: 'PNG Image' },
+          { id: 'n1', urn: 'media:model-spec;textable', title: 'Model Spec' },
+          { id: 'n2', urn: 'media:image-description;textable', title: 'Image Description' },
         ],
         edges: [
           {
             alias: 'edge_0',
             cap_urn: 'cap:in=media:image;png;op=describe_image;out=media:image-description;textable',
+            title: 'Describe Image',
             is_loop: false,
             assignment: [
               { cap_arg_media_urn: 'media:image;png', source_node: 'n0' },
@@ -5206,13 +5317,14 @@ function testRenderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjo
     strands: [
       {
         nodes: [
-          { id: 'n0', urn: 'media:pdf' },
-          { id: 'n1', urn: 'media:txt;textable' },
+          { id: 'n0', urn: 'media:pdf', title: 'PDF' },
+          { id: 'n1', urn: 'media:txt;textable', title: 'Plain Text' },
         ],
         edges: [
           {
             alias: 'edge_0',
             cap_urn: 'cap:in=media:pdf;op=extract;out=media:txt;textable',
+            title: 'Extract Text',
             is_loop: false,
             assignment: [
               { cap_arg_media_urn: 'media:pdf', source_node: 'n0' },
@@ -5225,13 +5337,14 @@ function testRenderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjo
       },
       {
         nodes: [
-          { id: 'n2', urn: 'media:json;record;textable' },
-          { id: 'n3', urn: 'media:csv;list;record;textable' },
+          { id: 'n2', urn: 'media:json;record;textable', title: 'JSON Record' },
+          { id: 'n3', urn: 'media:csv;list;record;textable', title: 'CSV Rows' },
         ],
         edges: [
           {
             alias: 'edge_1',
             cap_urn: 'cap:in=media:json;record;textable;op=convert_format;out=media:csv;list;record;textable',
+            title: 'Convert Format',
             is_loop: false,
             assignment: [
               { cap_arg_media_urn: 'media:json;record;textable', source_node: 'n2' },
@@ -5265,13 +5378,13 @@ function testRenderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrands
   const payload = {
     strands: [
       {
-        nodes: [{ id: 'n0', urn: 'media:pdf' }],
+        nodes: [{ id: 'n0', urn: 'media:pdf', title: 'PDF' }],
         edges: [],
         input_anchor_nodes: ['n0'],
         output_anchor_nodes: ['n0'],
       },
       {
-        nodes: [{ id: 'n0', urn: 'media:html' }],
+        nodes: [{ id: 'n0', urn: 'media:html', title: 'HTML' }],
         edges: [],
         input_anchor_nodes: ['n0'],
         output_anchor_nodes: ['n0'],
@@ -5299,13 +5412,14 @@ function testRenderer_validateResolvedMachinePayload_rejectsMissingFields() {
   const cases = [
     { strands: 'not-an-array' },
     { strands: [{ nodes: [], edges: [], input_anchor_nodes: [] /* missing output_anchor_nodes */ }] },
-    { strands: [{ nodes: [{ id: 'n0' /* missing urn */ }], edges: [], input_anchor_nodes: [], output_anchor_nodes: [] }] },
+    { strands: [{ nodes: [{ id: 'n0' /* missing urn/title */ }], edges: [], input_anchor_nodes: [], output_anchor_nodes: [] }] },
     {
       strands: [{
-        nodes: [{ id: 'n0', urn: 'media:x' }],
+        nodes: [{ id: 'n0', urn: 'media:x', title: 'X' }],
         edges: [{
           alias: 'edge_0',
           cap_urn: 'cap:in=...;out=...',
+          title: 'Edge 0',
           is_loop: false,
           assignment: [{ cap_arg_media_urn: 'media:x' /* missing source_node */ }],
           target_node: 'n0',
@@ -5682,8 +5796,8 @@ async function runTests() {
   runTest('RENDERER: canonicalMediaUrn_normalizesTagOrder',   testRenderer_canonicalMediaUrn_normalizesTagOrder);
   runTest('RENDERER: canonicalMediaUrn_preservesValueTags',   testRenderer_canonicalMediaUrn_preservesValueTags);
   runTest('RENDERER: canonicalMediaUrn_rejectsCapUrn',        testRenderer_canonicalMediaUrn_rejectsCapUrn);
-  runTest('RENDERER: mediaNodeLabel_valueAndMarker',          testRenderer_mediaNodeLabel_oneLinePerTag_valueAndMarker);
-  runTest('RENDERER: mediaNodeLabel_stableAcrossTagOrder',    testRenderer_mediaNodeLabel_stableAcrossTagOrder);
+  runTest('RENDERER: mediaNodeLabel_rejectsUrnDerived',       testRenderer_mediaNodeLabel_rejectsUrnDerivedLabels);
+  runTest('RENDERER: buildBrowse_rejectsMissingMediaTitles',  testRenderer_buildBrowseGraphData_rejectsMissingMediaTitles);
 
   console.log('\n--- cap-graph-renderer strand builder ---');
   runTest('RENDERER: validateStrandStep_unknownVariant',      testRenderer_validateStrandStep_rejectsUnknownVariant);
