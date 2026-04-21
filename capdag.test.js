@@ -7,7 +7,6 @@ const {
   MediaUrn, MediaUrnError, MediaUrnErrorCodes,
   Cap, MediaSpec, MediaSpecError, MediaSpecErrorCodes,
   resolveMediaUrn, buildExtensionIndex, mediaUrnsForExtension, getExtensionMappings,
-  CapMatrixError, CapMatrix, BestCapSetMatch, CompositeCapSet, CapBlock,
   CartridgeInfo, CartridgeCapSummary, CartridgeSuggestion, CartridgeRepoClient, CartridgeRepoServer,
   CapGraphEdge, CapGraphStats, CapGraph,
   StdinSource, StdinSourceKind,
@@ -112,20 +111,6 @@ function testUrn(tags) {
   return `cap:in="${MEDIA_VOID}";${tags};out="${MEDIA_OBJECT}"`;
 }
 
-// Mock CapSet for testing
-class MockCapSet {
-  constructor(name) {
-    this.name = name;
-  }
-
-  async executeCap(capUrn, args) {
-    return {
-      binaryOutput: null,
-      textOutput: `Mock response from ${this.name}`
-    };
-  }
-}
-
 // Helper to create a Cap for testing
 function makeCap(urnString, title) {
   const capUrn = CapUrn.fromString(urnString);
@@ -137,14 +122,6 @@ function makeGraphCap(inUrn, outUrn, title) {
   const urnString = `cap:in="${inUrn}";op=convert;out="${outUrn}"`;
   const capUrn = CapUrn.fromString(urnString);
   return new Cap(capUrn, title, 'convert', title);
-}
-
-// Helper to create a test URN for matrix tests
-function matrixTestUrn(tags) {
-  if (!tags) {
-    return 'cap:in="media:void";out="media:object"';
-  }
-  return `cap:in="media:void";out="media:object";${tags}`;
 }
 
 // ============================================================================
@@ -1167,356 +1144,71 @@ function test110_multipleExtensions() {
 }
 
 // ============================================================================
-// cap_matrix.rs: TEST117-TEST131
+// cap_graph: browse-mode API used by cap-graph-renderer.js
+//
+// The renderer builds its browse graph by:
+//   const capGraph = new CapGraph();
+//   for each cap in /api/capabilities: capGraph.addCap(cap, 'registry');
+//   ... then reads capGraph.edges / getOutgoing(urn) / etc.
+//
+// These tests lock in that specific contract. They do NOT cover
+// buildFromRegistries / CapMatrix / CapBlock — all deleted with the dead
+// in-process dispatch stack.
 // ============================================================================
 
-// TEST117: Test registering cap set and finding by exact and subset matching
-function test117_capBlockMoreSpecificWins() {
-  const providerRegistry = new CapMatrix();
-  const cartridgeRegistry = new CapMatrix();
+// Add a cap and check it becomes an edge with from/to nodes and carries the
+// registry name we passed. This is exactly the shape the renderer depends on.
+function testCapGraphAddCapPopulatesEdgesAndNodes() {
+  const graph = new CapGraph();
+  const cap = makeGraphCap('media:pdf', 'media:textable', 'PDF to Text');
+  graph.addCap(cap, 'registry');
 
-  const providerHost = new MockCapSet('provider');
-  const providerCap = makeCap(
-    'cap:in="media:binary";op=generate_thumbnail;out="media:binary"',
-    'Provider Thumbnail Generator (generic)'
-  );
-  providerRegistry.registerCapSet('provider', providerHost, [providerCap]);
+  const edges = graph.getEdges();
+  assertEqual(edges.length, 1, 'Graph must have one edge after a single addCap');
+  assertEqual(edges[0].fromUrn, 'media:pdf', 'Edge fromUrn must be cap in_spec');
+  assertEqual(edges[0].toUrn, 'media:textable', 'Edge toUrn must be cap out_spec');
+  assertEqual(edges[0].registryName, 'registry', 'Edge must carry the registry name passed to addCap');
 
-  const cartridgeHost = new MockCapSet('cartridge');
-  const cartridgeCap = makeCap(
-    'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"',
-    'Cartridge PDF Thumbnail Generator (specific)'
-  );
-  cartridgeRegistry.registerCapSet('cartridge', cartridgeHost, [cartridgeCap]);
-
-  const composite = new CapBlock();
-  composite.addRegistry('providers', providerRegistry);
-  composite.addRegistry('cartridges', cartridgeRegistry);
-
-  const request = 'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"';
-  const best = composite.findBestCapSet(request);
-
-  assertEqual(best.registryName, 'cartridges', 'More specific cartridge should win');
-  assertEqual(best.cap.title, 'Cartridge PDF Thumbnail Generator (specific)', 'Should get cartridge cap');
+  const nodes = graph.getNodes();
+  assert(nodes.has('media:pdf'), 'from_spec must appear as a node');
+  assert(nodes.has('media:textable'), 'to_spec must appear as a node');
 }
 
-// TEST118: Test selecting best cap set based on specificity ranking With is_dispatchable semantics: - Provider must satisfy ALL request constraints - General request matches specific provider (provider refines request) - Specific request does NOT match general provider (provider lacks constraints)
-function test118_capBlockTieGoesToFirst() {
-  const registry1 = new CapMatrix();
-  const registry2 = new CapMatrix();
+// getOutgoing takes a concrete source URN and returns edges whose from_spec
+// the source conforms to. It must NOT be a plain string lookup.
+function testCapGraphGetOutgoingConformsToMatching() {
+  const graph = new CapGraph();
+  graph.addCap(makeGraphCap('media:textable', 'media:embedding-vector', 'Embed text'), 'registry');
 
-  const host1 = new MockCapSet('host1');
-  const cap1 = makeCap(matrixTestUrn('ext=pdf;op=generate'), 'Registry 1 Cap');
-  registry1.registerCapSet('host1', host1, [cap1]);
+  // 'media:txt;textable' conforms to 'media:textable' — renderer relies on
+  // this for the browse-mode fan-out from specific source URNs to caps that
+  // accept a broader media pattern.
+  const outgoingFromSpecific = graph.getOutgoing('media:txt;textable');
+  assertEqual(outgoingFromSpecific.length, 1, 'Specific URN must match broader cap input');
 
-  const host2 = new MockCapSet('host2');
-  const cap2 = makeCap(matrixTestUrn('ext=pdf;op=generate'), 'Registry 2 Cap');
-  registry2.registerCapSet('host2', host2, [cap2]);
+  // The broad URN still matches its own edge.
+  const outgoingFromBroad = graph.getOutgoing('media:textable');
+  assertEqual(outgoingFromBroad.length, 1, 'Exact URN must match');
 
-  const composite = new CapBlock();
-  composite.addRegistry('first', registry1);
-  composite.addRegistry('second', registry2);
-
-  const best = composite.findBestCapSet(matrixTestUrn('ext=pdf;op=generate'));
-  assertEqual(best.registryName, 'first', 'On tie, first registry should win');
+  // A totally unrelated URN must not match.
+  const outgoingFromUnrelated = graph.getOutgoing('media:image;png');
+  assertEqual(outgoingFromUnrelated.length, 0, 'Unrelated URN must not match');
 }
 
-// TEST119: Test invalid URN returns InvalidUrn error
-function test119_capBlockPollsAll() {
-  const registry1 = new CapMatrix();
-  const registry2 = new CapMatrix();
-  const registry3 = new CapMatrix();
+// Each edge must carry the registry name it was added with. This is how
+// the renderer colours/groups edges by provenance in browse mode.
+function testCapGraphDistinctRegistryNames() {
+  const graph = new CapGraph();
+  graph.addCap(makeGraphCap('media:pdf', 'media:textable', 'PDF to Text'), 'providers');
+  graph.addCap(makeGraphCap('media:textable', 'media:embedding-vector', 'Embed'), 'cartridges');
 
-  const host1 = new MockCapSet('host1');
-  const cap1 = makeCap(matrixTestUrn('op=different'), 'Registry 1');
-  registry1.registerCapSet('host1', host1, [cap1]);
+  const edges = graph.getEdges();
+  assertEqual(edges.length, 2, 'Two caps must produce two edges');
 
-  const host2 = new MockCapSet('host2');
-  const cap2 = makeCap(matrixTestUrn('op=generate'), 'Registry 2');
-  registry2.registerCapSet('host2', host2, [cap2]);
-
-  const host3 = new MockCapSet('host3');
-  const cap3 = makeCap(matrixTestUrn('ext=pdf;format=thumbnail;op=generate'), 'Registry 3');
-  registry3.registerCapSet('host3', host3, [cap3]);
-
-  const composite = new CapBlock();
-  composite.addRegistry('r1', registry1);
-  composite.addRegistry('r2', registry2);
-  composite.addRegistry('r3', registry3);
-
-  const best = composite.findBestCapSet(matrixTestUrn('ext=pdf;format=thumbnail;op=generate'));
-  assertEqual(best.registryName, 'r3', 'Most specific registry should win');
+  const names = new Set(edges.map(e => e.registryName));
+  assert(names.has('providers'), 'providers registry name must be preserved');
+  assert(names.has('cartridges'), 'cartridges registry name must be preserved');
 }
-
-// TEST120: Test accepts_request checks if registry can handle a capability request
-function test120_capBlockNoMatch() {
-  const registry = new CapMatrix();
-  const composite = new CapBlock();
-  composite.addRegistry('empty', registry);
-
-  try {
-    composite.findBestCapSet(matrixTestUrn('op=nonexistent'));
-    throw new Error('Expected error for non-matching capability');
-  } catch (e) {
-    assert(e instanceof CapMatrixError, 'Should be CapMatrixError');
-    assertEqual(e.type, 'NoSetsFound', 'Should be NoSetsFound error');
-  }
-}
-
-// TEST121: Test CapBlock selects more specific cap over less specific regardless of registry order
-function test121_capBlockFallbackScenario() {
-  const providerRegistry = new CapMatrix();
-  const cartridgeRegistry = new CapMatrix();
-
-  const providerHost = new MockCapSet('provider_fallback');
-  const providerCap = makeCap(
-    'cap:in="media:binary";op=generate_thumbnail;out="media:binary"',
-    'Generic Thumbnail Provider'
-  );
-  providerRegistry.registerCapSet('provider_fallback', providerHost, [providerCap]);
-
-  const cartridgeHost = new MockCapSet('pdf_cartridge');
-  const cartridgeCap = makeCap(
-    'cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"',
-    'PDF Thumbnail Cartridge'
-  );
-  cartridgeRegistry.registerCapSet('pdf_cartridge', cartridgeHost, [cartridgeCap]);
-
-  const composite = new CapBlock();
-  composite.addRegistry('providers', providerRegistry);
-  composite.addRegistry('cartridges', cartridgeRegistry);
-
-  // PDF request -> cartridge wins
-  const best = composite.findBestCapSet('cap:ext=pdf;in="media:binary";op=generate_thumbnail;out="media:binary"');
-  assertEqual(best.registryName, 'cartridges', 'Cartridge should win for PDF');
-
-  // WAV request -> provider wins (fallback)
-  const bestWav = composite.findBestCapSet('cap:ext=wav;in="media:binary";op=generate_thumbnail;out="media:binary"');
-  assertEqual(bestWav.registryName, 'providers', 'Provider should win for wav (fallback)');
-}
-
-// TEST122: Test CapBlock breaks specificity ties by first registered registry
-function test122_capBlockCanMethod() {
-  const providerRegistry = new CapMatrix();
-  const providerHost = new MockCapSet('test_provider');
-  const providerCap = makeCap(matrixTestUrn('ext=pdf;op=generate'), 'Test Provider');
-  providerRegistry.registerCapSet('test_provider', providerHost, [providerCap]);
-
-  const composite = new CapBlock();
-  composite.addRegistry('providers', providerRegistry);
-
-  const result = composite.can(matrixTestUrn('ext=pdf;op=generate'));
-  assert(result.cap !== null, 'Should return cap');
-  assert(result.compositeHost instanceof CompositeCapSet, 'Should return CompositeCapSet');
-  assert(composite.acceptsRequest(matrixTestUrn('ext=pdf;op=generate')), 'Should accept matching cap');
-  assert(!composite.acceptsRequest(matrixTestUrn('op=nonexistent')), 'Should not accept non-matching cap');
-}
-
-// TEST123: Test CapBlock polls all registries to find most specific match
-function test123_capBlockRegistryManagement() {
-  const composite = new CapBlock();
-  const registry1 = new CapMatrix();
-  const registry2 = new CapMatrix();
-
-  composite.addRegistry('r1', registry1);
-  composite.addRegistry('r2', registry2);
-  assertEqual(composite.getRegistryNames().length, 2, 'Should have 2 registries');
-
-  assertEqual(composite.getRegistry('r1'), registry1, 'Should get correct registry');
-
-  const removed = composite.removeRegistry('r1');
-  assertEqual(removed, registry1, 'Should return removed registry');
-  assertEqual(composite.getRegistryNames().length, 1, 'Should have 1 registry after removal');
-
-  assertEqual(composite.getRegistry('nonexistent'), null, 'Should return null for non-existent');
-}
-
-// TEST124: Test CapBlock returns error when no registries match the request
-function test124_capGraphBasicConstruction() {
-  const registry = new CapMatrix();
-  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
-
-  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
-  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
-  registry.registerCapSet('converter', mockHost, [cap1, cap2]);
-
-  const cube = new CapBlock();
-  cube.addRegistry('converters', registry);
-
-  const graph = cube.graph();
-  assertEqual(graph.getNodes().size, 3, 'Expected 3 nodes');
-  assertEqual(graph.getEdges().length, 2, 'Expected 2 edges');
-  assertEqual(graph.stats().nodeCount, 3, 'Expected 3 nodes in stats');
-  assertEqual(graph.stats().edgeCount, 2, 'Expected 2 edges in stats');
-}
-
-// TEST125: Test CapBlock prefers specific cartridge over generic provider fallback
-function test125_capGraphOutgoingIncoming() {
-  const registry = new CapMatrix();
-  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
-
-  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
-  const cap2 = makeGraphCap('media:binary', 'media:object', 'Binary to Object');
-  registry.registerCapSet('converter', mockHost, [cap1, cap2]);
-
-  const cube = new CapBlock();
-  cube.addRegistry('converters', registry);
-  const graph = cube.graph();
-
-  assertEqual(graph.getOutgoing('media:binary').length, 2, 'binary should have 2 outgoing');
-  assertEqual(graph.getIncoming('media:string').length, 1, 'string should have 1 incoming');
-  assertEqual(graph.getIncoming('media:object').length, 1, 'object should have 1 incoming');
-}
-
-// TEST126: Test composite can method returns CapCaller for capability execution
-function test126_capGraphCanConvert() {
-  const registry = new CapMatrix();
-  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
-
-  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
-  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
-  registry.registerCapSet('converter', mockHost, [cap1, cap2]);
-
-  const cube = new CapBlock();
-  cube.addRegistry('converters', registry);
-  const graph = cube.graph();
-
-  assert(graph.canConvert('media:binary', 'media:string'), 'Direct conversion');
-  assert(graph.canConvert('media:string', 'media:object'), 'Direct conversion');
-  assert(graph.canConvert('media:binary', 'media:object'), 'Transitive conversion');
-  assert(graph.canConvert('media:binary', 'media:binary'), 'Same spec');
-  assert(!graph.canConvert('media:object', 'media:binary'), 'Impossible conversion');
-  assert(!graph.canConvert('media:nonexistent', 'media:string'), 'Nonexistent node');
-}
-
-// TEST127: Test CapGraph adds nodes and edges from capability definitions
-function test127_capGraphFindPath() {
-  const registry = new CapMatrix();
-  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
-
-  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
-  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
-  registry.registerCapSet('converter', mockHost, [cap1, cap2]);
-
-  const cube = new CapBlock();
-  cube.addRegistry('converters', registry);
-  const graph = cube.graph();
-
-  // Direct path
-  let path = graph.findPath('media:binary', 'media:string');
-  assert(path !== null, 'Should find direct path');
-  assertEqual(path.length, 1, 'Direct path length should be 1');
-
-  // Transitive path
-  path = graph.findPath('media:binary', 'media:object');
-  assert(path !== null, 'Should find transitive path');
-  assertEqual(path.length, 2, 'Transitive path length should be 2');
-
-  // No path
-  path = graph.findPath('media:object', 'media:binary');
-  assertEqual(path, null, 'Should not find impossible path');
-
-  // Same spec
-  path = graph.findPath('media:binary', 'media:binary');
-  assert(path !== null, 'Same spec should return empty path');
-  assertEqual(path.length, 0, 'Same spec path should be empty');
-}
-
-// TEST128: Test CapGraph tracks outgoing and incoming edges for spec conversions
-function test128_capGraphFindAllPaths() {
-  const registry = new CapMatrix();
-  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
-
-  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
-  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
-  const cap3 = makeGraphCap('media:binary', 'media:object', 'Binary to Object (direct)');
-  registry.registerCapSet('converter', mockHost, [cap1, cap2, cap3]);
-
-  const cube = new CapBlock();
-  cube.addRegistry('converters', registry);
-  const graph = cube.graph();
-
-  const paths = graph.findAllPaths('media:binary', 'media:object', 3);
-  assertEqual(paths.length, 2, 'Should find 2 paths');
-  assertEqual(paths[0].length, 1, 'Shortest path first (direct)');
-  assertEqual(paths[1].length, 2, 'Longer path second (via string)');
-}
-
-// TEST129: Test CapGraph detects direct and indirect conversion paths between specs
-function test129_capGraphGetDirectEdges() {
-  const registry1 = new CapMatrix();
-  const registry2 = new CapMatrix();
-  const mockHost1 = { executeCap: async () => ({ textOutput: 'mock1' }) };
-  const mockHost2 = { executeCap: async () => ({ textOutput: 'mock2' }) };
-
-  const cap1 = makeGraphCap('media:binary', 'media:string', 'Generic Binary to String');
-  const capUrn2 = CapUrn.fromString('cap:ext=pdf;in="media:binary";op=convert;out="media:string"');
-  const cap2 = new Cap(capUrn2, 'PDF Binary to String', 'convert', 'PDF Binary to String');
-
-  registry1.registerCapSet('converter1', mockHost1, [cap1]);
-  registry2.registerCapSet('converter2', mockHost2, [cap2]);
-
-  const cube = new CapBlock();
-  cube.addRegistry('reg1', registry1);
-  cube.addRegistry('reg2', registry2);
-  const graph = cube.graph();
-
-  const edges = graph.getDirectEdges('media:binary', 'media:string');
-  assertEqual(edges.length, 2, 'Expected 2 direct edges');
-  assertEqual(edges[0].cap.title, 'PDF Binary to String', 'More specific edge first');
-  assert(edges[0].specificity > edges[1].specificity, 'First edge should have higher specificity');
-}
-
-// TEST130: Test CapGraph finds shortest path for spec conversion chain
-function test130_capGraphStats() {
-  const registry = new CapMatrix();
-  const mockHost = { executeCap: async () => ({ textOutput: 'mock' }) };
-
-  const cap1 = makeGraphCap('media:binary', 'media:string', 'Binary to String');
-  const cap2 = makeGraphCap('media:string', 'media:object', 'String to Object');
-  const cap3 = makeGraphCap('media:binary', 'media:json', 'Binary to JSON');
-  registry.registerCapSet('converter', mockHost, [cap1, cap2, cap3]);
-
-  const cube = new CapBlock();
-  cube.addRegistry('converters', registry);
-  const graph = cube.graph();
-  const stats = graph.stats();
-
-  assertEqual(stats.nodeCount, 4, '4 unique nodes');
-  assertEqual(stats.edgeCount, 3, '3 edges');
-  assertEqual(stats.inputUrnCount, 2, '2 input URNs');
-  assertEqual(stats.outputUrnCount, 3, '3 output URNs');
-}
-
-// TEST131: Test CapGraph finds all conversion paths sorted by length
-function test131_capGraphWithCapBlock() {
-  const providerRegistry = new CapMatrix();
-  const cartridgeRegistry = new CapMatrix();
-  const providerHost = { executeCap: async () => ({ textOutput: 'provider' }) };
-  const cartridgeHost = { executeCap: async () => ({ textOutput: 'cartridge' }) };
-
-  const providerCap = makeGraphCap('media:binary', 'media:string', 'Provider Binary to String');
-  providerRegistry.registerCapSet('provider', providerHost, [providerCap]);
-
-  const cartridgeCap = makeGraphCap('media:string', 'media:object', 'Cartridge String to Object');
-  cartridgeRegistry.registerCapSet('cartridge', cartridgeHost, [cartridgeCap]);
-
-  const cube = new CapBlock();
-  cube.addRegistry('providers', providerRegistry);
-  cube.addRegistry('cartridges', cartridgeRegistry);
-  const graph = cube.graph();
-
-  assert(graph.canConvert('media:binary', 'media:object'), 'Should convert across registries');
-  const path = graph.findPath('media:binary', 'media:object');
-  assert(path !== null, 'Should find path');
-  assertEqual(path.length, 2, 'Path through 2 registries');
-  assertEqual(path[0].registryName, 'providers', 'First edge from providers');
-  assertEqual(path[1].registryName, 'cartridges', 'Second edge from cartridges');
-}
-
-// TEST132: N/A (already covered by TEST129)
-// TEST133: N/A (already covered by TEST131)
-// TEST134: N/A (already covered by TEST130)
 
 // ============================================================================
 // caller.rs: TEST156-TEST159
@@ -1928,73 +1620,6 @@ function testJS_stdinSourceNullData() {
   assert(source !== null, 'Should create source');
   assert(source.isData(), 'Should be data source');
   assertEqual(source.data, null, 'Data should be null');
-}
-
-function testJS_argsPassedToExecuteCap() {
-  let receivedArgs = null;
-  const mockHost = {
-    executeCap: async (capUrn, args) => {
-      receivedArgs = args;
-      return { textOutput: 'ok' };
-    }
-  };
-
-  const cap = new Cap(
-    CapUrn.fromString('cap:in="media:void";op=test;out="media:string"'),
-    'Test Cap',
-    'test-command'
-  );
-  const registry = new CapMatrix();
-  registry.registerCapSet('test', mockHost, [cap]);
-  const cube = new CapBlock();
-  cube.addRegistry('test', registry);
-
-  const args = [new CapArgumentValue('media:void', new Uint8Array([1, 2, 3]))];
-  const { compositeHost } = cube.can('cap:in="media:void";op=test;out="media:string"');
-
-  return compositeHost.executeCap(
-    'cap:in="media:void";op=test;out="media:string"',
-    args
-  ).then(() => {
-    assert(receivedArgs !== null, 'Should receive arguments');
-    assert(Array.isArray(receivedArgs), 'Should receive array');
-    assertEqual(receivedArgs.length, 1, 'Should have one argument');
-    assertEqual(receivedArgs[0].mediaUrn, 'media:void', 'Correct mediaUrn');
-    assertEqual(receivedArgs[0].value.length, 3, 'Correct data length');
-  });
-}
-
-function testJS_binaryArgPassedToExecuteCap() {
-  let receivedArgs = null;
-  const mockHost = {
-    executeCap: async (capUrn, args) => {
-      receivedArgs = args;
-      return { textOutput: 'ok' };
-    }
-  };
-
-  const cap = new Cap(
-    CapUrn.fromString('cap:in="media:void";op=test;out="media:string"'),
-    'Test Cap',
-    'test-command'
-  );
-  const registry = new CapMatrix();
-  registry.registerCapSet('test', mockHost, [cap]);
-  const cube = new CapBlock();
-  cube.addRegistry('test', registry);
-
-  const binaryArg = new CapArgumentValue('media:pdf', new Uint8Array([0x89, 0x50, 0x4E, 0x47]));
-  const { compositeHost } = cube.can('cap:in="media:void";op=test;out="media:string"');
-
-  return compositeHost.executeCap(
-    'cap:in="media:void";op=test;out="media:string"',
-    [binaryArg]
-  ).then(() => {
-    assert(receivedArgs !== null, 'Should receive arguments');
-    assertEqual(receivedArgs[0].mediaUrn, 'media:pdf', 'Correct mediaUrn');
-    assertEqual(receivedArgs[0].value[0], 0x89, 'First byte check');
-    assertEqual(receivedArgs[0].value.length, 4, 'Correct data length');
-  });
 }
 
 function testJS_mediaSpecConstruction() {
@@ -5547,24 +5172,13 @@ async function runTests() {
   runTest('TEST109: extensions_with_metadata_and_validation', test109_extensionsWithMetadataAndValidation);
   runTest('TEST110: multiple_extensions', test110_multipleExtensions);
 
-  // cap_matrix.rs: TEST117-TEST131
-  console.log('\n--- cap_matrix.rs ---');
-  runTest('TEST117: cap_block_more_specific_wins', test117_capBlockMoreSpecificWins);
-  runTest('TEST118: cap_block_tie_goes_to_first', test118_capBlockTieGoesToFirst);
-  runTest('TEST119: cap_block_polls_all', test119_capBlockPollsAll);
-  runTest('TEST120: cap_block_no_match', test120_capBlockNoMatch);
-  runTest('TEST121: cap_block_fallback_scenario', test121_capBlockFallbackScenario);
-  runTest('TEST122: cap_block_can_method', test122_capBlockCanMethod);
-  runTest('TEST123: cap_block_registry_management', test123_capBlockRegistryManagement);
-  runTest('TEST124: cap_graph_basic_construction', test124_capGraphBasicConstruction);
-  runTest('TEST125: cap_graph_outgoing_incoming', test125_capGraphOutgoingIncoming);
-  runTest('TEST126: cap_graph_can_convert', test126_capGraphCanConvert);
-  runTest('TEST127: cap_graph_find_path', test127_capGraphFindPath);
-  runTest('TEST128: cap_graph_find_all_paths', test128_capGraphFindAllPaths);
-  runTest('TEST129: cap_graph_direct_edges_sorted_by_specificity', test129_capGraphGetDirectEdges);
-  runTest('TEST130: cap_graph_stats', test130_capGraphStats);
-  runTest('TEST131: cap_block_graph_integration', test131_capGraphWithCapBlock);
-  console.log('  SKIP TEST132-134: N/A (already covered by TEST129-131)');
+  // cap-graph-renderer.js uses CapGraph in browse mode (static registry from
+  // /api/capabilities). These tests guard the minimal API the renderer relies
+  // on: new CapGraph(), addCap(cap, registryName), getEdges(), getOutgoing().
+  console.log('\n--- cap_graph (browse-mode API used by cap-graph-renderer) ---');
+  runTest('cap_graph: add_cap_populates_edges_and_nodes', testCapGraphAddCapPopulatesEdgesAndNodes);
+  runTest('cap_graph: get_outgoing_conforms_to_matching', testCapGraphGetOutgoingConformsToMatching);
+  runTest('cap_graph: distinct_registry_names_recorded_per_edge', testCapGraphDistinctRegistryNames);
 
   // caller.rs: TEST156-TEST159
   console.log('\n--- caller.rs (StdinSource) ---');
@@ -5608,10 +5222,6 @@ async function runTests() {
   runTest('JS: media_spec_documentation_propagates_through_resolve', testJS_mediaSpecDocumentationPropagatesThroughResolve);
   runTest('JS: stdin_source_kind_constants', testJS_stdinSourceKindConstants);
   runTest('JS: stdin_source_null_data', testJS_stdinSourceNullData);
-  const p1 = runTest('JS: args_passed_to_executeCap', testJS_argsPassedToExecuteCap);
-  if (p1) await p1;
-  const p2 = runTest('JS: binary_arg_passed_to_executeCap', testJS_binaryArgPassedToExecuteCap);
-  if (p2) await p2;
   runTest('JS: media_spec_construction', testJS_mediaSpecConstruction);
 
   // cartridge_repo: CartridgeRepoServer and CartridgeRepoClient tests
