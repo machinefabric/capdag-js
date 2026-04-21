@@ -313,11 +313,10 @@ function buildStylesheet() {
         'text-background-opacity': 1,
         'text-background-padding': '4px',
         'text-background-shape': 'roundrectangle',
-        // Keep labels horizontal — autorotate clips along
-        // fan-out edges and rotates labels into unreadable
-        // angles when multiple edges share a source.
-        'text-rotation': 0,
-        'text-margin-y': 0,
+        // Align labels along their edges so perpendicular/misaligned
+        // text no longer reads as floating metadata.
+        'text-rotation': 'autorotate',
+        'text-margin-y': -6,
         'curve-style': 'bezier',
         'control-point-step-size': 40,
         'width': 1.5,
