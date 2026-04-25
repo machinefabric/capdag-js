@@ -158,10 +158,10 @@ function layoutForMode(mode) {
     algorithm: 'layered',
     'elk.direction': 'RIGHT',
     'elk.edgeRouting': 'POLYLINE',
-    'elk.layered.spacing.edgeEdgeBetweenLayers': 20,
-    'elk.layered.spacing.edgeNodeBetweenLayers': 30,
-    'elk.spacing.edgeEdge': 15,
-    'elk.spacing.edgeNode': 25,
+    'elk.layered.spacing.edgeEdgeBetweenLayers': 30,
+    'elk.layered.spacing.edgeNodeBetweenLayers': 40,
+    'elk.spacing.edgeEdge': 25,
+    'elk.spacing.edgeNode': 35,
     'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
     'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
     'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
@@ -169,8 +169,8 @@ function layoutForMode(mode) {
   };
   if (mode === 'browse') {
     return Object.assign({}, base, {
-      'elk.layered.spacing.nodeNodeBetweenLayers': 150,
-      'elk.spacing.nodeNode': 50,
+      'elk.layered.spacing.nodeNodeBetweenLayers': 180,
+      'elk.spacing.nodeNode': 90,
     });
   }
   if (mode === 'strand') {
