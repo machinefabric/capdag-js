@@ -3597,6 +3597,23 @@ class CartridgeCapSummary {
 }
 
 /**
+ * Cartridge cap group from registry
+ */
+class CartridgeCapGroup {
+  constructor(data) {
+    if (!data.name) throw new Error('CapGroup missing name');
+    this.name = data.name;
+    this.caps = (data.caps || []).map(c => new CartridgeCapSummary(c.urn, c.title, c.description || ''));
+    this.adapter_urns = data.adapter_urns || [];
+  }
+
+  /** Flat caps in this group */
+  allCaps() {
+    return this.caps;
+  }
+}
+
+/**
  * Cartridge information from registry
  */
 class CartridgeInfo {
@@ -3610,12 +3627,28 @@ class CartridgeInfo {
     this.teamId = data.teamId || '';
     this.signedAt = data.signedAt || '';
     this.minAppVersion = data.minAppVersion || '';
-    this.caps = (data.caps || []).map(c => new CartridgeCapSummary(c.urn, c.title, c.description || ''));
+    if (!Array.isArray(data.cap_groups)) throw new Error(`CartridgeInfo ${data.id || '?'}: missing cap_groups array`);
+    this.cap_groups = data.cap_groups.map(g => new CartridgeCapGroup(g));
     this.categories = data.categories || [];
     this.tags = data.tags || [];
     // Versions with platform-specific builds
     this.versions = data.versions || {};
     this.availableVersions = data.availableVersions || [];
+  }
+
+  /** All caps flattened across all cap_groups, deduplicated by URN */
+  allCaps() {
+    const seen = new Set();
+    const result = [];
+    for (const group of this.cap_groups) {
+      for (const cap of group.caps) {
+        if (!seen.has(cap.urn)) {
+          seen.add(cap.urn);
+          result.push(cap);
+        }
+      }
+    }
+    return result;
   }
 
   /**
@@ -3697,11 +3730,16 @@ class CartridgeRepoClient {
 
     const data = await response.json();
 
-    if (!data.cartridges || !Array.isArray(data.cartridges)) {
-      throw new Error(`Invalid cartridge registry response from ${repoUrl}: missing cartridges array`);
+    if (!data.cartridges || typeof data.cartridges !== 'object') {
+      throw new Error(`Invalid cartridge registry response from ${repoUrl}: missing cartridges object`);
     }
 
-    return data.cartridges.map(p => new CartridgeInfo(p));
+    // Registry stores cartridges as an object keyed by id; normalize to array.
+    return Object.entries(data.cartridges).map(([id, c]) => new CartridgeInfo({
+      ...c,
+      id,
+      version: c.latestVersion
+    }));
   }
 
   /**
@@ -3713,7 +3751,7 @@ class CartridgeRepoClient {
     for (const cartridge of cartridges) {
       cache.cartridges.set(cartridge.id, cartridge);
 
-      for (const cap of cartridge.caps) {
+      for (const cap of cartridge.allCaps()) {
         if (!cache.capToCartridges.has(cap.urn)) {
           cache.capToCartridges.set(cap.urn, []);
         }
@@ -3773,7 +3811,7 @@ class CartridgeRepoClient {
         const cartridge = cache.cartridges.get(cartridgeId);
         if (!cartridge) continue;
 
-        const capInfo = cartridge.caps.find(c => c.urn === capUrn);
+        const capInfo = cartridge.allCaps().find(c => c.urn === capUrn);
         if (!capInfo) continue;
 
         const pageUrl = cartridge.pageUrl || cache.repoUrl;
@@ -3889,6 +3927,9 @@ class CartridgeRepoServer {
       if (!build.package || !build.package.name) {
         throw new Error(`Cartridge ${id} v${version}: build[${i}] (${build.platform}) missing package.name`);
       }
+      if (!build.package.url) {
+        throw new Error(`Cartridge ${id} v${version}: build[${i}] (${build.platform}) missing package.url`);
+      }
     }
   }
 
@@ -3942,7 +3983,10 @@ class CartridgeRepoServer {
         teamId: cartridge.teamId,
         signedAt: versionData.releaseDate,
         minAppVersion: versionData.minAppVersion || cartridge.minAppVersion,
-        caps: cartridge.caps || [],
+        cap_groups: (() => {
+          if (!Array.isArray(cartridge.cap_groups)) throw new Error(`Cartridge ${id}: missing cap_groups array`);
+          return cartridge.cap_groups;
+        })(),
         categories: cartridge.categories,
         tags: cartridge.tags,
         versions: cartridge.versions,
@@ -3977,12 +4021,13 @@ class CartridgeRepoServer {
     const cartridges = this.transformToCartridgeArray();
     const lowerQuery = query.toLowerCase();
 
-    return cartridges.filter(p =>
-      p.name.toLowerCase().includes(lowerQuery) ||
-      p.description.toLowerCase().includes(lowerQuery) ||
-      p.tags.some(t => t.toLowerCase().includes(lowerQuery)) ||
-      p.caps.some(c => c.urn.toLowerCase().includes(lowerQuery) || c.title.toLowerCase().includes(lowerQuery))
-    );
+    return cartridges.filter(p => {
+      const allCaps = (p.cap_groups || []).flatMap(g => g.caps || []);
+      return p.name.toLowerCase().includes(lowerQuery) ||
+        p.description.toLowerCase().includes(lowerQuery) ||
+        p.tags.some(t => t.toLowerCase().includes(lowerQuery)) ||
+        allCaps.some(c => c.urn.toLowerCase().includes(lowerQuery) || c.title.toLowerCase().includes(lowerQuery));
+    });
   }
 
   /**
@@ -3998,7 +4043,9 @@ class CartridgeRepoServer {
    */
   getCartridgesByCap(capUrn) {
     const cartridges = this.transformToCartridgeArray();
-    return cartridges.filter(p => p.caps.some(c => c.urn === capUrn));
+    return cartridges.filter(p =>
+      (p.cap_groups || []).some(g => (g.caps || []).some(c => c.urn === capUrn))
+    );
   }
 }
 

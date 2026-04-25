@@ -1651,16 +1651,22 @@ const sampleRegistry = {
       minAppVersion: '1.0.0',
       categories: ['document'],
       tags: ['pdf', 'extractor'],
-      caps: [
+      cap_groups: [
         {
-          urn: 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"',
-          title: 'Disbind PDF',
-          description: 'Extract pages'
-        },
-        {
-          urn: 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;textable;record"',
-          title: 'Extract Metadata',
-          description: 'Get PDF metadata'
+          name: 'pdf-processing',
+          adapter_urns: ['media:pdf'],
+          caps: [
+            {
+              urn: 'cap:in="media:pdf";op=disbind;out="media:disbound-page;textable;list"',
+              title: 'Disbind PDF',
+              description: 'Extract pages'
+            },
+            {
+              urn: 'cap:in="media:pdf";op=extract_metadata;out="media:file-metadata;textable;record"',
+              title: 'Extract Metadata',
+              description: 'Get PDF metadata'
+            }
+          ]
         }
       ],
       latestVersion: '0.81.5325',
@@ -1673,6 +1679,7 @@ const sampleRegistry = {
             platform: 'darwin-arm64',
             package: {
               name: 'pdfcartridge-0.81.5325.pkg',
+              url: 'https://cartridges.machinefabric.com/pdfcartridge/0.81.5325/pdfcartridge-0.81.5325.pkg',
               sha256: '9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0',
               size: 5187485
             }
@@ -1689,11 +1696,17 @@ const sampleRegistry = {
       minAppVersion: '1.0.0',
       categories: ['text'],
       tags: ['txt', 'text'],
-      caps: [
+      cap_groups: [
         {
-          urn: 'cap:in="media:txt;textable";op=disbind;out="media:disbound-page;textable;list"',
-          title: 'Disbind Text',
-          description: 'Extract text pages'
+          name: 'text-processing',
+          adapter_urns: ['media:txt;textable'],
+          caps: [
+            {
+              urn: 'cap:in="media:txt;textable";op=disbind;out="media:disbound-page;textable;list"',
+              title: 'Disbind Text',
+              description: 'Extract text pages'
+            }
+          ]
         }
       ],
       latestVersion: '0.54.6408',
@@ -1706,6 +1719,7 @@ const sampleRegistry = {
             platform: 'darwin-arm64',
             package: {
               name: 'txtcartridge-0.54.6408.pkg',
+              url: 'https://cartridges.machinefabric.com/txtcartridge/0.54.6408/txtcartridge-0.54.6408.pkg',
               sha256: 'abc123',
               size: 821000
             }
@@ -1725,13 +1739,17 @@ function test320_cartridgeInfoConstruction() {
     description: 'A test',
     teamId: 'TEAM123',
     signedAt: '2026-01-01',
-    caps: [{urn: 'cap:in="media:void";op=test;out="media:void"', title: 'Test', description: ''}],
+    cap_groups: [{
+      name: 'test-group',
+      adapter_urns: ['media:void'],
+      caps: [{urn: 'cap:in="media:void";op=test;out="media:void"', title: 'Test', description: ''}]
+    }],
     versions: {
       '1.0.0': {
         releaseDate: '2026-01-01',
         changelog: ['Initial'],
         minAppVersion: '1.0.0',
-        builds: [{platform: 'darwin-arm64', package: {name: 'test-1.0.0.pkg', sha256: 'abc123', size: 100}}]
+        builds: [{platform: 'darwin-arm64', package: {name: 'test-1.0.0.pkg', url: 'https://cartridges.machinefabric.com/testcartridge/1.0.0/test-1.0.0.pkg', sha256: 'abc123', size: 100}}]
       }
     },
     availableVersions: ['1.0.0']
@@ -1739,31 +1757,32 @@ function test320_cartridgeInfoConstruction() {
   const cartridge = new CartridgeInfo(data);
   assert(cartridge.id === 'testcartridge', 'ID should match');
   assert(cartridge.teamId === 'TEAM123', 'Team ID should match');
-  assert(cartridge.caps.length === 1, 'Should have 1 cap');
-  assert(cartridge.caps[0].urn === 'cap:in="media:void";op=test;out="media:void"', 'Cap URN should match');
+  assert(cartridge.cap_groups.length === 1, 'Should have 1 cap_group');
+  assert(cartridge.cap_groups[0].caps[0].urn === 'cap:in="media:void";op=test;out="media:void"', 'Cap URN should match');
+  assert(cartridge.allCaps().length === 1, 'allCaps() should return 1 cap');
 }
 
 // TEST321: CartridgeInfo.is_signed() returns true when signature is present
 function test321_cartridgeInfoIsSigned() {
-  const signed = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '2026-01-01', caps: []});
+  const signed = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '2026-01-01', cap_groups: []});
   assert(signed.isSigned() === true, 'Cartridge with teamId and signedAt should be signed');
 
-  const unsigned1 = new CartridgeInfo({id: 'test', teamId: '', signedAt: '2026-01-01', caps: []});
+  const unsigned1 = new CartridgeInfo({id: 'test', teamId: '', signedAt: '2026-01-01', cap_groups: []});
   assert(unsigned1.isSigned() === false, 'Cartridge without teamId should not be signed');
 
-  const unsigned2 = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '', caps: []});
+  const unsigned2 = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '', cap_groups: []});
   assert(unsigned2.isSigned() === false, 'Cartridge without signedAt should not be signed');
 }
 
 // TEST322: CartridgeInfo.build_for_platform() returns the build matching the current platform
 function test322_cartridgeInfoBuildForPlatform() {
   const withBuilds = new CartridgeInfo({
-    id: 'test', version: '1.0.0', caps: [],
+    id: 'test', version: '1.0.0', cap_groups: [],
     versions: {
       '1.0.0': {
         builds: [
-          {platform: 'darwin-arm64', package: {name: 'test-darwin.pkg', sha256: 'abc', size: 100}},
-          {platform: 'linux-x86_64', package: {name: 'test-linux.pkg', sha256: 'def', size: 200}}
+          {platform: 'darwin-arm64', package: {name: 'test-darwin.pkg', url: 'https://cartridges.machinefabric.com/test/1.0.0/test-darwin.pkg', sha256: 'abc', size: 100}},
+          {platform: 'linux-x86_64', package: {name: 'test-linux.pkg', url: 'https://cartridges.machinefabric.com/test/1.0.0/test-linux.pkg', sha256: 'def', size: 200}}
         ]
       }
     },
@@ -1784,7 +1803,7 @@ function test322_cartridgeInfoBuildForPlatform() {
   assert(platforms.includes('darwin-arm64'), 'Should include darwin-arm64');
   assert(platforms.includes('linux-x86_64'), 'Should include linux-x86_64');
 
-  const noBuilds = new CartridgeInfo({id: 'test', version: '1.0.0', caps: [], versions: {}, availableVersions: []});
+  const noBuilds = new CartridgeInfo({id: 'test', version: '1.0.0', cap_groups: [], versions: {}, availableVersions: []});
   assert(noBuilds.buildForPlatform('darwin-arm64') === null, 'Should return null when no versions');
   assert(noBuilds.availablePlatforms().length === 0, 'Should have no platforms');
 }
@@ -1837,8 +1856,9 @@ function test324_cartridgeRepoServerTransformToArray() {
   assert(pdf.versions['0.81.5325'].builds[0].package.sha256 === '9b68724eb9220ecf01e8ed4f5f80c594fbac2239bc5bf675005ec882ecc5eba0', 'Should have package SHA256');
   assert(Array.isArray(pdf.availableVersions), 'Should have availableVersions array');
   assert(pdf.availableVersions.includes('0.81.5325'), 'Should include latest version');
-  assert(Array.isArray(pdf.caps), 'Should have caps array');
-  assert(pdf.caps.length === 2, 'Should have 2 caps');
+  assert(Array.isArray(pdf.cap_groups), 'Should have cap_groups array');
+  assert(pdf.cap_groups.length === 1, 'Should have 1 cap_group');
+  assert(pdf.cap_groups[0].caps.length === 2, 'Should have 2 caps in the group');
 }
 
 // TEST325: CartridgeRepoServer.get_cartridges() returns all parsed cartridges
