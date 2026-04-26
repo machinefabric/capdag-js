@@ -3743,7 +3743,15 @@ class CartridgeRepoClient {
   }
 
   /**
-   * Update cache from registry data
+   * Update cache from registry data.
+   *
+   * The cap-to-cartridges index keys on the *normalized* tagged-URN form
+   * of each cap URN (parse via CapUrn.fromString, then take toString()).
+   * This collapses textually different but canonically identical URNs
+   * (different declared tag order) into the same bucket so that lookups
+   * resolve regardless of how the requester phrased the URN. A cap URN
+   * that fails to parse is a registry corruption: we throw rather than
+   * silently keep the malformed string in the index.
    */
   updateCache(repoUrl, cartridges) {
     const cache = new CartridgeRepoCache(repoUrl);
@@ -3752,10 +3760,11 @@ class CartridgeRepoClient {
       cache.cartridges.set(cartridge.id, cartridge);
 
       for (const cap of cartridge.allCaps()) {
-        if (!cache.capToCartridges.has(cap.urn)) {
-          cache.capToCartridges.set(cap.urn, []);
+        const normalized = CapUrn.fromString(cap.urn).toString();
+        if (!cache.capToCartridges.has(normalized)) {
+          cache.capToCartridges.set(normalized, []);
         }
-        cache.capToCartridges.get(cap.urn).push(cartridge.id);
+        cache.capToCartridges.get(normalized).push(cartridge.id);
       }
     }
 
@@ -3798,20 +3807,36 @@ class CartridgeRepoClient {
   }
 
   /**
-   * Get cartridge suggestions for a cap URN
+   * Get cartridge suggestions for a cap URN.
+   *
+   * `capUrn` is parsed via CapUrn.fromString; the parsed-and-
+   * re-serialized form is the canonical key into the cap-to-cartridges
+   * index. Inside each candidate cartridge we walk its caps via
+   * `allCaps()` and match each one with `isEquivalent`, never with
+   * string equality.
    */
   getSuggestionsForCap(capUrn) {
+    const requested = CapUrn.fromString(capUrn);
+    const normalized = requested.toString();
     const suggestions = [];
 
     for (const cache of this.caches.values()) {
-      const cartridgeIds = cache.capToCartridges.get(capUrn);
+      const cartridgeIds = cache.capToCartridges.get(normalized);
       if (!cartridgeIds) continue;
 
       for (const cartridgeId of cartridgeIds) {
         const cartridge = cache.cartridges.get(cartridgeId);
         if (!cartridge) continue;
 
-        const capInfo = cartridge.allCaps().find(c => c.urn === capUrn);
+        const capInfo = cartridge.allCaps().find(c => {
+          let parsed;
+          try {
+            parsed = CapUrn.fromString(c.urn);
+          } catch (_e) {
+            return false;
+          }
+          return parsed.isEquivalent(requested);
+        });
         if (!capInfo) continue;
 
         const pageUrl = cartridge.pageUrl || cache.repoUrl;
@@ -3820,7 +3845,7 @@ class CartridgeRepoClient {
           cartridgeId: cartridge.id,
           cartridgeName: cartridge.name,
           cartridgeDescription: cartridge.description,
-          capUrn: capUrn,
+          capUrn: normalized,
           capTitle: capInfo.title,
           latestVersion: cartridge.version,
           repoUrl: cache.repoUrl,
@@ -4015,7 +4040,13 @@ class CartridgeRepoServer {
   }
 
   /**
-   * Search cartridges by query
+   * Search cartridges by free-text query.
+   *
+   * Matches against cartridge name, description, tags, and cap titles.
+   * Cap URN strings are not substring-matched: a cap URN is a tagged
+   * identifier and substring matching against it is a category error.
+   * Use `getCartridgesByCap` to look up cartridges that provide a
+   * specific cap.
    */
   searchCartridges(query) {
     const cartridges = this.transformToCartridgeArray();
@@ -4026,7 +4057,7 @@ class CartridgeRepoServer {
       return p.name.toLowerCase().includes(lowerQuery) ||
         p.description.toLowerCase().includes(lowerQuery) ||
         p.tags.some(t => t.toLowerCase().includes(lowerQuery)) ||
-        allCaps.some(c => c.urn.toLowerCase().includes(lowerQuery) || c.title.toLowerCase().includes(lowerQuery));
+        allCaps.some(c => c.title.toLowerCase().includes(lowerQuery));
     });
   }
 
@@ -4039,12 +4070,28 @@ class CartridgeRepoServer {
   }
 
   /**
-   * Get cartridges that provide a specific cap
+   * Get cartridges that provide a specific cap.
+   *
+   * Both the request URN and each candidate cap URN are parsed via
+   * CapUrn.fromString and matched with `isEquivalent` so caps declared
+   * in any tag order resolve. A malformed input URN throws — there is
+   * no fallback that compares the raw strings.
    */
   getCartridgesByCap(capUrn) {
+    const requested = CapUrn.fromString(capUrn);
     const cartridges = this.transformToCartridgeArray();
     return cartridges.filter(p =>
-      (p.cap_groups || []).some(g => (g.caps || []).some(c => c.urn === capUrn))
+      (p.cap_groups || []).some(g =>
+        (g.caps || []).some(c => {
+          let parsed;
+          try {
+            parsed = CapUrn.fromString(c.urn);
+          } catch (_e) {
+            return false;
+          }
+          return parsed.isEquivalent(requested);
+        })
+      )
     );
   }
 }

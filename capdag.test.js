@@ -1953,7 +1953,12 @@ function test331_cartridgeRepoClientGetSuggestions() {
 
   assert(suggestions.length === 1, 'Should find 1 suggestion');
   assert(suggestions[0].cartridgeId === 'pdfcartridge', 'Should suggest pdfcartridge');
-  assert(suggestions[0].capUrn === disbindCap, 'Should have correct cap URN');
+  // The returned capUrn is the canonical (normalized) form. Compare via
+  // tagged-URN equivalence rather than string equality so a tag-order
+  // difference between the request and the canonical form is tolerated.
+  const requested = CapUrn.fromString(disbindCap);
+  const returned = CapUrn.fromString(suggestions[0].capUrn);
+  assert(returned.isEquivalent(requested), 'Should have equivalent cap URN');
   assert(suggestions[0].capTitle === 'Disbind PDF', 'Should have cap title');
 }
 
