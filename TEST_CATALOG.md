@@ -119,53 +119,53 @@ This catalog lists all tests in the JS codebase.
 | test309 | `test309_modelAvailabilityAndPathAreDistinct` | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs | capdag.test.js:1392 |
 | test310 | `test310_llmGenerateTextUrn` | TEST310: llm_generate_text_urn() produces a valid cap URN with textable in/out specs | capdag.test.js:1399 |
 | test312 | `test312_allUrnBuildersProduceValidUrns` | TEST312: Test all URN builders produce parseable cap URNs | capdag.test.js:1422 |
-| test320 | `test320_cartridgeInfoConstruction` | TEST320-335: CartridgeRepoServer and CartridgeRepoClient tests | capdag.test.js:1784 |
-| test321 | `test321_cartridgeInfoIsSigned` | TEST321: CartridgeInfo.is_signed() returns true when signature is present | capdag.test.js:1817 |
-| test322 | `test322_cartridgeInfoBuildForPlatform` | TEST322: CartridgeInfo.build_for_platform() returns the build matching the current platform | capdag.test.js:1829 |
-| test323 | `test323_cartridgeRepoServerValidateRegistry` | TEST323: CartridgeRepoServer requires schema 5.0 and rejects older. | capdag.test.js:1863 |
-| test324 | `test324_cartridgeRepoServerTransformToArray` | TEST324: CartridgeRepoServer walks both channels and emits a flat CartridgeInfo array preserving channel provenance. Release entries appear first. | capdag.test.js:1902 |
-| test325 | `test325_cartridgeRepoServerGetCartridges` | TEST325: CartridgeRepoServer.getCartridges() wraps the transformed flat array (across both channels) in the response envelope. | capdag.test.js:1940 |
-| test326 | `test326_cartridgeRepoServerGetCartridgeById` | TEST326: CartridgeRepoServer.getCartridgeById() requires (channel, id). Same id looked up in the wrong channel must miss — channels are independent namespaces. | capdag.test.js:1954 |
-| test327 | `test327_cartridgeRepoServerSearchCartridges` | TEST327: CartridgeRepoServer.searchCartridges() filters across both channels by name/description/tags/cap titles. Cap URN strings are not substring-matched. | capdag.test.js:1986 |
-| test328 | `test328_cartridgeRepoServerGetByCategory` | TEST328: CartridgeRepoServer.getCartridgesByCategory() filters cartridges by category across both channels. | capdag.test.js:2008 |
-| test329 | `test329_cartridgeRepoServerGetByCap` | TEST329: CartridgeRepoServer.getCartridgesByCap() parses the input URN and matches each declared cap via `conformsTo`. Tag-order differences resolve because matching is order-theoretic, not string. | capdag.test.js:2027 |
-| test330 | `test330_cartridgeRepoClientUpdateCache` | TEST330: CartridgeRepoClient updates its local cache keyed by "<channel>:<id>". The cache holds release and nightly entries independently — the same id is allowed in both. | capdag.test.js:2044 |
-| test331 | `test331_cartridgeRepoClientGetSuggestions` | TEST331: CartridgeRepoClient.getSuggestionsForCap() returns cartridge suggestions with channel propagated onto each suggestion. | capdag.test.js:2061 |
-| test332 | `test332_cartridgeRepoClientGetCartridge` | TEST332: CartridgeRepoClient.getCartridge() requires (channel, id). Same id in the wrong channel must miss. | capdag.test.js:2091 |
-| test333 | `test333_cartridgeRepoClientGetAllCaps` | TEST333: CartridgeRepoClient.getAllAvailableCaps() returns the set of normalized URNs across both channels. | capdag.test.js:2125 |
-| test334 | `test334_cartridgeRepoClientNeedsSync` | TEST334: CartridgeRepoClient.needsSync() returns true when cache is empty / stale, false right after a fresh update. | capdag.test.js:2142 |
-| test335 | `test335_cartridgeRepoServerClientIntegration` | TEST335: Round-trip: server produces a v5.0 response, client consumes it, channel provenance is preserved end-to-end. | capdag.test.js:2161 |
-| test639 | `test639_emptyCapDefaultsToMediaWildcard` | TEST639: cap: (empty) defaults to in=media:;out=media: | capdag.test.js:2469 |
-| test640 | `test640_inOnlyDefaultsOutToMedia` | TEST640: cap:in defaults out to media: | capdag.test.js:2477 |
-| test641 | `test641_outOnlyDefaultsInToMedia` | TEST641: cap:out defaults in to media: | capdag.test.js:2484 |
-| test642 | `test642_inOutWithoutValuesBecomeMedia` | TEST642: cap:in;out both become media: | capdag.test.js:2491 |
-| test643 | `test643_explicitAsteriskIsWildcard` | TEST643: cap:in=*;out=* becomes media: | capdag.test.js:2498 |
-| test644 | `test644_specificInWildcardOut` | TEST644: cap:in=media:;out=* has specific in, wildcard out | capdag.test.js:2505 |
-| test645 | `test645_wildcardInSpecificOut` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | capdag.test.js:2512 |
-| test646 | `test646_invalidInSpecFails` | TEST646: cap:in=foo fails (invalid media URN) | capdag.test.js:2519 |
-| test647 | `test647_invalidOutSpecFails` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | capdag.test.js:2528 |
-| test648 | `test648_wildcardAcceptsSpecific` | TEST648: Wildcard in/out match specific caps | capdag.test.js:2537 |
-| test649 | `test649_specificityScoring` | TEST649: Specificity - wildcard has 0, specific has tag count | capdag.test.js:2546 |
-| test651 | `test651_identityFormsEquivalent` | TEST651: All identity forms produce the same CapUrn | capdag.test.js:2557 |
-| test653 | `test653_identityRoutingIsolation` | TEST653: Identity (no tags) does not match specific requests via routing | capdag.test.js:2577 |
+| test320 | `test320_cartridgeInfoConstruction` | TEST320-335: CartridgeRepoServer and CartridgeRepoClient tests | capdag.test.js:1785 |
+| test321 | `test321_cartridgeInfoIsSigned` | TEST321: CartridgeInfo.is_signed() returns true when signature is present | capdag.test.js:1819 |
+| test322 | `test322_cartridgeInfoBuildForPlatform` | TEST322: CartridgeInfo.build_for_platform() returns the build matching the current platform | capdag.test.js:1831 |
+| test323 | `test323_cartridgeRepoServerValidateRegistry` | TEST323: CartridgeRepoServer requires schema 5.0 and rejects older. | capdag.test.js:1865 |
+| test324 | `test324_cartridgeRepoServerTransformToArray` | TEST324: CartridgeRepoServer walks both channels and emits a flat CartridgeInfo array preserving channel provenance. Release entries appear first. | capdag.test.js:1904 |
+| test325 | `test325_cartridgeRepoServerGetCartridges` | TEST325: CartridgeRepoServer.getCartridges() wraps the transformed flat array (across both channels) in the response envelope. | capdag.test.js:1942 |
+| test326 | `test326_cartridgeRepoServerGetCartridgeById` | TEST326: CartridgeRepoServer.getCartridgeById() requires (channel, id). Same id looked up in the wrong channel must miss — channels are independent namespaces. | capdag.test.js:1956 |
+| test327 | `test327_cartridgeRepoServerSearchCartridges` | TEST327: CartridgeRepoServer.searchCartridges() filters across both channels by name/description/tags/cap titles. Cap URN strings are not substring-matched. | capdag.test.js:1988 |
+| test328 | `test328_cartridgeRepoServerGetByCategory` | TEST328: CartridgeRepoServer.getCartridgesByCategory() filters cartridges by category across both channels. | capdag.test.js:2010 |
+| test329 | `test329_cartridgeRepoServerGetByCap` | TEST329: CartridgeRepoServer.getCartridgesByCap() parses the input URN and matches each declared cap via `conformsTo`. Tag-order differences resolve because matching is order-theoretic, not string. | capdag.test.js:2029 |
+| test330 | `test330_cartridgeRepoClientUpdateCache` | TEST330: CartridgeRepoClient updates its local cache keyed by "<channel>:<id>". The cache holds release and nightly entries independently — the same id is allowed in both. | capdag.test.js:2046 |
+| test331 | `test331_cartridgeRepoClientGetSuggestions` | TEST331: CartridgeRepoClient.getSuggestionsForCap() returns cartridge suggestions with channel propagated onto each suggestion. | capdag.test.js:2074 |
+| test332 | `test332_cartridgeRepoClientGetCartridge` | TEST332: CartridgeRepoClient.getCartridge() requires (channel, id). Same id in the wrong channel must miss. | capdag.test.js:2104 |
+| test333 | `test333_cartridgeRepoClientGetAllCaps` | TEST333: CartridgeRepoClient.getAllAvailableCaps() returns the set of normalized URNs across both channels. | capdag.test.js:2149 |
+| test334 | `test334_cartridgeRepoClientNeedsSync` | TEST334: CartridgeRepoClient.needsSync() returns true when cache is empty / stale, false right after a fresh update. | capdag.test.js:2166 |
+| test335 | `test335_cartridgeRepoServerClientIntegration` | TEST335: Round-trip: server produces a v5.0 response, client consumes it, channel provenance is preserved end-to-end. | capdag.test.js:2185 |
+| test639 | `test639_emptyCapDefaultsToMediaWildcard` | TEST639: cap: (empty) defaults to in=media:;out=media: | capdag.test.js:2495 |
+| test640 | `test640_inOnlyDefaultsOutToMedia` | TEST640: cap:in defaults out to media: | capdag.test.js:2503 |
+| test641 | `test641_outOnlyDefaultsInToMedia` | TEST641: cap:out defaults in to media: | capdag.test.js:2510 |
+| test642 | `test642_inOutWithoutValuesBecomeMedia` | TEST642: cap:in;out both become media: | capdag.test.js:2517 |
+| test643 | `test643_explicitAsteriskIsWildcard` | TEST643: cap:in=*;out=* becomes media: | capdag.test.js:2524 |
+| test644 | `test644_specificInWildcardOut` | TEST644: cap:in=media:;out=* has specific in, wildcard out | capdag.test.js:2531 |
+| test645 | `test645_wildcardInSpecificOut` | TEST645: cap:in=*;out=media:text has wildcard in, specific out | capdag.test.js:2538 |
+| test646 | `test646_invalidInSpecFails` | TEST646: cap:in=foo fails (invalid media URN) | capdag.test.js:2545 |
+| test647 | `test647_invalidOutSpecFails` | TEST647: cap:in=media:;out=bar fails (invalid media URN) | capdag.test.js:2554 |
+| test648 | `test648_wildcardAcceptsSpecific` | TEST648: Wildcard in/out match specific caps | capdag.test.js:2563 |
+| test649 | `test649_specificityScoring` | TEST649: Specificity - wildcard has 0, specific has tag count | capdag.test.js:2572 |
+| test651 | `test651_identityFormsEquivalent` | TEST651: All identity forms produce the same CapUrn | capdag.test.js:2583 |
+| test653 | `test653_identityRoutingIsolation` | TEST653: Identity (no tags) does not match specific requests via routing | capdag.test.js:2603 |
 | test890 | `test890_directionSemanticMatching` | TEST890: Semantic direction matching - generic provider matches specific request | capdag.test.js:660 |
 | test891 | `test891_directionSemanticSpecificity` | TEST891: Semantic direction specificity - more media URN tags = higher specificity | capdag.test.js:710 |
-| test1294 | `test1294_rule11VoidInputWithStdinRejected` | TEST1294: RULE11 - void-input cap with stdin source rejected | capdag.test.js:2413 |
-| test1295 | `test1295_rule11NonVoidInputWithoutStdinRejected` | TEST1295: RULE11 - non-void-input cap without stdin source rejected | capdag.test.js:2428 |
-| test1296 | `test1296_rule11VoidInputCliFlagOnly` | TEST1296: RULE11 - void-input cap with only cli_flag sources passes | capdag.test.js:2443 |
-| test1297 | `test1297_rule11NonVoidInputWithStdin` | TEST1297: RULE11 - non-void-input cap with stdin source passes | capdag.test.js:2453 |
-| test1298 | `test1298_isBool` | TEST1298: is_bool returns true only when bool marker tag is present | capdag.test.js:2241 |
-| test1299 | `test1299_isFilePath` | TEST1299: isFilePath returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. | capdag.test.js:2255 |
-| test1302 | `test1302_predicateConstantConsistency` | TEST1302: predicates are consistent with constants — every constant triggers exactly the expected predicates | capdag.test.js:2274 |
-| test1303 | `test1303_withoutTag` | TEST1303: without_tag removes tag, ignores in/out, case-insensitive for keys | capdag.test.js:2314 |
-| test1304 | `test1304_withInOutSpec` | TEST1304: with_in_spec and with_out_spec change direction specs | capdag.test.js:2336 |
-| test1305 | `test1305_findAllMatches` | TEST1305: CapMatcher::find_all_matches returns all matching caps sorted by specificity | capdag.test.js:2359 |
-| test1306 | `test1306_areCompatible` | TEST1306: CapMatcher::are_compatible detects bidirectional overlap | capdag.test.js:2377 |
-| test1307 | `test1307_withTagIgnoresInOut` | TEST1307: with_tag silently ignores in/out keys | capdag.test.js:2402 |
-| test1312 | `test1312_isImage` | TEST1312: is_image returns true only when image marker tag is present | capdag.test.js:2196 |
-| test1313 | `test1313_isAudio` | TEST1313: is_audio returns true only when audio marker tag is present | capdag.test.js:2208 |
-| test1314 | `test1314_isVideo` | TEST1314: is_video returns true only when video marker tag is present | capdag.test.js:2219 |
-| test1315 | `test1315_isNumeric` | TEST1315: is_numeric returns true only when numeric marker tag is present | capdag.test.js:2229 |
+| test1294 | `test1294_rule11VoidInputWithStdinRejected` | TEST1294: RULE11 - void-input cap with stdin source rejected | capdag.test.js:2439 |
+| test1295 | `test1295_rule11NonVoidInputWithoutStdinRejected` | TEST1295: RULE11 - non-void-input cap without stdin source rejected | capdag.test.js:2454 |
+| test1296 | `test1296_rule11VoidInputCliFlagOnly` | TEST1296: RULE11 - void-input cap with only cli_flag sources passes | capdag.test.js:2469 |
+| test1297 | `test1297_rule11NonVoidInputWithStdin` | TEST1297: RULE11 - non-void-input cap with stdin source passes | capdag.test.js:2479 |
+| test1298 | `test1298_isBool` | TEST1298: is_bool returns true only when bool marker tag is present | capdag.test.js:2267 |
+| test1299 | `test1299_isFilePath` | TEST1299: isFilePath returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. | capdag.test.js:2281 |
+| test1302 | `test1302_predicateConstantConsistency` | TEST1302: predicates are consistent with constants — every constant triggers exactly the expected predicates | capdag.test.js:2300 |
+| test1303 | `test1303_withoutTag` | TEST1303: without_tag removes tag, ignores in/out, case-insensitive for keys | capdag.test.js:2340 |
+| test1304 | `test1304_withInOutSpec` | TEST1304: with_in_spec and with_out_spec change direction specs | capdag.test.js:2362 |
+| test1305 | `test1305_findAllMatches` | TEST1305: CapMatcher::find_all_matches returns all matching caps sorted by specificity | capdag.test.js:2385 |
+| test1306 | `test1306_areCompatible` | TEST1306: CapMatcher::are_compatible detects bidirectional overlap | capdag.test.js:2403 |
+| test1307 | `test1307_withTagIgnoresInOut` | TEST1307: with_tag silently ignores in/out keys | capdag.test.js:2428 |
+| test1312 | `test1312_isImage` | TEST1312: is_image returns true only when image marker tag is present | capdag.test.js:2222 |
+| test1313 | `test1313_isAudio` | TEST1313: is_audio returns true only when audio marker tag is present | capdag.test.js:2234 |
+| test1314 | `test1314_isVideo` | TEST1314: is_video returns true only when video marker tag is present | capdag.test.js:2245 |
+| test1315 | `test1315_isNumeric` | TEST1315: is_numeric returns true only when numeric marker tag is present | capdag.test.js:2255 |
 | | | | |
 | unnumbered | `testCapGraphAddCapPopulatesEdgesAndNodes` | Add a cap and check it becomes an edge with from/to nodes and carries the registry name we passed. This is exactly the shape the renderer depends on. | capdag.test.js:1161 |
 | unnumbered | `testCapGraphDistinctRegistryNames` | Each edge must carry the registry name it was added with. This is how the renderer colours/groups edges by provenance in browse mode. | capdag.test.js:1200 |
@@ -182,141 +182,141 @@ This catalog lists all tests in the JS codebase.
 | unnumbered | `testJS_stdinSourceKindConstants` |  | capdag.test.js:1612 |
 | unnumbered | `testJS_stdinSourceNullData` |  | capdag.test.js:1618 |
 | unnumbered | `testLlmGenerateTextUrnSpecs` | Mirror-specific coverage: llm_generate_text_urn input/output specs conform to MEDIA_STRING | capdag.test.js:1411 |
-| unnumbered | `testMachine_aliasFallbackWithoutOpTag` |  | capdag.test.js:3253 |
-| unnumbered | `testMachine_aliasFromOpTag` |  | capdag.test.js:3242 |
-| unnumbered | `testMachine_builderChaining` |  | capdag.test.js:3310 |
-| unnumbered | `testMachine_builderEquivalentToParsed` |  | capdag.test.js:3318 |
-| unnumbered | `testMachine_builderRoundTrip` |  | capdag.test.js:3330 |
-| unnumbered | `testMachine_builderSingleEdge` | --- Machine builder tests --- | capdag.test.js:3286 |
-| unnumbered | `testMachine_builderWithLoop` |  | capdag.test.js:3298 |
-| unnumbered | `testMachine_capRegistryClient_construction` |  | capdag.test.js:3611 |
-| unnumbered | `testMachine_capRegistryEntry_construction` | Phase 0B: CapRegistryClient tests | capdag.test.js:3575 |
-| unnumbered | `testMachine_capRegistryEntry_defaults` |  | capdag.test.js:3618 |
-| unnumbered | `testMachine_capUrnInMediaUrn` |  | capdag.test.js:3357 |
-| unnumbered | `testMachine_capUrnIsComparable` |  | capdag.test.js:3350 |
-| unnumbered | `testMachine_capUrnIsEquivalent` | --- CapUrn.isEquivalent/isComparable tests --- | capdag.test.js:3342 |
-| unnumbered | `testMachine_capUrnOutMediaUrn` |  | capdag.test.js:3364 |
-| unnumbered | `testMachine_conflictingMediaTypesFail` |  | capdag.test.js:2723 |
-| unnumbered | `testMachine_differentAliasesSameGraph` |  | capdag.test.js:2745 |
-| unnumbered | `testMachine_displayEdge` |  | capdag.test.js:3089 |
-| unnumbered | `testMachine_displayGraph` |  | capdag.test.js:3100 |
-| unnumbered | `testMachine_duplicateAlias` |  | capdag.test.js:2616 |
-| unnumbered | `testMachine_duplicateOpTagsDisambiguated` |  | capdag.test.js:3264 |
-| unnumbered | `testMachine_edgeEquivalenceDifferentCapUrns` |  | capdag.test.js:2900 |
-| unnumbered | `testMachine_edgeEquivalenceDifferentLoopFlag` |  | capdag.test.js:2932 |
-| unnumbered | `testMachine_edgeEquivalenceDifferentSourceCount` |  | capdag.test.js:2964 |
-| unnumbered | `testMachine_edgeEquivalenceDifferentTargets` |  | capdag.test.js:2916 |
-| unnumbered | `testMachine_edgeEquivalenceSameUrns` | --- Machine graph tests (mirrors graph.rs tests) --- | capdag.test.js:2884 |
-| unnumbered | `testMachine_edgeEquivalenceSourceOrderIndependent` |  | capdag.test.js:2948 |
-| unnumbered | `testMachine_emptyInput` | --- Machine parser tests (mirrors parser.rs tests) --- | capdag.test.js:2601 |
-| unnumbered | `testMachine_errorLocation_duplicateAlias` |  | capdag.test.js:3484 |
-| unnumbered | `testMachine_errorLocation_parseError` |  | capdag.test.js:3474 |
-| unnumbered | `testMachine_errorLocation_undefinedAlias` |  | capdag.test.js:3498 |
-| unnumbered | `testMachine_fanInSecondaryAssignedByPriorWiring` |  | capdag.test.js:2673 |
-| unnumbered | `testMachine_fanInSecondaryUnassignedGetsWildcard` |  | capdag.test.js:2686 |
-| unnumbered | `testMachine_fanOut` |  | capdag.test.js:2656 |
-| unnumbered | `testMachine_graphEmpty` |  | capdag.test.js:3037 |
-| unnumbered | `testMachine_graphEmptyEquivalence` |  | capdag.test.js:3043 |
-| unnumbered | `testMachine_graphEquivalenceReorderedEdges` |  | capdag.test.js:2995 |
-| unnumbered | `testMachine_graphEquivalenceSameEdges` |  | capdag.test.js:2980 |
-| unnumbered | `testMachine_graphNotEquivalentDifferentCap` |  | capdag.test.js:3024 |
-| unnumbered | `testMachine_graphNotEquivalentDifferentEdgeCount` |  | capdag.test.js:3010 |
-| unnumbered | `testMachine_headerOnlyNoWirings` |  | capdag.test.js:2609 |
-| unnumbered | `testMachine_leafTargetsLinearChain` |  | capdag.test.js:3063 |
-| unnumbered | `testMachine_lineBasedAndBracketedParseSameGraph` |  | capdag.test.js:2858 |
-| unnumbered | `testMachine_lineBasedEquivalentToBracketed` |  | capdag.test.js:2826 |
-| unnumbered | `testMachine_lineBasedFanIn` |  | capdag.test.js:2805 |
-| unnumbered | `testMachine_lineBasedFormatSerialization` |  | capdag.test.js:2838 |
-| unnumbered | `testMachine_lineBasedLoop` |  | capdag.test.js:2796 |
-| unnumbered | `testMachine_lineBasedSimpleChain` | --- Machine parser line-based mode tests --- | capdag.test.js:2773 |
-| unnumbered | `testMachine_lineBasedTwoStepChain` |  | capdag.test.js:2786 |
-| unnumbered | `testMachine_loopEdge` |  | capdag.test.js:2697 |
-| unnumbered | `testMachine_malformedInputFails` |  | capdag.test.js:2757 |
-| unnumbered | `testMachine_mediaRegistryEntry_construction` |  | capdag.test.js:3598 |
-| unnumbered | `testMachine_mediaUrnIsComparable` |  | capdag.test.js:3381 |
-| unnumbered | `testMachine_mediaUrnIsEquivalent` | --- MediaUrn.isEquivalent/isComparable tests --- | capdag.test.js:3373 |
-| unnumbered | `testMachine_mixedBracketedAndLineBased` |  | capdag.test.js:2818 |
-| unnumbered | `testMachine_multilineFormat` |  | capdag.test.js:2735 |
-| unnumbered | `testMachine_multilineSerializeFormat` |  | capdag.test.js:3228 |
-| unnumbered | `testMachine_nodeAliasCollision` |  | capdag.test.js:2713 |
-| unnumbered | `testMachine_parseMachineWithAST_aliasMap` |  | capdag.test.js:3444 |
-| unnumbered | `testMachine_parseMachineWithAST_fanInSourceLocations` |  | capdag.test.js:3433 |
-| unnumbered | `testMachine_parseMachineWithAST_headerLocation` | Phase 0A: Position tracking tests | capdag.test.js:3394 |
-| unnumbered | `testMachine_parseMachineWithAST_multilinePositions` |  | capdag.test.js:3424 |
-| unnumbered | `testMachine_parseMachineWithAST_nodeMedia` |  | capdag.test.js:3462 |
-| unnumbered | `testMachine_parseMachineWithAST_wiringLocation` |  | capdag.test.js:3410 |
-| unnumbered | `testMachine_reorderedEdgesProduceSameNotation` |  | capdag.test.js:3212 |
-| unnumbered | `testMachine_rootSourcesFanIn` |  | capdag.test.js:3077 |
-| unnumbered | `testMachine_rootSourcesLinearChain` |  | capdag.test.js:3049 |
-| unnumbered | `testMachine_roundtripFanOut` |  | capdag.test.js:3171 |
-| unnumbered | `testMachine_roundtripLoopEdge` |  | capdag.test.js:3186 |
-| unnumbered | `testMachine_roundtripSingleEdge` |  | capdag.test.js:3144 |
-| unnumbered | `testMachine_roundtripTwoEdgeChain` |  | capdag.test.js:3157 |
-| unnumbered | `testMachine_serializationIsDeterministic` |  | capdag.test.js:3199 |
-| unnumbered | `testMachine_serializeEmptyGraph` |  | capdag.test.js:3140 |
-| unnumbered | `testMachine_serializeSingleEdge` | --- Machine serializer tests (mirrors serializer.rs tests) --- | capdag.test.js:3113 |
-| unnumbered | `testMachine_serializeTwoEdgeChain` |  | capdag.test.js:3127 |
-| unnumbered | `testMachine_simpleLinearChain` |  | capdag.test.js:2627 |
-| unnumbered | `testMachine_toMermaid_emptyGraph` |  | capdag.test.js:3538 |
-| unnumbered | `testMachine_toMermaid_fanIn` |  | capdag.test.js:3544 |
-| unnumbered | `testMachine_toMermaid_fanOut` |  | capdag.test.js:3555 |
-| unnumbered | `testMachine_toMermaid_linearChain` | Phase 0C: Machine.toMermaid() tests | capdag.test.js:3512 |
-| unnumbered | `testMachine_toMermaid_loopEdge` |  | capdag.test.js:3527 |
-| unnumbered | `testMachine_twoStepChain` |  | capdag.test.js:2642 |
-| unnumbered | `testMachine_undefinedAliasFails` |  | capdag.test.js:2706 |
-| unnumbered | `testMachine_unterminatedBracketFails` |  | capdag.test.js:2764 |
-| unnumbered | `testMachine_whitespaceOnly` |  | capdag.test.js:2605 |
-| unnumbered | `testRenderer_buildBrowseGraphData_rejectsMissingMediaTitles` |  | capdag.test.js:3813 |
-| unnumbered | `testRenderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped` |  | capdag.test.js:4941 |
-| unnumbered | `testRenderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags` |  | capdag.test.js:4922 |
-| unnumbered | `testRenderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges` |  | capdag.test.js:4866 |
-| unnumbered | `testRenderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass` |  | capdag.test.js:4904 |
-| unnumbered | `testRenderer_buildEditorGraphData_rejectsEdgeWithMissingSource` |  | capdag.test.js:4958 |
-| unnumbered | `testRenderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard` |  | capdag.test.js:5168 |
-| unnumbered | `testRenderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment` |  | capdag.test.js:5066 |
-| unnumbered | `testRenderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass` |  | capdag.test.js:5032 |
-| unnumbered | `testRenderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint` |  | capdag.test.js:5106 |
-| unnumbered | `testRenderer_buildResolvedMachineGraphData_singleStrandLinearChain` | ---------------- resolved-machine builder ---------------- | capdag.test.js:4974 |
-| unnumbered | `testRenderer_buildRunGraphData_allFailedDropsTargetPlaceholder` |  | capdag.test.js:4671 |
-| unnumbered | `testRenderer_buildRunGraphData_backboneHasNoForeachNode` |  | capdag.test.js:4617 |
-| unnumbered | `testRenderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget` |  | capdag.test.js:4797 |
-| unnumbered | `testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace` |  | capdag.test.js:4520 |
-| unnumbered | `testRenderer_buildRunGraphData_pagesSuccessesAndFailures` |  | capdag.test.js:4450 |
-| unnumbered | `testRenderer_buildRunGraphData_unclosedForeachSuccessNoMerge` |  | capdag.test.js:4736 |
-| unnumbered | `testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap` |  | capdag.test.js:4558 |
-| unnumbered | `testRenderer_buildStrandGraphData_foreachCollectSpan` |  | capdag.test.js:4007 |
-| unnumbered | `testRenderer_buildStrandGraphData_nestedForEachThrows` |  | capdag.test.js:4122 |
-| unnumbered | `testRenderer_buildStrandGraphData_sequenceShowsCardinality` |  | capdag.test.js:3987 |
-| unnumbered | `testRenderer_buildStrandGraphData_singleCapPlain` |  | capdag.test.js:3960 |
-| unnumbered | `testRenderer_buildStrandGraphData_standaloneCollect` |  | capdag.test.js:4058 |
-| unnumbered | `testRenderer_buildStrandGraphData_unclosedForEachBody` |  | capdag.test.js:4085 |
-| unnumbered | `testRenderer_canonicalMediaUrn_normalizesTagOrder` |  | capdag.test.js:3773 |
-| unnumbered | `testRenderer_canonicalMediaUrn_preservesValueTags` |  | capdag.test.js:3782 |
-| unnumbered | `testRenderer_canonicalMediaUrn_rejectsCapUrn` |  | capdag.test.js:3787 |
-| unnumbered | `testRenderer_cardinalityFromCap_findsStdinArgNotFirstArg` |  | capdag.test.js:3698 |
-| unnumbered | `testRenderer_cardinalityFromCap_outputOnlySequence` |  | capdag.test.js:3730 |
-| unnumbered | `testRenderer_cardinalityFromCap_rejectsStringIsSequence` |  | capdag.test.js:3741 |
-| unnumbered | `testRenderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing` |  | capdag.test.js:3722 |
-| unnumbered | `testRenderer_cardinalityFromCap_throwsOnNonObject` |  | capdag.test.js:3754 |
-| unnumbered | `testRenderer_cardinalityLabel_allFourCases` |  | capdag.test.js:3683 |
-| unnumbered | `testRenderer_cardinalityLabel_usesUnicodeArrow` |  | capdag.test.js:3690 |
-| unnumbered | `testRenderer_classifyStrandCapSteps_capFlags` |  | capdag.test.js:3909 |
-| unnumbered | `testRenderer_classifyStrandCapSteps_nestedForks` |  | capdag.test.js:3930 |
-| unnumbered | `testRenderer_collapseStrand_plainCapDistinctTargetNoMerge` |  | capdag.test.js:4401 |
-| unnumbered | `testRenderer_collapseStrand_plainCapMergesTrailingOutput` |  | capdag.test.js:4365 |
-| unnumbered | `testRenderer_collapseStrand_sequenceProducingCapBeforeForeach` |  | capdag.test.js:4301 |
-| unnumbered | `testRenderer_collapseStrand_singleCapBodyKeepsCapOwnLabel` |  | capdag.test.js:4150 |
-| unnumbered | `testRenderer_collapseStrand_standaloneCollectCollapses` |  | capdag.test.js:4258 |
-| unnumbered | `testRenderer_collapseStrand_unclosedForEachBodyCollapses` |  | capdag.test.js:4202 |
-| unnumbered | `testRenderer_mediaNodeLabel_rejectsUrnDerivedLabels` |  | capdag.test.js:3799 |
-| unnumbered | `testRenderer_validateBodyOutcome_rejectsNegativeIndex` | ---------------- run builder ---------------- | capdag.test.js:4440 |
-| unnumbered | `testRenderer_validateEditorGraphPayload_rejectsUnknownKind` | ---------------- editor-graph builder ---------------- | capdag.test.js:4852 |
-| unnumbered | `testRenderer_validateResolvedMachinePayload_rejectsMissingFields` |  | capdag.test.js:5203 |
-| unnumbered | `testRenderer_validateStrandPayload_missingSourceSpec` |  | capdag.test.js:4427 |
-| unnumbered | `testRenderer_validateStrandStep_rejectsUnknownVariant` |  | capdag.test.js:3870 |
-| unnumbered | `testRenderer_validateStrandStep_requiresBooleanIsSequence` |  | capdag.test.js:3887 |
+| unnumbered | `testMachine_aliasFallbackWithoutOpTag` |  | capdag.test.js:3279 |
+| unnumbered | `testMachine_aliasFromOpTag` |  | capdag.test.js:3268 |
+| unnumbered | `testMachine_builderChaining` |  | capdag.test.js:3336 |
+| unnumbered | `testMachine_builderEquivalentToParsed` |  | capdag.test.js:3344 |
+| unnumbered | `testMachine_builderRoundTrip` |  | capdag.test.js:3356 |
+| unnumbered | `testMachine_builderSingleEdge` | --- Machine builder tests --- | capdag.test.js:3312 |
+| unnumbered | `testMachine_builderWithLoop` |  | capdag.test.js:3324 |
+| unnumbered | `testMachine_capRegistryClient_construction` |  | capdag.test.js:3637 |
+| unnumbered | `testMachine_capRegistryEntry_construction` | Phase 0B: CapRegistryClient tests | capdag.test.js:3601 |
+| unnumbered | `testMachine_capRegistryEntry_defaults` |  | capdag.test.js:3644 |
+| unnumbered | `testMachine_capUrnInMediaUrn` |  | capdag.test.js:3383 |
+| unnumbered | `testMachine_capUrnIsComparable` |  | capdag.test.js:3376 |
+| unnumbered | `testMachine_capUrnIsEquivalent` | --- CapUrn.isEquivalent/isComparable tests --- | capdag.test.js:3368 |
+| unnumbered | `testMachine_capUrnOutMediaUrn` |  | capdag.test.js:3390 |
+| unnumbered | `testMachine_conflictingMediaTypesFail` |  | capdag.test.js:2749 |
+| unnumbered | `testMachine_differentAliasesSameGraph` |  | capdag.test.js:2771 |
+| unnumbered | `testMachine_displayEdge` |  | capdag.test.js:3115 |
+| unnumbered | `testMachine_displayGraph` |  | capdag.test.js:3126 |
+| unnumbered | `testMachine_duplicateAlias` |  | capdag.test.js:2642 |
+| unnumbered | `testMachine_duplicateOpTagsDisambiguated` |  | capdag.test.js:3290 |
+| unnumbered | `testMachine_edgeEquivalenceDifferentCapUrns` |  | capdag.test.js:2926 |
+| unnumbered | `testMachine_edgeEquivalenceDifferentLoopFlag` |  | capdag.test.js:2958 |
+| unnumbered | `testMachine_edgeEquivalenceDifferentSourceCount` |  | capdag.test.js:2990 |
+| unnumbered | `testMachine_edgeEquivalenceDifferentTargets` |  | capdag.test.js:2942 |
+| unnumbered | `testMachine_edgeEquivalenceSameUrns` | --- Machine graph tests (mirrors graph.rs tests) --- | capdag.test.js:2910 |
+| unnumbered | `testMachine_edgeEquivalenceSourceOrderIndependent` |  | capdag.test.js:2974 |
+| unnumbered | `testMachine_emptyInput` | --- Machine parser tests (mirrors parser.rs tests) --- | capdag.test.js:2627 |
+| unnumbered | `testMachine_errorLocation_duplicateAlias` |  | capdag.test.js:3510 |
+| unnumbered | `testMachine_errorLocation_parseError` |  | capdag.test.js:3500 |
+| unnumbered | `testMachine_errorLocation_undefinedAlias` |  | capdag.test.js:3524 |
+| unnumbered | `testMachine_fanInSecondaryAssignedByPriorWiring` |  | capdag.test.js:2699 |
+| unnumbered | `testMachine_fanInSecondaryUnassignedGetsWildcard` |  | capdag.test.js:2712 |
+| unnumbered | `testMachine_fanOut` |  | capdag.test.js:2682 |
+| unnumbered | `testMachine_graphEmpty` |  | capdag.test.js:3063 |
+| unnumbered | `testMachine_graphEmptyEquivalence` |  | capdag.test.js:3069 |
+| unnumbered | `testMachine_graphEquivalenceReorderedEdges` |  | capdag.test.js:3021 |
+| unnumbered | `testMachine_graphEquivalenceSameEdges` |  | capdag.test.js:3006 |
+| unnumbered | `testMachine_graphNotEquivalentDifferentCap` |  | capdag.test.js:3050 |
+| unnumbered | `testMachine_graphNotEquivalentDifferentEdgeCount` |  | capdag.test.js:3036 |
+| unnumbered | `testMachine_headerOnlyNoWirings` |  | capdag.test.js:2635 |
+| unnumbered | `testMachine_leafTargetsLinearChain` |  | capdag.test.js:3089 |
+| unnumbered | `testMachine_lineBasedAndBracketedParseSameGraph` |  | capdag.test.js:2884 |
+| unnumbered | `testMachine_lineBasedEquivalentToBracketed` |  | capdag.test.js:2852 |
+| unnumbered | `testMachine_lineBasedFanIn` |  | capdag.test.js:2831 |
+| unnumbered | `testMachine_lineBasedFormatSerialization` |  | capdag.test.js:2864 |
+| unnumbered | `testMachine_lineBasedLoop` |  | capdag.test.js:2822 |
+| unnumbered | `testMachine_lineBasedSimpleChain` | --- Machine parser line-based mode tests --- | capdag.test.js:2799 |
+| unnumbered | `testMachine_lineBasedTwoStepChain` |  | capdag.test.js:2812 |
+| unnumbered | `testMachine_loopEdge` |  | capdag.test.js:2723 |
+| unnumbered | `testMachine_malformedInputFails` |  | capdag.test.js:2783 |
+| unnumbered | `testMachine_mediaRegistryEntry_construction` |  | capdag.test.js:3624 |
+| unnumbered | `testMachine_mediaUrnIsComparable` |  | capdag.test.js:3407 |
+| unnumbered | `testMachine_mediaUrnIsEquivalent` | --- MediaUrn.isEquivalent/isComparable tests --- | capdag.test.js:3399 |
+| unnumbered | `testMachine_mixedBracketedAndLineBased` |  | capdag.test.js:2844 |
+| unnumbered | `testMachine_multilineFormat` |  | capdag.test.js:2761 |
+| unnumbered | `testMachine_multilineSerializeFormat` |  | capdag.test.js:3254 |
+| unnumbered | `testMachine_nodeAliasCollision` |  | capdag.test.js:2739 |
+| unnumbered | `testMachine_parseMachineWithAST_aliasMap` |  | capdag.test.js:3470 |
+| unnumbered | `testMachine_parseMachineWithAST_fanInSourceLocations` |  | capdag.test.js:3459 |
+| unnumbered | `testMachine_parseMachineWithAST_headerLocation` | Phase 0A: Position tracking tests | capdag.test.js:3420 |
+| unnumbered | `testMachine_parseMachineWithAST_multilinePositions` |  | capdag.test.js:3450 |
+| unnumbered | `testMachine_parseMachineWithAST_nodeMedia` |  | capdag.test.js:3488 |
+| unnumbered | `testMachine_parseMachineWithAST_wiringLocation` |  | capdag.test.js:3436 |
+| unnumbered | `testMachine_reorderedEdgesProduceSameNotation` |  | capdag.test.js:3238 |
+| unnumbered | `testMachine_rootSourcesFanIn` |  | capdag.test.js:3103 |
+| unnumbered | `testMachine_rootSourcesLinearChain` |  | capdag.test.js:3075 |
+| unnumbered | `testMachine_roundtripFanOut` |  | capdag.test.js:3197 |
+| unnumbered | `testMachine_roundtripLoopEdge` |  | capdag.test.js:3212 |
+| unnumbered | `testMachine_roundtripSingleEdge` |  | capdag.test.js:3170 |
+| unnumbered | `testMachine_roundtripTwoEdgeChain` |  | capdag.test.js:3183 |
+| unnumbered | `testMachine_serializationIsDeterministic` |  | capdag.test.js:3225 |
+| unnumbered | `testMachine_serializeEmptyGraph` |  | capdag.test.js:3166 |
+| unnumbered | `testMachine_serializeSingleEdge` | --- Machine serializer tests (mirrors serializer.rs tests) --- | capdag.test.js:3139 |
+| unnumbered | `testMachine_serializeTwoEdgeChain` |  | capdag.test.js:3153 |
+| unnumbered | `testMachine_simpleLinearChain` |  | capdag.test.js:2653 |
+| unnumbered | `testMachine_toMermaid_emptyGraph` |  | capdag.test.js:3564 |
+| unnumbered | `testMachine_toMermaid_fanIn` |  | capdag.test.js:3570 |
+| unnumbered | `testMachine_toMermaid_fanOut` |  | capdag.test.js:3581 |
+| unnumbered | `testMachine_toMermaid_linearChain` | Phase 0C: Machine.toMermaid() tests | capdag.test.js:3538 |
+| unnumbered | `testMachine_toMermaid_loopEdge` |  | capdag.test.js:3553 |
+| unnumbered | `testMachine_twoStepChain` |  | capdag.test.js:2668 |
+| unnumbered | `testMachine_undefinedAliasFails` |  | capdag.test.js:2732 |
+| unnumbered | `testMachine_unterminatedBracketFails` |  | capdag.test.js:2790 |
+| unnumbered | `testMachine_whitespaceOnly` |  | capdag.test.js:2631 |
+| unnumbered | `testRenderer_buildBrowseGraphData_rejectsMissingMediaTitles` |  | capdag.test.js:3839 |
+| unnumbered | `testRenderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped` |  | capdag.test.js:4967 |
+| unnumbered | `testRenderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags` |  | capdag.test.js:4948 |
+| unnumbered | `testRenderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges` |  | capdag.test.js:4892 |
+| unnumbered | `testRenderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass` |  | capdag.test.js:4930 |
+| unnumbered | `testRenderer_buildEditorGraphData_rejectsEdgeWithMissingSource` |  | capdag.test.js:4984 |
+| unnumbered | `testRenderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard` |  | capdag.test.js:5194 |
+| unnumbered | `testRenderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment` |  | capdag.test.js:5092 |
+| unnumbered | `testRenderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass` |  | capdag.test.js:5058 |
+| unnumbered | `testRenderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint` |  | capdag.test.js:5132 |
+| unnumbered | `testRenderer_buildResolvedMachineGraphData_singleStrandLinearChain` | ---------------- resolved-machine builder ---------------- | capdag.test.js:5000 |
+| unnumbered | `testRenderer_buildRunGraphData_allFailedDropsTargetPlaceholder` |  | capdag.test.js:4697 |
+| unnumbered | `testRenderer_buildRunGraphData_backboneHasNoForeachNode` |  | capdag.test.js:4643 |
+| unnumbered | `testRenderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget` |  | capdag.test.js:4823 |
+| unnumbered | `testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace` |  | capdag.test.js:4546 |
+| unnumbered | `testRenderer_buildRunGraphData_pagesSuccessesAndFailures` |  | capdag.test.js:4476 |
+| unnumbered | `testRenderer_buildRunGraphData_unclosedForeachSuccessNoMerge` |  | capdag.test.js:4762 |
+| unnumbered | `testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap` |  | capdag.test.js:4584 |
+| unnumbered | `testRenderer_buildStrandGraphData_foreachCollectSpan` |  | capdag.test.js:4033 |
+| unnumbered | `testRenderer_buildStrandGraphData_nestedForEachThrows` |  | capdag.test.js:4148 |
+| unnumbered | `testRenderer_buildStrandGraphData_sequenceShowsCardinality` |  | capdag.test.js:4013 |
+| unnumbered | `testRenderer_buildStrandGraphData_singleCapPlain` |  | capdag.test.js:3986 |
+| unnumbered | `testRenderer_buildStrandGraphData_standaloneCollect` |  | capdag.test.js:4084 |
+| unnumbered | `testRenderer_buildStrandGraphData_unclosedForEachBody` |  | capdag.test.js:4111 |
+| unnumbered | `testRenderer_canonicalMediaUrn_normalizesTagOrder` |  | capdag.test.js:3799 |
+| unnumbered | `testRenderer_canonicalMediaUrn_preservesValueTags` |  | capdag.test.js:3808 |
+| unnumbered | `testRenderer_canonicalMediaUrn_rejectsCapUrn` |  | capdag.test.js:3813 |
+| unnumbered | `testRenderer_cardinalityFromCap_findsStdinArgNotFirstArg` |  | capdag.test.js:3724 |
+| unnumbered | `testRenderer_cardinalityFromCap_outputOnlySequence` |  | capdag.test.js:3756 |
+| unnumbered | `testRenderer_cardinalityFromCap_rejectsStringIsSequence` |  | capdag.test.js:3767 |
+| unnumbered | `testRenderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing` |  | capdag.test.js:3748 |
+| unnumbered | `testRenderer_cardinalityFromCap_throwsOnNonObject` |  | capdag.test.js:3780 |
+| unnumbered | `testRenderer_cardinalityLabel_allFourCases` |  | capdag.test.js:3709 |
+| unnumbered | `testRenderer_cardinalityLabel_usesUnicodeArrow` |  | capdag.test.js:3716 |
+| unnumbered | `testRenderer_classifyStrandCapSteps_capFlags` |  | capdag.test.js:3935 |
+| unnumbered | `testRenderer_classifyStrandCapSteps_nestedForks` |  | capdag.test.js:3956 |
+| unnumbered | `testRenderer_collapseStrand_plainCapDistinctTargetNoMerge` |  | capdag.test.js:4427 |
+| unnumbered | `testRenderer_collapseStrand_plainCapMergesTrailingOutput` |  | capdag.test.js:4391 |
+| unnumbered | `testRenderer_collapseStrand_sequenceProducingCapBeforeForeach` |  | capdag.test.js:4327 |
+| unnumbered | `testRenderer_collapseStrand_singleCapBodyKeepsCapOwnLabel` |  | capdag.test.js:4176 |
+| unnumbered | `testRenderer_collapseStrand_standaloneCollectCollapses` |  | capdag.test.js:4284 |
+| unnumbered | `testRenderer_collapseStrand_unclosedForEachBodyCollapses` |  | capdag.test.js:4228 |
+| unnumbered | `testRenderer_mediaNodeLabel_rejectsUrnDerivedLabels` |  | capdag.test.js:3825 |
+| unnumbered | `testRenderer_validateBodyOutcome_rejectsNegativeIndex` | ---------------- run builder ---------------- | capdag.test.js:4466 |
+| unnumbered | `testRenderer_validateEditorGraphPayload_rejectsUnknownKind` | ---------------- editor-graph builder ---------------- | capdag.test.js:4878 |
+| unnumbered | `testRenderer_validateResolvedMachinePayload_rejectsMissingFields` |  | capdag.test.js:5229 |
+| unnumbered | `testRenderer_validateStrandPayload_missingSourceSpec` |  | capdag.test.js:4453 |
+| unnumbered | `testRenderer_validateStrandStep_rejectsUnknownVariant` |  | capdag.test.js:3896 |
+| unnumbered | `testRenderer_validateStrandStep_requiresBooleanIsSequence` |  | capdag.test.js:3913 |
 | unnumbered | `testUrn` |  | capdag.test.js:107 |
-| unnumbered | `testisCollection` | Mirror-specific coverage: isCollection returns true when collection marker tag is present Mirror-specific coverage: N/A for JS (MEDIA_COLLECTION constants removed - no longer exists) | capdag.test.js:2263 |
+| unnumbered | `testisCollection` | Mirror-specific coverage: isCollection returns true when collection marker tag is present Mirror-specific coverage: N/A for JS (MEDIA_COLLECTION constants removed - no longer exists) | capdag.test.js:2289 |
 ---
 
 ## Unnumbered Tests
@@ -338,141 +338,141 @@ The following tests are cataloged but do not currently participate in numeric te
 - `testJS_stdinSourceKindConstants` — capdag.test.js:1612
 - `testJS_stdinSourceNullData` — capdag.test.js:1618
 - `testLlmGenerateTextUrnSpecs` — capdag.test.js:1411
-- `testMachine_aliasFallbackWithoutOpTag` — capdag.test.js:3253
-- `testMachine_aliasFromOpTag` — capdag.test.js:3242
-- `testMachine_builderChaining` — capdag.test.js:3310
-- `testMachine_builderEquivalentToParsed` — capdag.test.js:3318
-- `testMachine_builderRoundTrip` — capdag.test.js:3330
-- `testMachine_builderSingleEdge` — capdag.test.js:3286
-- `testMachine_builderWithLoop` — capdag.test.js:3298
-- `testMachine_capRegistryClient_construction` — capdag.test.js:3611
-- `testMachine_capRegistryEntry_construction` — capdag.test.js:3575
-- `testMachine_capRegistryEntry_defaults` — capdag.test.js:3618
-- `testMachine_capUrnInMediaUrn` — capdag.test.js:3357
-- `testMachine_capUrnIsComparable` — capdag.test.js:3350
-- `testMachine_capUrnIsEquivalent` — capdag.test.js:3342
-- `testMachine_capUrnOutMediaUrn` — capdag.test.js:3364
-- `testMachine_conflictingMediaTypesFail` — capdag.test.js:2723
-- `testMachine_differentAliasesSameGraph` — capdag.test.js:2745
-- `testMachine_displayEdge` — capdag.test.js:3089
-- `testMachine_displayGraph` — capdag.test.js:3100
-- `testMachine_duplicateAlias` — capdag.test.js:2616
-- `testMachine_duplicateOpTagsDisambiguated` — capdag.test.js:3264
-- `testMachine_edgeEquivalenceDifferentCapUrns` — capdag.test.js:2900
-- `testMachine_edgeEquivalenceDifferentLoopFlag` — capdag.test.js:2932
-- `testMachine_edgeEquivalenceDifferentSourceCount` — capdag.test.js:2964
-- `testMachine_edgeEquivalenceDifferentTargets` — capdag.test.js:2916
-- `testMachine_edgeEquivalenceSameUrns` — capdag.test.js:2884
-- `testMachine_edgeEquivalenceSourceOrderIndependent` — capdag.test.js:2948
-- `testMachine_emptyInput` — capdag.test.js:2601
-- `testMachine_errorLocation_duplicateAlias` — capdag.test.js:3484
-- `testMachine_errorLocation_parseError` — capdag.test.js:3474
-- `testMachine_errorLocation_undefinedAlias` — capdag.test.js:3498
-- `testMachine_fanInSecondaryAssignedByPriorWiring` — capdag.test.js:2673
-- `testMachine_fanInSecondaryUnassignedGetsWildcard` — capdag.test.js:2686
-- `testMachine_fanOut` — capdag.test.js:2656
-- `testMachine_graphEmpty` — capdag.test.js:3037
-- `testMachine_graphEmptyEquivalence` — capdag.test.js:3043
-- `testMachine_graphEquivalenceReorderedEdges` — capdag.test.js:2995
-- `testMachine_graphEquivalenceSameEdges` — capdag.test.js:2980
-- `testMachine_graphNotEquivalentDifferentCap` — capdag.test.js:3024
-- `testMachine_graphNotEquivalentDifferentEdgeCount` — capdag.test.js:3010
-- `testMachine_headerOnlyNoWirings` — capdag.test.js:2609
-- `testMachine_leafTargetsLinearChain` — capdag.test.js:3063
-- `testMachine_lineBasedAndBracketedParseSameGraph` — capdag.test.js:2858
-- `testMachine_lineBasedEquivalentToBracketed` — capdag.test.js:2826
-- `testMachine_lineBasedFanIn` — capdag.test.js:2805
-- `testMachine_lineBasedFormatSerialization` — capdag.test.js:2838
-- `testMachine_lineBasedLoop` — capdag.test.js:2796
-- `testMachine_lineBasedSimpleChain` — capdag.test.js:2773
-- `testMachine_lineBasedTwoStepChain` — capdag.test.js:2786
-- `testMachine_loopEdge` — capdag.test.js:2697
-- `testMachine_malformedInputFails` — capdag.test.js:2757
-- `testMachine_mediaRegistryEntry_construction` — capdag.test.js:3598
-- `testMachine_mediaUrnIsComparable` — capdag.test.js:3381
-- `testMachine_mediaUrnIsEquivalent` — capdag.test.js:3373
-- `testMachine_mixedBracketedAndLineBased` — capdag.test.js:2818
-- `testMachine_multilineFormat` — capdag.test.js:2735
-- `testMachine_multilineSerializeFormat` — capdag.test.js:3228
-- `testMachine_nodeAliasCollision` — capdag.test.js:2713
-- `testMachine_parseMachineWithAST_aliasMap` — capdag.test.js:3444
-- `testMachine_parseMachineWithAST_fanInSourceLocations` — capdag.test.js:3433
-- `testMachine_parseMachineWithAST_headerLocation` — capdag.test.js:3394
-- `testMachine_parseMachineWithAST_multilinePositions` — capdag.test.js:3424
-- `testMachine_parseMachineWithAST_nodeMedia` — capdag.test.js:3462
-- `testMachine_parseMachineWithAST_wiringLocation` — capdag.test.js:3410
-- `testMachine_reorderedEdgesProduceSameNotation` — capdag.test.js:3212
-- `testMachine_rootSourcesFanIn` — capdag.test.js:3077
-- `testMachine_rootSourcesLinearChain` — capdag.test.js:3049
-- `testMachine_roundtripFanOut` — capdag.test.js:3171
-- `testMachine_roundtripLoopEdge` — capdag.test.js:3186
-- `testMachine_roundtripSingleEdge` — capdag.test.js:3144
-- `testMachine_roundtripTwoEdgeChain` — capdag.test.js:3157
-- `testMachine_serializationIsDeterministic` — capdag.test.js:3199
-- `testMachine_serializeEmptyGraph` — capdag.test.js:3140
-- `testMachine_serializeSingleEdge` — capdag.test.js:3113
-- `testMachine_serializeTwoEdgeChain` — capdag.test.js:3127
-- `testMachine_simpleLinearChain` — capdag.test.js:2627
-- `testMachine_toMermaid_emptyGraph` — capdag.test.js:3538
-- `testMachine_toMermaid_fanIn` — capdag.test.js:3544
-- `testMachine_toMermaid_fanOut` — capdag.test.js:3555
-- `testMachine_toMermaid_linearChain` — capdag.test.js:3512
-- `testMachine_toMermaid_loopEdge` — capdag.test.js:3527
-- `testMachine_twoStepChain` — capdag.test.js:2642
-- `testMachine_undefinedAliasFails` — capdag.test.js:2706
-- `testMachine_unterminatedBracketFails` — capdag.test.js:2764
-- `testMachine_whitespaceOnly` — capdag.test.js:2605
-- `testRenderer_buildBrowseGraphData_rejectsMissingMediaTitles` — capdag.test.js:3813
-- `testRenderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped` — capdag.test.js:4941
-- `testRenderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags` — capdag.test.js:4922
-- `testRenderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges` — capdag.test.js:4866
-- `testRenderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass` — capdag.test.js:4904
-- `testRenderer_buildEditorGraphData_rejectsEdgeWithMissingSource` — capdag.test.js:4958
-- `testRenderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard` — capdag.test.js:5168
-- `testRenderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment` — capdag.test.js:5066
-- `testRenderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass` — capdag.test.js:5032
-- `testRenderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint` — capdag.test.js:5106
-- `testRenderer_buildResolvedMachineGraphData_singleStrandLinearChain` — capdag.test.js:4974
-- `testRenderer_buildRunGraphData_allFailedDropsTargetPlaceholder` — capdag.test.js:4671
-- `testRenderer_buildRunGraphData_backboneHasNoForeachNode` — capdag.test.js:4617
-- `testRenderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget` — capdag.test.js:4797
-- `testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace` — capdag.test.js:4520
-- `testRenderer_buildRunGraphData_pagesSuccessesAndFailures` — capdag.test.js:4450
-- `testRenderer_buildRunGraphData_unclosedForeachSuccessNoMerge` — capdag.test.js:4736
-- `testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap` — capdag.test.js:4558
-- `testRenderer_buildStrandGraphData_foreachCollectSpan` — capdag.test.js:4007
-- `testRenderer_buildStrandGraphData_nestedForEachThrows` — capdag.test.js:4122
-- `testRenderer_buildStrandGraphData_sequenceShowsCardinality` — capdag.test.js:3987
-- `testRenderer_buildStrandGraphData_singleCapPlain` — capdag.test.js:3960
-- `testRenderer_buildStrandGraphData_standaloneCollect` — capdag.test.js:4058
-- `testRenderer_buildStrandGraphData_unclosedForEachBody` — capdag.test.js:4085
-- `testRenderer_canonicalMediaUrn_normalizesTagOrder` — capdag.test.js:3773
-- `testRenderer_canonicalMediaUrn_preservesValueTags` — capdag.test.js:3782
-- `testRenderer_canonicalMediaUrn_rejectsCapUrn` — capdag.test.js:3787
-- `testRenderer_cardinalityFromCap_findsStdinArgNotFirstArg` — capdag.test.js:3698
-- `testRenderer_cardinalityFromCap_outputOnlySequence` — capdag.test.js:3730
-- `testRenderer_cardinalityFromCap_rejectsStringIsSequence` — capdag.test.js:3741
-- `testRenderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing` — capdag.test.js:3722
-- `testRenderer_cardinalityFromCap_throwsOnNonObject` — capdag.test.js:3754
-- `testRenderer_cardinalityLabel_allFourCases` — capdag.test.js:3683
-- `testRenderer_cardinalityLabel_usesUnicodeArrow` — capdag.test.js:3690
-- `testRenderer_classifyStrandCapSteps_capFlags` — capdag.test.js:3909
-- `testRenderer_classifyStrandCapSteps_nestedForks` — capdag.test.js:3930
-- `testRenderer_collapseStrand_plainCapDistinctTargetNoMerge` — capdag.test.js:4401
-- `testRenderer_collapseStrand_plainCapMergesTrailingOutput` — capdag.test.js:4365
-- `testRenderer_collapseStrand_sequenceProducingCapBeforeForeach` — capdag.test.js:4301
-- `testRenderer_collapseStrand_singleCapBodyKeepsCapOwnLabel` — capdag.test.js:4150
-- `testRenderer_collapseStrand_standaloneCollectCollapses` — capdag.test.js:4258
-- `testRenderer_collapseStrand_unclosedForEachBodyCollapses` — capdag.test.js:4202
-- `testRenderer_mediaNodeLabel_rejectsUrnDerivedLabels` — capdag.test.js:3799
-- `testRenderer_validateBodyOutcome_rejectsNegativeIndex` — capdag.test.js:4440
-- `testRenderer_validateEditorGraphPayload_rejectsUnknownKind` — capdag.test.js:4852
-- `testRenderer_validateResolvedMachinePayload_rejectsMissingFields` — capdag.test.js:5203
-- `testRenderer_validateStrandPayload_missingSourceSpec` — capdag.test.js:4427
-- `testRenderer_validateStrandStep_rejectsUnknownVariant` — capdag.test.js:3870
-- `testRenderer_validateStrandStep_requiresBooleanIsSequence` — capdag.test.js:3887
+- `testMachine_aliasFallbackWithoutOpTag` — capdag.test.js:3279
+- `testMachine_aliasFromOpTag` — capdag.test.js:3268
+- `testMachine_builderChaining` — capdag.test.js:3336
+- `testMachine_builderEquivalentToParsed` — capdag.test.js:3344
+- `testMachine_builderRoundTrip` — capdag.test.js:3356
+- `testMachine_builderSingleEdge` — capdag.test.js:3312
+- `testMachine_builderWithLoop` — capdag.test.js:3324
+- `testMachine_capRegistryClient_construction` — capdag.test.js:3637
+- `testMachine_capRegistryEntry_construction` — capdag.test.js:3601
+- `testMachine_capRegistryEntry_defaults` — capdag.test.js:3644
+- `testMachine_capUrnInMediaUrn` — capdag.test.js:3383
+- `testMachine_capUrnIsComparable` — capdag.test.js:3376
+- `testMachine_capUrnIsEquivalent` — capdag.test.js:3368
+- `testMachine_capUrnOutMediaUrn` — capdag.test.js:3390
+- `testMachine_conflictingMediaTypesFail` — capdag.test.js:2749
+- `testMachine_differentAliasesSameGraph` — capdag.test.js:2771
+- `testMachine_displayEdge` — capdag.test.js:3115
+- `testMachine_displayGraph` — capdag.test.js:3126
+- `testMachine_duplicateAlias` — capdag.test.js:2642
+- `testMachine_duplicateOpTagsDisambiguated` — capdag.test.js:3290
+- `testMachine_edgeEquivalenceDifferentCapUrns` — capdag.test.js:2926
+- `testMachine_edgeEquivalenceDifferentLoopFlag` — capdag.test.js:2958
+- `testMachine_edgeEquivalenceDifferentSourceCount` — capdag.test.js:2990
+- `testMachine_edgeEquivalenceDifferentTargets` — capdag.test.js:2942
+- `testMachine_edgeEquivalenceSameUrns` — capdag.test.js:2910
+- `testMachine_edgeEquivalenceSourceOrderIndependent` — capdag.test.js:2974
+- `testMachine_emptyInput` — capdag.test.js:2627
+- `testMachine_errorLocation_duplicateAlias` — capdag.test.js:3510
+- `testMachine_errorLocation_parseError` — capdag.test.js:3500
+- `testMachine_errorLocation_undefinedAlias` — capdag.test.js:3524
+- `testMachine_fanInSecondaryAssignedByPriorWiring` — capdag.test.js:2699
+- `testMachine_fanInSecondaryUnassignedGetsWildcard` — capdag.test.js:2712
+- `testMachine_fanOut` — capdag.test.js:2682
+- `testMachine_graphEmpty` — capdag.test.js:3063
+- `testMachine_graphEmptyEquivalence` — capdag.test.js:3069
+- `testMachine_graphEquivalenceReorderedEdges` — capdag.test.js:3021
+- `testMachine_graphEquivalenceSameEdges` — capdag.test.js:3006
+- `testMachine_graphNotEquivalentDifferentCap` — capdag.test.js:3050
+- `testMachine_graphNotEquivalentDifferentEdgeCount` — capdag.test.js:3036
+- `testMachine_headerOnlyNoWirings` — capdag.test.js:2635
+- `testMachine_leafTargetsLinearChain` — capdag.test.js:3089
+- `testMachine_lineBasedAndBracketedParseSameGraph` — capdag.test.js:2884
+- `testMachine_lineBasedEquivalentToBracketed` — capdag.test.js:2852
+- `testMachine_lineBasedFanIn` — capdag.test.js:2831
+- `testMachine_lineBasedFormatSerialization` — capdag.test.js:2864
+- `testMachine_lineBasedLoop` — capdag.test.js:2822
+- `testMachine_lineBasedSimpleChain` — capdag.test.js:2799
+- `testMachine_lineBasedTwoStepChain` — capdag.test.js:2812
+- `testMachine_loopEdge` — capdag.test.js:2723
+- `testMachine_malformedInputFails` — capdag.test.js:2783
+- `testMachine_mediaRegistryEntry_construction` — capdag.test.js:3624
+- `testMachine_mediaUrnIsComparable` — capdag.test.js:3407
+- `testMachine_mediaUrnIsEquivalent` — capdag.test.js:3399
+- `testMachine_mixedBracketedAndLineBased` — capdag.test.js:2844
+- `testMachine_multilineFormat` — capdag.test.js:2761
+- `testMachine_multilineSerializeFormat` — capdag.test.js:3254
+- `testMachine_nodeAliasCollision` — capdag.test.js:2739
+- `testMachine_parseMachineWithAST_aliasMap` — capdag.test.js:3470
+- `testMachine_parseMachineWithAST_fanInSourceLocations` — capdag.test.js:3459
+- `testMachine_parseMachineWithAST_headerLocation` — capdag.test.js:3420
+- `testMachine_parseMachineWithAST_multilinePositions` — capdag.test.js:3450
+- `testMachine_parseMachineWithAST_nodeMedia` — capdag.test.js:3488
+- `testMachine_parseMachineWithAST_wiringLocation` — capdag.test.js:3436
+- `testMachine_reorderedEdgesProduceSameNotation` — capdag.test.js:3238
+- `testMachine_rootSourcesFanIn` — capdag.test.js:3103
+- `testMachine_rootSourcesLinearChain` — capdag.test.js:3075
+- `testMachine_roundtripFanOut` — capdag.test.js:3197
+- `testMachine_roundtripLoopEdge` — capdag.test.js:3212
+- `testMachine_roundtripSingleEdge` — capdag.test.js:3170
+- `testMachine_roundtripTwoEdgeChain` — capdag.test.js:3183
+- `testMachine_serializationIsDeterministic` — capdag.test.js:3225
+- `testMachine_serializeEmptyGraph` — capdag.test.js:3166
+- `testMachine_serializeSingleEdge` — capdag.test.js:3139
+- `testMachine_serializeTwoEdgeChain` — capdag.test.js:3153
+- `testMachine_simpleLinearChain` — capdag.test.js:2653
+- `testMachine_toMermaid_emptyGraph` — capdag.test.js:3564
+- `testMachine_toMermaid_fanIn` — capdag.test.js:3570
+- `testMachine_toMermaid_fanOut` — capdag.test.js:3581
+- `testMachine_toMermaid_linearChain` — capdag.test.js:3538
+- `testMachine_toMermaid_loopEdge` — capdag.test.js:3553
+- `testMachine_twoStepChain` — capdag.test.js:2668
+- `testMachine_undefinedAliasFails` — capdag.test.js:2732
+- `testMachine_unterminatedBracketFails` — capdag.test.js:2790
+- `testMachine_whitespaceOnly` — capdag.test.js:2631
+- `testRenderer_buildBrowseGraphData_rejectsMissingMediaTitles` — capdag.test.js:3839
+- `testRenderer_buildEditorGraphData_capWithoutCompleteArgsIsDropped` — capdag.test.js:4967
+- `testRenderer_buildEditorGraphData_cardinalityFromDataSlotSequenceFlags` — capdag.test.js:4948
+- `testRenderer_buildEditorGraphData_collapsesCapsIntoLabeledEdges` — capdag.test.js:4892
+- `testRenderer_buildEditorGraphData_loopMarkedEdgeGetsLoopClass` — capdag.test.js:4930
+- `testRenderer_buildEditorGraphData_rejectsEdgeWithMissingSource` — capdag.test.js:4984
+- `testRenderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard` — capdag.test.js:5194
+- `testRenderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment` — capdag.test.js:5092
+- `testRenderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass` — capdag.test.js:5058
+- `testRenderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint` — capdag.test.js:5132
+- `testRenderer_buildResolvedMachineGraphData_singleStrandLinearChain` — capdag.test.js:5000
+- `testRenderer_buildRunGraphData_allFailedDropsTargetPlaceholder` — capdag.test.js:4697
+- `testRenderer_buildRunGraphData_backboneHasNoForeachNode` — capdag.test.js:4643
+- `testRenderer_buildRunGraphData_closedForeachSuccessMergesAtCollectTarget` — capdag.test.js:4823
+- `testRenderer_buildRunGraphData_failureWithoutFailedCapRendersFullTrace` — capdag.test.js:4546
+- `testRenderer_buildRunGraphData_pagesSuccessesAndFailures` — capdag.test.js:4476
+- `testRenderer_buildRunGraphData_unclosedForeachSuccessNoMerge` — capdag.test.js:4762
+- `testRenderer_buildRunGraphData_usesCapUrnIsEquivalentForFailedCap` — capdag.test.js:4584
+- `testRenderer_buildStrandGraphData_foreachCollectSpan` — capdag.test.js:4033
+- `testRenderer_buildStrandGraphData_nestedForEachThrows` — capdag.test.js:4148
+- `testRenderer_buildStrandGraphData_sequenceShowsCardinality` — capdag.test.js:4013
+- `testRenderer_buildStrandGraphData_singleCapPlain` — capdag.test.js:3986
+- `testRenderer_buildStrandGraphData_standaloneCollect` — capdag.test.js:4084
+- `testRenderer_buildStrandGraphData_unclosedForEachBody` — capdag.test.js:4111
+- `testRenderer_canonicalMediaUrn_normalizesTagOrder` — capdag.test.js:3799
+- `testRenderer_canonicalMediaUrn_preservesValueTags` — capdag.test.js:3808
+- `testRenderer_canonicalMediaUrn_rejectsCapUrn` — capdag.test.js:3813
+- `testRenderer_cardinalityFromCap_findsStdinArgNotFirstArg` — capdag.test.js:3724
+- `testRenderer_cardinalityFromCap_outputOnlySequence` — capdag.test.js:3756
+- `testRenderer_cardinalityFromCap_rejectsStringIsSequence` — capdag.test.js:3767
+- `testRenderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing` — capdag.test.js:3748
+- `testRenderer_cardinalityFromCap_throwsOnNonObject` — capdag.test.js:3780
+- `testRenderer_cardinalityLabel_allFourCases` — capdag.test.js:3709
+- `testRenderer_cardinalityLabel_usesUnicodeArrow` — capdag.test.js:3716
+- `testRenderer_classifyStrandCapSteps_capFlags` — capdag.test.js:3935
+- `testRenderer_classifyStrandCapSteps_nestedForks` — capdag.test.js:3956
+- `testRenderer_collapseStrand_plainCapDistinctTargetNoMerge` — capdag.test.js:4427
+- `testRenderer_collapseStrand_plainCapMergesTrailingOutput` — capdag.test.js:4391
+- `testRenderer_collapseStrand_sequenceProducingCapBeforeForeach` — capdag.test.js:4327
+- `testRenderer_collapseStrand_singleCapBodyKeepsCapOwnLabel` — capdag.test.js:4176
+- `testRenderer_collapseStrand_standaloneCollectCollapses` — capdag.test.js:4284
+- `testRenderer_collapseStrand_unclosedForEachBodyCollapses` — capdag.test.js:4228
+- `testRenderer_mediaNodeLabel_rejectsUrnDerivedLabels` — capdag.test.js:3825
+- `testRenderer_validateBodyOutcome_rejectsNegativeIndex` — capdag.test.js:4466
+- `testRenderer_validateEditorGraphPayload_rejectsUnknownKind` — capdag.test.js:4878
+- `testRenderer_validateResolvedMachinePayload_rejectsMissingFields` — capdag.test.js:5229
+- `testRenderer_validateStrandPayload_missingSourceSpec` — capdag.test.js:4453
+- `testRenderer_validateStrandStep_rejectsUnknownVariant` — capdag.test.js:3896
+- `testRenderer_validateStrandStep_requiresBooleanIsSequence` — capdag.test.js:3913
 - `testUrn` — capdag.test.js:107
-- `testisCollection` — capdag.test.js:2263
+- `testisCollection` — capdag.test.js:2289
 
 ---
 
