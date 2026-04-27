@@ -1646,6 +1646,7 @@ function testJS_mediaSpecConstruction() {
 const sampleRegistry = {
   schemaVersion: '5.0',
   lastUpdated: '2026-02-07T16:48:28Z',
+  registryUrl: 'https://test.example/manifest',
   channels: {
     release: { cartridges: {
     pdfcartridge: {
@@ -1785,6 +1786,7 @@ function test320_cartridgeInfoConstruction() {
   const data = {
     id: 'testcartridge',
     name: 'Test Cartridge',
+    registryUrl: 'https://test.example/manifest',
     channel: 'release',
     version: '1.0.0',
     description: 'A test',
@@ -1815,20 +1817,20 @@ function test320_cartridgeInfoConstruction() {
 
 // TEST321: CartridgeInfo.is_signed() returns true when signature is present
 function test321_cartridgeInfoIsSigned() {
-  const signed = new CartridgeInfo({id: 'test', channel: 'release', teamId: 'TEAM', signedAt: '2026-01-01', cap_groups: []});
+  const signed = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', teamId: 'TEAM', signedAt: '2026-01-01', cap_groups: []});
   assert(signed.isSigned() === true, 'Cartridge with teamId and signedAt should be signed');
 
-  const unsigned1 = new CartridgeInfo({id: 'test', channel: 'release', teamId: '', signedAt: '2026-01-01', cap_groups: []});
+  const unsigned1 = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', teamId: '', signedAt: '2026-01-01', cap_groups: []});
   assert(unsigned1.isSigned() === false, 'Cartridge without teamId should not be signed');
 
-  const unsigned2 = new CartridgeInfo({id: 'test', channel: 'release', teamId: 'TEAM', signedAt: '', cap_groups: []});
+  const unsigned2 = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', teamId: 'TEAM', signedAt: '', cap_groups: []});
   assert(unsigned2.isSigned() === false, 'Cartridge without signedAt should not be signed');
 }
 
 // TEST322: CartridgeInfo.build_for_platform() returns the build matching the current platform
 function test322_cartridgeInfoBuildForPlatform() {
   const withBuilds = new CartridgeInfo({
-    id: 'test', channel: 'release', version: '1.0.0', cap_groups: [],
+    id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', version: '1.0.0', cap_groups: [],
     versions: {
       '1.0.0': {
         builds: [
@@ -1854,7 +1856,7 @@ function test322_cartridgeInfoBuildForPlatform() {
   assert(platforms.includes('darwin-arm64'), 'Should include darwin-arm64');
   assert(platforms.includes('linux-x86_64'), 'Should include linux-x86_64');
 
-  const noBuilds = new CartridgeInfo({id: 'test', channel: 'release', version: '1.0.0', cap_groups: [], versions: {}, availableVersions: []});
+  const noBuilds = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', version: '1.0.0', cap_groups: [], versions: {}, availableVersions: []});
   assert(noBuilds.buildForPlatform('darwin-arm64') === null, 'Should return null when no versions');
   assert(noBuilds.availablePlatforms().length === 0, 'Should have no platforms');
 }
@@ -1878,7 +1880,7 @@ function test323_cartridgeRepoServerValidateRegistry() {
   // Missing channels object
   threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '5.0'});
+    new CartridgeRepoServer({schemaVersion: '5.0', registryUrl: 'https://test.example/manifest'});
   } catch (e) {
     threw = true;
     assert(e.message.includes('channels'), 'Should reject missing channels');
@@ -1888,7 +1890,7 @@ function test323_cartridgeRepoServerValidateRegistry() {
   // Missing one of the two required channels
   threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '5.0', channels: {release: {cartridges: {}}}});
+    new CartridgeRepoServer({schemaVersion: '5.0', registryUrl: 'https://test.example/manifest', channels: {release: {cartridges: {}}}});
   } catch (e) {
     threw = true;
     assert(e.message.includes('nightly'), 'Should require nightly channel');
@@ -2046,13 +2048,24 @@ function test330_cartridgeRepoClientUpdateCache() {
   const server = new CartridgeRepoServer(sampleRegistry);
   const cartridges = server.transformToCartridgeArray().map(p => new CartridgeInfo(p));
 
-  client.updateCache('https://example.com/api/cartridges', cartridges);
+  // Cache key is the registry URL the cartridges carry — mismatching
+  // it would orphan the entries (the new cache key is
+  // <registryUrl>:<channel>:<id>). The sampleRegistry stamps every
+  // entry with 'https://test.example/manifest'.
+  const REGISTRY_URL = 'https://test.example/manifest';
+  client.updateCache(REGISTRY_URL, cartridges);
 
-  const cache = client.caches.get('https://example.com/api/cartridges');
+  const cache = client.caches.get(REGISTRY_URL);
   assert(cache !== undefined, 'Cache should exist');
   assert(cache.cartridges.size === 3, 'Should have 3 cartridges in cache (2 release + 1 nightly)');
-  assert(cache.cartridges.has('release:pdfcartridge'), 'Should key by <channel>:<id>');
-  assert(cache.cartridges.has('nightly:jsoncartridge'), 'Should hold nightly entry independently');
+  assert(
+    cache.cartridges.has(`${REGISTRY_URL}:release:pdfcartridge`),
+    'Should key by <registryUrl>:<channel>:<id>'
+  );
+  assert(
+    cache.cartridges.has(`${REGISTRY_URL}:nightly:jsoncartridge`),
+    'Should hold nightly entry independently'
+  );
   assert(cache.capToCartridges.size > 0, 'Should have cap mappings');
 }
 
@@ -2093,27 +2106,38 @@ function test332_cartridgeRepoClientGetCartridge() {
   const server = new CartridgeRepoServer(sampleRegistry);
   const cartridges = server.transformToCartridgeArray().map(p => new CartridgeInfo(p));
 
-  client.updateCache('https://example.com/api/cartridges', cartridges);
+  const REGISTRY_URL = 'https://test.example/manifest';
+  client.updateCache(REGISTRY_URL, cartridges);
 
-  const cartridge = client.getCartridge('release', 'pdfcartridge');
+  const cartridge = client.getCartridge(REGISTRY_URL, 'release', 'pdfcartridge');
   assert(cartridge !== null && cartridge !== undefined, 'Should find cartridge in release');
   assert(cartridge.id === 'pdfcartridge', 'Should have correct ID');
   assert(cartridge.channel === 'release', 'Should report release channel');
+  assert(cartridge.registryUrl === REGISTRY_URL, 'Should report registry URL');
 
-  const json = client.getCartridge('nightly', 'jsoncartridge');
+  const json = client.getCartridge(REGISTRY_URL, 'nightly', 'jsoncartridge');
   assert(json !== null && json !== undefined, 'Should find nightly entry');
   assert(json.channel === 'nightly', 'Should report nightly channel');
 
-  const wrongChannel = client.getCartridge('nightly', 'pdfcartridge');
+  const wrongChannel = client.getCartridge(REGISTRY_URL, 'nightly', 'pdfcartridge');
   assert(wrongChannel === undefined || wrongChannel === null,
     'Should miss when looking up release id in nightly channel');
 
-  const notFound = client.getCartridge('release', 'nonexistent');
+  const notFound = client.getCartridge(REGISTRY_URL, 'release', 'nonexistent');
   assert(notFound === undefined || notFound === null, 'Should miss for unknown id');
+
+  // Two URLs that look similar but differ byte-wise are distinct
+  // registries — looking up one cartridge under the other's URL
+  // misses, even if id+channel match.
+  const wrongRegistry = client.getCartridge(
+    'https://other.example/manifest', 'release', 'pdfcartridge'
+  );
+  assert(wrongRegistry === undefined || wrongRegistry === null,
+    'Should miss when looking up under a different registry URL');
 
   let threw = false;
   try {
-    client.getCartridge('staging', 'pdfcartridge');
+    client.getCartridge(REGISTRY_URL, 'staging', 'pdfcartridge');
   } catch (e) {
     threw = true;
   }
@@ -2166,13 +2190,15 @@ function test335_cartridgeRepoServerClientIntegration() {
   // Client consumes API response
   const client = new CartridgeRepoClient(3600);
   const cartridges = apiResponse.cartridges.map(p => new CartridgeInfo(p));
-  client.updateCache('https://example.com/api/cartridges', cartridges);
+  const REGISTRY_URL = 'https://test.example/manifest';
+  client.updateCache(REGISTRY_URL, cartridges);
 
-  // Client can find cartridge by (channel, id)
-  const cartridge = client.getCartridge('release', 'pdfcartridge');
+  // Client can find cartridge by (registryUrl, channel, id)
+  const cartridge = client.getCartridge(REGISTRY_URL, 'release', 'pdfcartridge');
   assert(cartridge !== null && cartridge !== undefined, 'Client should find cartridge from server data');
   assert(cartridge.isSigned(), 'Cartridge should be signed');
   assert(cartridge.channel === 'release', 'Should report release channel');
+  assert(cartridge.registryUrl === REGISTRY_URL, 'Should report registry URL');
   assert(cartridge.buildForPlatform('darwin-arm64') !== null, 'Cartridge should have darwin-arm64 build');
 
   // Client can get suggestions

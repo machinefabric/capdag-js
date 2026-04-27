@@ -3613,6 +3613,54 @@ class CartridgeCapGroup {
   }
 }
 
+// =============================================================================
+// Cartridge registry slug
+// =============================================================================
+//
+// Deterministic mapping from a registry URL to a top-level folder
+// name under the cartridges install root. Mirrors
+// capdag::cartridge_slug byte-for-byte: SHA-256 of the URL bytes,
+// lowercase hex, first 16 chars. The literal string "dev" is
+// reserved for dev cartridges that have no registry.
+//
+// JS uses Web Crypto's SubtleCrypto for SHA-256. The function is
+// async because `crypto.subtle.digest` returns a Promise; consumers
+// in synchronous contexts must await.
+
+const DEV_SLUG = "dev";
+const SLUG_HEX_LEN = 16;
+
+/**
+ * Compute the on-disk slug for a registry URL.
+ *
+ * @param {string|null|undefined} registryUrl - The registry URL, or
+ *   null/undefined for dev installs.
+ * @returns {Promise<string>} The slug — `DEV_SLUG` for null,
+ *   otherwise the first 16 lowercase-hex characters of
+ *   sha256(registryUrl).
+ */
+async function slugForRegistryUrl(registryUrl) {
+  if (registryUrl === null || registryUrl === undefined) {
+    return DEV_SLUG;
+  }
+  const bytes = new TextEncoder().encode(registryUrl);
+  // Web Crypto exposes SHA-256 via crypto.subtle. Node 16+ exposes
+  // it through globalThis.crypto.subtle.
+  const digestBuffer = await crypto.subtle.digest("SHA-256", bytes);
+  const digestBytes = new Uint8Array(digestBuffer);
+  let hex = "";
+  for (const b of digestBytes) {
+    hex += b.toString(16).padStart(2, "0");
+  }
+  return hex.slice(0, SLUG_HEX_LEN);
+}
+
+function isRegistrySlug(s) {
+  return typeof s === "string"
+      && s.length === SLUG_HEX_LEN
+      && /^[0-9a-f]+$/.test(s);
+}
+
 /**
  * Cartridge information from registry
  */
@@ -3640,6 +3688,16 @@ class CartridgeInfo {
       throw new Error(`CartridgeInfo ${data.id || '?'}: invalid or missing channel '${data.channel}'`);
     }
     this.channel = data.channel;
+    // Registry URL: verbatim string the registry was fetched from.
+    // Required and non-empty — every CartridgeInfo carries the URL of
+    // the registry that served it so downstream consumers can build
+    // the (registryUrl, channel, id) identity tuple without
+    // re-deriving it. The registry transformer stamps this onto every
+    // entry at flatten time.
+    if (typeof data.registryUrl !== 'string' || data.registryUrl.length === 0) {
+      throw new Error(`CartridgeInfo ${data.id || '?'}: registryUrl is required and must be a non-empty string`);
+    }
+    this.registryUrl = data.registryUrl;
   }
 
   /** All caps flattened across all cap_groups, deduplicated by URN */
@@ -3688,9 +3746,13 @@ class CartridgeInfo {
 }
 
 /**
- * Cartridge suggestion for a missing cap. `channel` reports which
- * channel the suggesting cartridge lives in so consumers can render
- * the release/nightly distinction.
+ * Cartridge suggestion for a missing cap.
+ *
+ * `(registryUrl, channel, cartridgeId)` is the suggesting
+ * cartridge's full identity — installs of the same id from
+ * different registries × channels are independent records and the
+ * client keeps both visible. `registryUrl` is required and
+ * non-empty; suggestions never come from dev installs.
  */
 class CartridgeSuggestion {
   constructor(data) {
@@ -3706,25 +3768,29 @@ class CartridgeSuggestion {
       throw new Error(`CartridgeSuggestion: invalid or missing channel '${data.channel}'`);
     }
     this.channel = data.channel;
+    if (typeof data.registryUrl !== 'string' || data.registryUrl.length === 0) {
+      throw new Error("CartridgeSuggestion: registryUrl is required and must be a non-empty string");
+    }
+    this.registryUrl = data.registryUrl;
   }
 }
 
 /**
  * Cartridge registry cache entry. The cartridges map is keyed by
- * `<channel>:<id>` so the same id can independently coexist in both
- * channels.
+ * `<registryUrl>:<channel>:<id>` so the same id can independently
+ * coexist across multiple registries × both channels.
  */
 class CartridgeRepoCache {
   constructor(repoUrl) {
-    this.cartridges = new Map(); // "<channel>:<id>" -> CartridgeInfo
-    this.capToCartridges = new Map(); // cap_urn -> [{channel, id}]
+    this.cartridges = new Map(); // "<registryUrl>:<channel>:<id>" -> CartridgeInfo
+    this.capToCartridges = new Map(); // cap_urn -> [{registryUrl, channel, id}]
     this.lastUpdated = Date.now();
     this.repoUrl = repoUrl;
   }
 }
 
-function _cacheKey(channel, id) {
-  return `${channel}:${id}`;
+function _cacheKey(registryUrl, channel, id) {
+  return `${registryUrl}:${channel}:${id}`;
 }
 
 /**
@@ -3756,6 +3822,21 @@ class CartridgeRepoClient {
     if (data.schemaVersion !== '5.0') {
       throw new Error(`Cartridge registry from ${repoUrl} has schemaVersion '${data.schemaVersion}'; required: 5.0`);
     }
+    // Self-referential check: the manifest declares its own URL via
+    // `registryUrl`. It must match the URL we just fetched from
+    // byte-for-byte — a mismatch is a manifest-corruption signal
+    // (publisher wrote the wrong URL, or manifest is being served
+    // from an unexpected mirror). Identity downstream depends on
+    // this string; refuse to ingest on mismatch.
+    if (typeof data.registryUrl !== 'string' || data.registryUrl.length === 0) {
+      throw new Error(`Cartridge registry from ${repoUrl}: missing required top-level 'registryUrl' field`);
+    }
+    if (data.registryUrl !== repoUrl) {
+      throw new Error(
+        `Cartridge registry from ${repoUrl}: declared registryUrl '${data.registryUrl}' ` +
+        `does not match the URL it was fetched from. These must match byte-for-byte.`
+      );
+    }
     if (!data.channels || typeof data.channels !== 'object') {
       throw new Error(`Cartridge registry from ${repoUrl}: missing channels object`);
     }
@@ -3771,7 +3852,12 @@ class CartridgeRepoClient {
           ...c,
           id,
           version: c.latestVersion,
-          channel
+          channel,
+          // Stamp registryUrl onto every entry — verbatim from the
+          // registry self-reference (which we just verified equals
+          // the fetched URL). Identity comparison downstream is
+          // byte equality.
+          registryUrl: data.registryUrl
         }));
       }
     }
@@ -3794,7 +3880,10 @@ class CartridgeRepoClient {
     const cache = new CartridgeRepoCache(repoUrl);
 
     for (const cartridge of cartridges) {
-      cache.cartridges.set(_cacheKey(cartridge.channel, cartridge.id), cartridge);
+      cache.cartridges.set(
+        _cacheKey(cartridge.registryUrl, cartridge.channel, cartridge.id),
+        cartridge
+      );
 
       for (const cap of cartridge.allCaps()) {
         const normalized = CapUrn.fromString(cap.urn).toString();
@@ -3802,6 +3891,7 @@ class CartridgeRepoClient {
           cache.capToCartridges.set(normalized, []);
         }
         cache.capToCartridges.get(normalized).push({
+          registryUrl: cartridge.registryUrl,
           channel: cartridge.channel,
           id: cartridge.id
         });
@@ -3866,7 +3956,7 @@ class CartridgeRepoClient {
       if (!refs) continue;
 
       for (const ref of refs) {
-        const cartridge = cache.cartridges.get(_cacheKey(ref.channel, ref.id));
+        const cartridge = cache.cartridges.get(_cacheKey(ref.registryUrl, ref.channel, ref.id));
         if (!cartridge) continue;
 
         const capInfo = cartridge.allCaps().find(c => {
@@ -3891,7 +3981,8 @@ class CartridgeRepoClient {
           latestVersion: cartridge.version,
           repoUrl: cache.repoUrl,
           pageUrl: pageUrl,
-          channel: cartridge.channel
+          channel: cartridge.channel,
+          registryUrl: cartridge.registryUrl
         }));
       }
     }
@@ -3928,16 +4019,23 @@ class CartridgeRepoClient {
   }
 
   /**
-   * Get cartridge info by `(channel, id)`. Channel is required —
-   * the same id can independently exist in both channels with
-   * different metadata. Returns `null` when not found.
+   * Get cartridge info by `(registryUrl, channel, id)`. All three
+   * are required — the same id can independently exist across
+   * multiple registries × both channels with different metadata.
+   * Returns `null` when not found. `registryUrl` is the verbatim
+   * URL the cache was indexed under.
    */
-  getCartridge(channel, cartridgeId) {
+  getCartridge(registryUrl, channel, cartridgeId) {
+    if (typeof registryUrl !== 'string' || registryUrl.length === 0) {
+      throw new Error('getCartridge: registryUrl must be a non-empty string');
+    }
     if (channel !== 'release' && channel !== 'nightly') {
       throw new Error(`Invalid channel '${channel}' — must be 'release' or 'nightly'`);
     }
-    const key = _cacheKey(channel, cartridgeId);
-    for (const cache of this.caches.values()) {
+    const key = _cacheKey(registryUrl, channel, cartridgeId);
+    // Cache outer key is also the registry URL, so look up directly.
+    const cache = this.caches.get(registryUrl);
+    if (cache) {
       const cartridge = cache.cartridges.get(key);
       if (cartridge) {
         return cartridge;
@@ -4000,6 +4098,9 @@ class CartridgeRepoServer {
     }
     if (this.registry.schemaVersion !== '5.0') {
       throw new Error(`Unsupported registry schema version: ${this.registry.schemaVersion}. Required: 5.0`);
+    }
+    if (typeof this.registry.registryUrl !== 'string' || this.registry.registryUrl.length === 0) {
+      throw new Error('Registry must have a non-empty top-level `registryUrl` field (self-referential URL)');
     }
     const channels = this.registry.channels;
     if (!channels || typeof channels !== 'object') {
@@ -4082,7 +4183,11 @@ class CartridgeRepoServer {
       tags: cartridge.tags,
       versions: cartridge.versions,
       availableVersions,
-      channel
+      channel,
+      // Stamp the manifest's self-referential URL onto every entry —
+      // verbatim from the registry. Identity comparison downstream is
+      // byte equality.
+      registryUrl: this.registry.registryUrl
     };
   }
 
@@ -5409,6 +5514,11 @@ module.exports = {
   CartridgeRepoClient,
   CartridgeRepoServer,
   CartridgeChannel,
+  // Registry slug
+  DEV_SLUG,
+  SLUG_HEX_LEN,
+  slugForRegistryUrl,
+  isRegistrySlug,
   // Machine notation
   MachineSyntaxError,
   MachineSyntaxErrorCodes,
