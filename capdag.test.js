@@ -1637,11 +1637,17 @@ function testJS_mediaSpecConstruction() {
 // Cartridge Repository Tests (TEST320-TEST335)
 // =============================================================================
 
-// Sample registry for testing
+// Sample registry for testing — v5.0 channel-partitioned schema.
+//
+// Both `release` and `nightly` are always present. We populate the
+// release channel with two cartridges (pdf + txt) for the bulk of the
+// tests, and add one nightly entry so isolation tests have something
+// to assert on. Tests that need an empty channel use literals inline.
 const sampleRegistry = {
-  schemaVersion: '4.0',
+  schemaVersion: '5.0',
   lastUpdated: '2026-02-07T16:48:28Z',
-  cartridges: {
+  channels: {
+    release: { cartridges: {
     pdfcartridge: {
       name: 'pdfcartridge',
       description: 'PDF document processor',
@@ -1727,6 +1733,50 @@ const sampleRegistry = {
         }
       }
     }
+    } },
+    nightly: { cartridges: {
+      jsoncartridge: {
+        name: 'jsoncartridge',
+        description: 'JSON tooling — nightly only',
+        author: 'test-author',
+        pageUrl: 'https://example.com/json',
+        teamId: 'P336JK947M',
+        minAppVersion: '1.0.0',
+        categories: ['data'],
+        tags: ['json'],
+        cap_groups: [
+          {
+            name: 'json-processing',
+            adapter_urns: ['media:json'],
+            caps: [
+              {
+                urn: 'cap:in="media:json";op=pretty;out="media:json;textable"',
+                title: 'Pretty Print JSON',
+                description: 'Format JSON',
+                command: 'pretty'
+              }
+            ]
+          }
+        ],
+        latestVersion: '0.1.0',
+        versions: {
+          '0.1.0': {
+            releaseDate: '2026-04-01T00:00:00Z',
+            changelog: ['Initial nightly'],
+            minAppVersion: '1.0.0',
+            builds: [{
+              platform: 'darwin-arm64',
+              package: {
+                name: 'jsoncartridge-0.1.0.pkg',
+                url: 'https://cartridges.machinefabric.com/nightly/jsoncartridge/0.1.0/jsoncartridge-0.1.0.pkg',
+                sha256: 'deadbeef',
+                size: 100000
+              }
+            }]
+          }
+        }
+      }
+    } }
   }
 };
 
@@ -1735,6 +1785,7 @@ function test320_cartridgeInfoConstruction() {
   const data = {
     id: 'testcartridge',
     name: 'Test Cartridge',
+    channel: 'release',
     version: '1.0.0',
     description: 'A test',
     teamId: 'TEAM123',
@@ -1764,20 +1815,20 @@ function test320_cartridgeInfoConstruction() {
 
 // TEST321: CartridgeInfo.is_signed() returns true when signature is present
 function test321_cartridgeInfoIsSigned() {
-  const signed = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '2026-01-01', cap_groups: []});
+  const signed = new CartridgeInfo({id: 'test', channel: 'release', teamId: 'TEAM', signedAt: '2026-01-01', cap_groups: []});
   assert(signed.isSigned() === true, 'Cartridge with teamId and signedAt should be signed');
 
-  const unsigned1 = new CartridgeInfo({id: 'test', teamId: '', signedAt: '2026-01-01', cap_groups: []});
+  const unsigned1 = new CartridgeInfo({id: 'test', channel: 'release', teamId: '', signedAt: '2026-01-01', cap_groups: []});
   assert(unsigned1.isSigned() === false, 'Cartridge without teamId should not be signed');
 
-  const unsigned2 = new CartridgeInfo({id: 'test', teamId: 'TEAM', signedAt: '', cap_groups: []});
+  const unsigned2 = new CartridgeInfo({id: 'test', channel: 'release', teamId: 'TEAM', signedAt: '', cap_groups: []});
   assert(unsigned2.isSigned() === false, 'Cartridge without signedAt should not be signed');
 }
 
 // TEST322: CartridgeInfo.build_for_platform() returns the build matching the current platform
 function test322_cartridgeInfoBuildForPlatform() {
   const withBuilds = new CartridgeInfo({
-    id: 'test', version: '1.0.0', cap_groups: [],
+    id: 'test', channel: 'release', version: '1.0.0', cap_groups: [],
     versions: {
       '1.0.0': {
         builds: [
@@ -1803,51 +1854,64 @@ function test322_cartridgeInfoBuildForPlatform() {
   assert(platforms.includes('darwin-arm64'), 'Should include darwin-arm64');
   assert(platforms.includes('linux-x86_64'), 'Should include linux-x86_64');
 
-  const noBuilds = new CartridgeInfo({id: 'test', version: '1.0.0', cap_groups: [], versions: {}, availableVersions: []});
+  const noBuilds = new CartridgeInfo({id: 'test', channel: 'release', version: '1.0.0', cap_groups: [], versions: {}, availableVersions: []});
   assert(noBuilds.buildForPlatform('darwin-arm64') === null, 'Should return null when no versions');
   assert(noBuilds.availablePlatforms().length === 0, 'Should have no platforms');
 }
 
-// TEST323: CartridgeRepoServer validates registry JSON schema version
+// TEST323: CartridgeRepoServer requires schema 5.0 and rejects older.
 function test323_cartridgeRepoServerValidateRegistry() {
   // Valid registry
   const server = new CartridgeRepoServer(sampleRegistry);
-  assert(server.registry.schemaVersion === '4.0', 'Should accept valid registry');
+  assert(server.registry.schemaVersion === '5.0', 'Should accept v5.0 registry');
 
-  // Invalid schema version
+  // Invalid schema version (4.0 is no longer accepted)
   let threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '3.0', cartridges: {}});
+    new CartridgeRepoServer({schemaVersion: '4.0', channels: {release: {cartridges: {}}, nightly: {cartridges: {}}}});
   } catch (e) {
     threw = true;
-    assert(e.message.includes('schema version'), 'Should reject wrong schema version');
+    assert(e.message.includes('5.0'), 'Should reject pre-5.0 schema and mention required version');
   }
-  assert(threw, 'Should throw for invalid schema');
+  assert(threw, 'Should throw for v4.0 schema');
 
-  // Missing cartridges
+  // Missing channels object
   threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '4.0'});
+    new CartridgeRepoServer({schemaVersion: '5.0'});
   } catch (e) {
     threw = true;
-    assert(e.message.includes('cartridges'), 'Should reject missing cartridges');
+    assert(e.message.includes('channels'), 'Should reject missing channels');
   }
-  assert(threw, 'Should throw for missing cartridges');
+  assert(threw, 'Should throw for missing channels');
+
+  // Missing one of the two required channels
+  threw = false;
+  try {
+    new CartridgeRepoServer({schemaVersion: '5.0', channels: {release: {cartridges: {}}}});
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('nightly'), 'Should require nightly channel');
+  }
+  assert(threw, 'Should throw when nightly channel is missing');
 }
 
-// TEST324: CartridgeRepoServer transforms v3 registry JSON into flat cartridge array
+// TEST324: CartridgeRepoServer walks both channels and emits a flat
+// CartridgeInfo array preserving channel provenance. Release entries
+// appear first.
 function test324_cartridgeRepoServerTransformToArray() {
   const server = new CartridgeRepoServer(sampleRegistry);
   const cartridges = server.transformToCartridgeArray();
 
   assert(Array.isArray(cartridges), 'Should return array');
-  assert(cartridges.length === 2, 'Should have 2 cartridges');
+  assert(cartridges.length === 3, 'Should have 3 cartridges across both channels');
 
   const pdf = cartridges.find(p => p.id === 'pdfcartridge');
   assert(pdf !== undefined, 'Should include pdfcartridge');
   assert(pdf.version === '0.81.5325', 'Should have latest version');
   assert(pdf.teamId === 'P336JK947M', 'Should have teamId');
   assert(pdf.signedAt === '2026-02-07T16:40:28Z', 'Should have signedAt from releaseDate');
+  assert(pdf.channel === 'release', 'pdfcartridge should be in release channel');
   assert(pdf.versions !== undefined, 'Should have versions');
   assert(pdf.versions['0.81.5325'] !== undefined, 'Should have version data');
   assert(pdf.versions['0.81.5325'].builds.length === 1, 'Should have 1 build');
@@ -1859,31 +1923,66 @@ function test324_cartridgeRepoServerTransformToArray() {
   assert(Array.isArray(pdf.cap_groups), 'Should have cap_groups array');
   assert(pdf.cap_groups.length === 1, 'Should have 1 cap_group');
   assert(pdf.cap_groups[0].caps.length === 2, 'Should have 2 caps in the group');
+
+  const json = cartridges.find(p => p.id === 'jsoncartridge');
+  assert(json !== undefined, 'Should include jsoncartridge from nightly channel');
+  assert(json.channel === 'nightly', 'jsoncartridge should be in nightly channel');
+
+  // Release entries come before nightly so any UI that paints in
+  // iteration order surfaces the user-facing channel first.
+  const firstNightlyIdx = cartridges.findIndex(c => c.channel === 'nightly');
+  const lastReleaseIdx = cartridges.map(c => c.channel).lastIndexOf('release');
+  assert(firstNightlyIdx > lastReleaseIdx, 'Release entries must precede nightly entries');
 }
 
-// TEST325: CartridgeRepoServer.get_cartridges() returns all parsed cartridges
+// TEST325: CartridgeRepoServer.getCartridges() wraps the transformed
+// flat array (across both channels) in the response envelope.
 function test325_cartridgeRepoServerGetCartridges() {
   const server = new CartridgeRepoServer(sampleRegistry);
   const response = server.getCartridges();
 
   assert(response.cartridges !== undefined, 'Should have cartridges field');
   assert(Array.isArray(response.cartridges), 'Cartridges should be array');
-  assert(response.cartridges.length === 2, 'Should have 2 cartridges');
+  assert(response.cartridges.length === 3, 'Should have 3 cartridges total');
+  assert(response.cartridges.every(c => c.channel === 'release' || c.channel === 'nightly'),
+    'Every cartridge must carry a channel');
 }
 
-// TEST326: CartridgeRepoServer.get_cartridge() returns cartridge matching the given ID
+// TEST326: CartridgeRepoServer.getCartridgeById() requires (channel,
+// id). Same id looked up in the wrong channel must miss — channels are
+// independent namespaces.
 function test326_cartridgeRepoServerGetCartridgeById() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
-  const pdf = server.getCartridgeById('pdfcartridge');
-  assert(pdf !== undefined, 'Should find pdfcartridge');
+  const pdf = server.getCartridgeById('release', 'pdfcartridge');
+  assert(pdf !== undefined, 'Should find pdfcartridge in release');
   assert(pdf.id === 'pdfcartridge', 'Should have correct ID');
+  assert(pdf.channel === 'release', 'Should report release channel');
 
-  const notFound = server.getCartridgeById('nonexistent');
+  const json = server.getCartridgeById('nightly', 'jsoncartridge');
+  assert(json !== undefined, 'Should find jsoncartridge in nightly');
+  assert(json.channel === 'nightly', 'Should report nightly channel');
+
+  const wrongChannel = server.getCartridgeById('nightly', 'pdfcartridge');
+  assert(wrongChannel === undefined, 'pdf not in nightly — channels are independent');
+
+  const notFound = server.getCartridgeById('release', 'nonexistent');
   assert(notFound === undefined, 'Should return undefined for missing cartridge');
+
+  let threw = false;
+  try {
+    server.getCartridgeById('staging', 'pdfcartridge');
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('release') && e.message.includes('nightly'),
+      'Should reject invalid channel value');
+  }
+  assert(threw, 'Should throw for invalid channel');
 }
 
-// TEST327: CartridgeRepoServer.search_cartridges() filters by text query against name and description
+// TEST327: CartridgeRepoServer.searchCartridges() filters across both
+// channels by name/description/tags/cap titles. Cap URN strings are
+// not substring-matched.
 function test327_cartridgeRepoServerSearchCartridges() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -1894,11 +1993,18 @@ function test327_cartridgeRepoServerSearchCartridges() {
   const metadataResults = server.searchCartridges('metadata');
   assert(metadataResults.length === 1, 'Should find cartridge by cap title');
 
+  // Search must reach into the nightly channel too — channels are not
+  // a search-time filter.
+  const jsonResults = server.searchCartridges('json');
+  assert(jsonResults.length === 1, 'Should reach nightly cartridges');
+  assert(jsonResults[0].channel === 'nightly', 'Should report nightly channel');
+
   const noResults = server.searchCartridges('nonexistent');
   assert(noResults.length === 0, 'Should return empty for no matches');
 }
 
-// TEST328: CartridgeRepoServer.get_by_category() filters cartridges by category tag
+// TEST328: CartridgeRepoServer.getCartridgesByCategory() filters
+// cartridges by category across both channels.
 function test328_cartridgeRepoServerGetByCategory() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -1909,9 +2015,15 @@ function test328_cartridgeRepoServerGetByCategory() {
   const textCartridges = server.getCartridgesByCategory('text');
   assert(textCartridges.length === 1, 'Should find 1 text cartridge');
   assert(textCartridges[0].id === 'txtcartridge', 'Should be txtcartridge');
+
+  const dataCartridges = server.getCartridgesByCategory('data');
+  assert(dataCartridges.length === 1, 'Category lookup should reach the nightly channel too');
+  assert(dataCartridges[0].channel === 'nightly', 'Should be the nightly entry');
 }
 
-// TEST329: CartridgeRepoServer.get_suggestions_for_cap() finds cartridges providing a given cap URN
+// TEST329: CartridgeRepoServer.getCartridgesByCap() parses the input
+// URN and matches each declared cap via `conformsTo`. Tag-order
+// differences resolve because matching is order-theoretic, not string.
 function test329_cartridgeRepoServerGetByCap() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
@@ -1926,7 +2038,9 @@ function test329_cartridgeRepoServerGetByCap() {
   assert(metadataCartridges.length === 1, 'Should find metadata cap');
 }
 
-// TEST330: CartridgeRepoClient updates its local cache from server response
+// TEST330: CartridgeRepoClient updates its local cache keyed by
+// "<channel>:<id>". The cache holds release and nightly entries
+// independently — the same id is allowed in both.
 function test330_cartridgeRepoClientUpdateCache() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -1936,11 +2050,14 @@ function test330_cartridgeRepoClientUpdateCache() {
 
   const cache = client.caches.get('https://example.com/api/cartridges');
   assert(cache !== undefined, 'Cache should exist');
-  assert(cache.cartridges.size === 2, 'Should have 2 cartridges in cache');
+  assert(cache.cartridges.size === 3, 'Should have 3 cartridges in cache (2 release + 1 nightly)');
+  assert(cache.cartridges.has('release:pdfcartridge'), 'Should key by <channel>:<id>');
+  assert(cache.cartridges.has('nightly:jsoncartridge'), 'Should hold nightly entry independently');
   assert(cache.capToCartridges.size > 0, 'Should have cap mappings');
 }
 
-// TEST331: CartridgeRepoClient.get_suggestions_for_cap() returns cartridge suggestions for a cap URN
+// TEST331: CartridgeRepoClient.getSuggestionsForCap() returns cartridge
+// suggestions with channel propagated onto each suggestion.
 function test331_cartridgeRepoClientGetSuggestions() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -1953,6 +2070,7 @@ function test331_cartridgeRepoClientGetSuggestions() {
 
   assert(suggestions.length === 1, 'Should find 1 suggestion');
   assert(suggestions[0].cartridgeId === 'pdfcartridge', 'Should suggest pdfcartridge');
+  assert(suggestions[0].channel === 'release', 'Channel must propagate from cache');
   // The returned capUrn is the canonical (normalized) form. Compare via
   // tagged-URN equivalence rather than string equality so a tag-order
   // difference between the request and the canonical form is tolerated.
@@ -1960,9 +2078,16 @@ function test331_cartridgeRepoClientGetSuggestions() {
   const returned = CapUrn.fromString(suggestions[0].capUrn);
   assert(returned.isEquivalent(requested), 'Should have equivalent cap URN');
   assert(suggestions[0].capTitle === 'Disbind PDF', 'Should have cap title');
+
+  // Nightly cap should also surface a suggestion, with channel set to nightly.
+  const prettyCap = 'cap:in="media:json";op=pretty;out="media:json;textable"';
+  const nightlySuggestions = client.getSuggestionsForCap(prettyCap);
+  assert(nightlySuggestions.length === 1, 'Should find nightly cap suggestion');
+  assert(nightlySuggestions[0].channel === 'nightly', 'Should report nightly channel');
 }
 
-// TEST332: CartridgeRepoClient.get_cartridge() retrieves a specific cartridge by ID from cache
+// TEST332: CartridgeRepoClient.getCartridge() requires (channel, id).
+// Same id in the wrong channel must miss.
 function test332_cartridgeRepoClientGetCartridge() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -1970,15 +2095,33 @@ function test332_cartridgeRepoClientGetCartridge() {
 
   client.updateCache('https://example.com/api/cartridges', cartridges);
 
-  const cartridge = client.getCartridge('pdfcartridge');
-  assert(cartridge !== null, 'Should find cartridge');
+  const cartridge = client.getCartridge('release', 'pdfcartridge');
+  assert(cartridge !== null && cartridge !== undefined, 'Should find cartridge in release');
   assert(cartridge.id === 'pdfcartridge', 'Should have correct ID');
+  assert(cartridge.channel === 'release', 'Should report release channel');
 
-  const notFound = client.getCartridge('nonexistent');
-  assert(notFound === null, 'Should return null for missing cartridge');
+  const json = client.getCartridge('nightly', 'jsoncartridge');
+  assert(json !== null && json !== undefined, 'Should find nightly entry');
+  assert(json.channel === 'nightly', 'Should report nightly channel');
+
+  const wrongChannel = client.getCartridge('nightly', 'pdfcartridge');
+  assert(wrongChannel === undefined || wrongChannel === null,
+    'Should miss when looking up release id in nightly channel');
+
+  const notFound = client.getCartridge('release', 'nonexistent');
+  assert(notFound === undefined || notFound === null, 'Should miss for unknown id');
+
+  let threw = false;
+  try {
+    client.getCartridge('staging', 'pdfcartridge');
+  } catch (e) {
+    threw = true;
+  }
+  assert(threw, 'Should throw for invalid channel');
 }
 
-// TEST333: CartridgeRepoClient.get_all_caps() returns aggregate cap URNs from all cached cartridges
+// TEST333: CartridgeRepoClient.getAllAvailableCaps() returns the set
+// of normalized URNs across both channels.
 function test333_cartridgeRepoClientGetAllCaps() {
   const client = new CartridgeRepoClient(3600);
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -1988,11 +2131,14 @@ function test333_cartridgeRepoClientGetAllCaps() {
 
   const caps = client.getAllAvailableCaps();
   assert(Array.isArray(caps), 'Should return array');
-  assert(caps.length === 3, 'Should have 3 unique caps');
+  // 2 caps from pdfcartridge + 1 from txtcartridge + 1 from
+  // jsoncartridge (nightly) = 4 unique caps.
+  assert(caps.length === 4, `Should have 4 unique caps, got ${caps.length}`);
   assert(caps.every(c => typeof c === 'string'), 'All caps should be strings');
 }
 
-// TEST334: CartridgeRepoClient.needs_sync() returns true when cache TTL has expired
+// TEST334: CartridgeRepoClient.needsSync() returns true when cache is
+// empty / stale, false right after a fresh update.
 function test334_cartridgeRepoClientNeedsSync() {
   const client = new CartridgeRepoClient(1); // 1 second TTL
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2008,12 +2154,10 @@ function test334_cartridgeRepoClientNeedsSync() {
 
   // Should not need sync immediately
   assert(client.needsSync(urls) === false, 'Should not need sync right after update');
-
-  // Wait for cache to expire (1 second)
-  // Note: Can't test this synchronously, would need async test
 }
 
-// TEST335: Server creates registry response and client consumes it end-to-end
+// TEST335: Round-trip: server produces a v5.0 response, client consumes
+// it, channel provenance is preserved end-to-end.
 function test335_cartridgeRepoServerClientIntegration() {
   // Server creates API response
   const server = new CartridgeRepoServer(sampleRegistry);
@@ -2024,10 +2168,11 @@ function test335_cartridgeRepoServerClientIntegration() {
   const cartridges = apiResponse.cartridges.map(p => new CartridgeInfo(p));
   client.updateCache('https://example.com/api/cartridges', cartridges);
 
-  // Client can find cartridge
-  const cartridge = client.getCartridge('pdfcartridge');
-  assert(cartridge !== null, 'Client should find cartridge from server data');
+  // Client can find cartridge by (channel, id)
+  const cartridge = client.getCartridge('release', 'pdfcartridge');
+  assert(cartridge !== null && cartridge !== undefined, 'Client should find cartridge from server data');
   assert(cartridge.isSigned(), 'Cartridge should be signed');
+  assert(cartridge.channel === 'release', 'Should report release channel');
   assert(cartridge.buildForPlatform('darwin-arm64') !== null, 'Cartridge should have darwin-arm64 build');
 
   // Client can get suggestions
@@ -2035,6 +2180,7 @@ function test335_cartridgeRepoServerClientIntegration() {
   const suggestions = client.getSuggestionsForCap(capUrn);
   assert(suggestions.length === 1, 'Should get suggestions');
   assert(suggestions[0].cartridgeId === 'pdfcartridge', 'Should suggest correct cartridge');
+  assert(suggestions[0].channel === 'release', 'Suggestion should preserve channel');
 
   // Server can search
   const searchResults = server.searchCartridges('pdf');

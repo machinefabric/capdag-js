@@ -3634,6 +3634,12 @@ class CartridgeInfo {
     // Versions with platform-specific builds
     this.versions = data.versions || {};
     this.availableVersions = data.availableVersions || [];
+    // Channel: 'release' or 'nightly'. Required — set by the registry
+    // transformer when flattening the channel-partitioned registry.
+    if (data.channel !== 'release' && data.channel !== 'nightly') {
+      throw new Error(`CartridgeInfo ${data.id || '?'}: invalid or missing channel '${data.channel}'`);
+    }
+    this.channel = data.channel;
   }
 
   /** All caps flattened across all cap_groups, deduplicated by URN */
@@ -3682,7 +3688,9 @@ class CartridgeInfo {
 }
 
 /**
- * Cartridge suggestion for a missing cap
+ * Cartridge suggestion for a missing cap. `channel` reports which
+ * channel the suggesting cartridge lives in so consumers can render
+ * the release/nightly distinction.
  */
 class CartridgeSuggestion {
   constructor(data) {
@@ -3694,19 +3702,29 @@ class CartridgeSuggestion {
     this.latestVersion = data.latestVersion;
     this.repoUrl = data.repoUrl;
     this.pageUrl = data.pageUrl;
+    if (data.channel !== 'release' && data.channel !== 'nightly') {
+      throw new Error(`CartridgeSuggestion: invalid or missing channel '${data.channel}'`);
+    }
+    this.channel = data.channel;
   }
 }
 
 /**
- * Cartridge registry cache entry
+ * Cartridge registry cache entry. The cartridges map is keyed by
+ * `<channel>:<id>` so the same id can independently coexist in both
+ * channels.
  */
 class CartridgeRepoCache {
   constructor(repoUrl) {
-    this.cartridges = new Map(); // cartridge_id -> CartridgeInfo
-    this.capToCartridges = new Map(); // cap_urn -> [cartridge_ids]
+    this.cartridges = new Map(); // "<channel>:<id>" -> CartridgeInfo
+    this.capToCartridges = new Map(); // cap_urn -> [{channel, id}]
     this.lastUpdated = Date.now();
     this.repoUrl = repoUrl;
   }
+}
+
+function _cacheKey(channel, id) {
+  return `${channel}:${id}`;
 }
 
 /**
@@ -3719,52 +3737,74 @@ class CartridgeRepoClient {
   }
 
   /**
-   * Fetch registry from a URL
+   * Fetch a v5.0 channel-partitioned registry from a URL and flatten
+   * to a list of `CartridgeInfo`, one per `(channel, id)` pair.
    */
   async fetchRegistry(repoUrl) {
     const response = await fetch(repoUrl);
-
+    if (response.status === 404) {
+      // Manifest not published yet — return an empty list so the
+      // caller's cache reflects "no cartridges available" without
+      // poisoning future syncs.
+      return [];
+    }
     if (!response.ok) {
       throw new Error(`Cartridge registry request failed: HTTP ${response.status} from ${repoUrl}`);
     }
 
     const data = await response.json();
-
-    if (!data.cartridges || typeof data.cartridges !== 'object') {
-      throw new Error(`Invalid cartridge registry response from ${repoUrl}: missing cartridges object`);
+    if (data.schemaVersion !== '5.0') {
+      throw new Error(`Cartridge registry from ${repoUrl} has schemaVersion '${data.schemaVersion}'; required: 5.0`);
+    }
+    if (!data.channels || typeof data.channels !== 'object') {
+      throw new Error(`Cartridge registry from ${repoUrl}: missing channels object`);
     }
 
-    // Registry stores cartridges as an object keyed by id; normalize to array.
-    return Object.entries(data.cartridges).map(([id, c]) => new CartridgeInfo({
-      ...c,
-      id,
-      version: c.latestVersion
-    }));
+    const out = [];
+    for (const channel of ['release', 'nightly']) {
+      const entry = data.channels[channel];
+      if (!entry || typeof entry !== 'object' || !entry.cartridges || typeof entry.cartridges !== 'object') {
+        throw new Error(`Cartridge registry from ${repoUrl}: channels.${channel}.cartridges must be an object`);
+      }
+      for (const [id, c] of Object.entries(entry.cartridges)) {
+        out.push(new CartridgeInfo({
+          ...c,
+          id,
+          version: c.latestVersion,
+          channel
+        }));
+      }
+    }
+    return out;
   }
 
   /**
    * Update cache from registry data.
    *
-   * The cap-to-cartridges index keys on the *normalized* tagged-URN form
-   * of each cap URN (parse via CapUrn.fromString, then take toString()).
-   * This collapses textually different but canonically identical URNs
-   * (different declared tag order) into the same bucket so that lookups
-   * resolve regardless of how the requester phrased the URN. A cap URN
-   * that fails to parse is a registry corruption: we throw rather than
-   * silently keep the malformed string in the index.
+   * The cartridges map is keyed by `<channel>:<id>` so the same id can
+   * coexist in release and nightly with separate metadata/versions. The
+   * cap-to-cartridges index keys on the *normalized* tagged-URN form
+   * (parse via CapUrn.fromString, then take toString()) and stores
+   * `{channel, id}` references so suggestions preserve channel
+   * provenance. A cap URN that fails to parse is a registry corruption:
+   * we throw rather than silently keep the malformed string in the
+   * index.
    */
   updateCache(repoUrl, cartridges) {
     const cache = new CartridgeRepoCache(repoUrl);
 
     for (const cartridge of cartridges) {
-      cache.cartridges.set(cartridge.id, cartridge);
+      cache.cartridges.set(_cacheKey(cartridge.channel, cartridge.id), cartridge);
 
       for (const cap of cartridge.allCaps()) {
         const normalized = CapUrn.fromString(cap.urn).toString();
         if (!cache.capToCartridges.has(normalized)) {
           cache.capToCartridges.set(normalized, []);
         }
-        cache.capToCartridges.get(normalized).push(cartridge.id);
+        cache.capToCartridges.get(normalized).push({
+          channel: cartridge.channel,
+          id: cartridge.id
+        });
       }
     }
 
@@ -3812,8 +3852,9 @@ class CartridgeRepoClient {
    * `capUrn` is parsed via CapUrn.fromString; the parsed-and-
    * re-serialized form is the canonical key into the cap-to-cartridges
    * index. Inside each candidate cartridge we walk its caps via
-   * `allCaps()` and match each one with `isEquivalent`, never with
-   * string equality.
+   * `allCaps()` and match each one with `isEquivalent`. The `op` tag
+   * has no functional role — only `in` and `out` predicates participate
+   * in dispatch.
    */
   getSuggestionsForCap(capUrn) {
     const requested = CapUrn.fromString(capUrn);
@@ -3821,11 +3862,11 @@ class CartridgeRepoClient {
     const suggestions = [];
 
     for (const cache of this.caches.values()) {
-      const cartridgeIds = cache.capToCartridges.get(normalized);
-      if (!cartridgeIds) continue;
+      const refs = cache.capToCartridges.get(normalized);
+      if (!refs) continue;
 
-      for (const cartridgeId of cartridgeIds) {
-        const cartridge = cache.cartridges.get(cartridgeId);
+      for (const ref of refs) {
+        const cartridge = cache.cartridges.get(_cacheKey(ref.channel, ref.id));
         if (!cartridge) continue;
 
         const capInfo = cartridge.allCaps().find(c => {
@@ -3849,7 +3890,8 @@ class CartridgeRepoClient {
           capTitle: capInfo.title,
           latestVersion: cartridge.version,
           repoUrl: cache.repoUrl,
-          pageUrl: pageUrl
+          pageUrl: pageUrl,
+          channel: cartridge.channel
         }));
       }
     }
@@ -3858,13 +3900,15 @@ class CartridgeRepoClient {
   }
 
   /**
-   * Get all available cartridges from all repos
+   * Get all available cartridges from all repos as
+   * `[channel, id, cartridgeInfo]` tuples — the channel is first-class
+   * so consumers don't have to look it up separately.
    */
   getAllCartridges() {
     const cartridges = [];
     for (const cache of this.caches.values()) {
-      for (const [cartridgeId, cartridgeInfo] of cache.cartridges) {
-        cartridges.push([cartridgeId, cartridgeInfo]);
+      for (const cartridgeInfo of cache.cartridges.values()) {
+        cartridges.push([cartridgeInfo.channel, cartridgeInfo.id, cartridgeInfo]);
       }
     }
     return cartridges;
@@ -3884,11 +3928,17 @@ class CartridgeRepoClient {
   }
 
   /**
-   * Get cartridge info by ID
+   * Get cartridge info by `(channel, id)`. Channel is required —
+   * the same id can independently exist in both channels with
+   * different metadata. Returns `null` when not found.
    */
-  getCartridge(cartridgeId) {
+  getCartridge(channel, cartridgeId) {
+    if (channel !== 'release' && channel !== 'nightly') {
+      throw new Error(`Invalid channel '${channel}' — must be 'release' or 'nightly'`);
+    }
+    const key = _cacheKey(channel, cartridgeId);
     for (const cache of this.caches.values()) {
-      const cartridge = cache.cartridges.get(cartridgeId);
+      const cartridge = cache.cartridges.get(key);
       if (cartridge) {
         return cartridge;
       }
@@ -3916,51 +3966,74 @@ class CartridgeRepoClient {
 /**
  * Cartridge repository server - serves registry data with queries
  */
+/**
+ * Distribution channel for a cartridge entry — mirrors capdag's
+ * `CartridgeChannel` and the registry's `channels.<channel>` keys.
+ *
+ * `release` is the user-facing channel; `nightly` is the in-flight
+ * channel. Always one of these two strings — no other values are valid.
+ */
+const CartridgeChannel = Object.freeze({
+  Release: 'release',
+  Nightly: 'nightly'
+});
+
+function _validChannel(c) {
+  return c === CartridgeChannel.Release || c === CartridgeChannel.Nightly;
+}
+
+/**
+ * Reads a v5.0 channel-partitioned cartridge registry. Both `release`
+ * and `nightly` channels are always present (possibly empty); every
+ * `CartridgeInfo` returned carries the channel it came from so consumers
+ * can render the release/nightly distinction without re-deriving.
+ */
 class CartridgeRepoServer {
   constructor(registry) {
     this.registry = registry;
     this.validateRegistry();
   }
 
-  /**
-   * Validate registry schema
-   */
   validateRegistry() {
     if (!this.registry) {
       throw new Error('Registry is required');
     }
-    if (this.registry.schemaVersion !== '4.0') {
-      throw new Error(`Unsupported registry schema version: ${this.registry.schemaVersion}. Required: 4.0`);
+    if (this.registry.schemaVersion !== '5.0') {
+      throw new Error(`Unsupported registry schema version: ${this.registry.schemaVersion}. Required: 5.0`);
     }
-    if (!this.registry.cartridges || typeof this.registry.cartridges !== 'object') {
-      throw new Error('Registry must have cartridges object');
+    const channels = this.registry.channels;
+    if (!channels || typeof channels !== 'object') {
+      throw new Error('Registry must have a channels object');
+    }
+    for (const ch of [CartridgeChannel.Release, CartridgeChannel.Nightly]) {
+      const entry = channels[ch];
+      if (!entry || typeof entry !== 'object') {
+        throw new Error(`Registry must have channels.${ch}`);
+      }
+      if (!entry.cartridges || typeof entry.cartridges !== 'object') {
+        throw new Error(`Registry: channels.${ch}.cartridges must be an object`);
+      }
     }
   }
 
-  /**
-   * Validate version data has all required fields
-   */
-  validateVersionData(id, version, versionData) {
+  validateVersionData(channel, id, version, versionData) {
     if (!Array.isArray(versionData.builds) || versionData.builds.length === 0) {
-      throw new Error(`Cartridge ${id} v${version}: no builds`);
+      throw new Error(`Cartridge ${id} (${channel}) v${version}: no builds`);
     }
     for (let i = 0; i < versionData.builds.length; i++) {
       const build = versionData.builds[i];
       if (!build.platform) {
-        throw new Error(`Cartridge ${id} v${version}: build[${i}] missing platform`);
+        throw new Error(`Cartridge ${id} (${channel}) v${version}: build[${i}] missing platform`);
       }
       if (!build.package || !build.package.name) {
-        throw new Error(`Cartridge ${id} v${version}: build[${i}] (${build.platform}) missing package.name`);
+        throw new Error(`Cartridge ${id} (${channel}) v${version}: build[${i}] (${build.platform}) missing package.name`);
       }
       if (!build.package.url) {
-        throw new Error(`Cartridge ${id} v${version}: build[${i}] (${build.platform}) missing package.url`);
+        throw new Error(`Cartridge ${id} (${channel}) v${version}: build[${i}] (${build.platform}) missing package.url`);
       }
     }
   }
 
-  /**
-   * Compare version strings
-   */
   compareVersions(a, b) {
     const partsA = a.split('.').map(x => parseInt(x) || 0);
     const partsB = b.split('.').map(x => parseInt(x) || 0);
@@ -3976,71 +4049,82 @@ class CartridgeRepoServer {
   }
 
   /**
-   * Transform registry to flat cartridge array
+   * Convert one channel-entry into a flat CartridgeInfo. Throws if the
+   * entry's `latestVersion` is not present in `versions` or if the
+   * latest version's builds are malformed.
    */
-  transformToCartridgeArray() {
-    const cartridgesObject = this.registry.cartridges || {};
-    const cartridges = [];
+  _entryToCartridgeInfo(channel, id, cartridge) {
+    const latestVersion = cartridge.latestVersion;
+    const versionData = cartridge.versions[latestVersion];
+    if (!versionData) {
+      throw new Error(`Cartridge ${id} (${channel}): latestVersion ${latestVersion} not found in versions`);
+    }
+    this.validateVersionData(channel, id, latestVersion, versionData);
 
-    for (const [id, cartridge] of Object.entries(cartridgesObject)) {
-      const latestVersion = cartridge.latestVersion;
-      const versionData = cartridge.versions[latestVersion];
+    const availableVersions = Object.keys(cartridge.versions).sort((a, b) => this.compareVersions(b, a));
 
-      if (!versionData) {
-        throw new Error(`Cartridge ${id}: latest version ${latestVersion} not found in versions`);
-      }
-
-      // Validate required fields - fail hard
-      this.validateVersionData(id, latestVersion, versionData);
-
-      // Get all version numbers sorted descending
-      const availableVersions = Object.keys(cartridge.versions).sort((a, b) => {
-        return this.compareVersions(b, a);
-      });
-
-      cartridges.push({
-        id,
-        name: cartridge.name,
-        version: latestVersion,
-        description: cartridge.description,
-        author: cartridge.author,
-        pageUrl: cartridge.pageUrl || '',
-        teamId: cartridge.teamId,
-        signedAt: versionData.releaseDate,
-        minAppVersion: versionData.minAppVersion || cartridge.minAppVersion,
-        cap_groups: (() => {
-          if (!Array.isArray(cartridge.cap_groups)) throw new Error(`Cartridge ${id}: missing cap_groups array`);
-          return cartridge.cap_groups;
-        })(),
-        categories: cartridge.categories,
-        tags: cartridge.tags,
-        versions: cartridge.versions,
-        availableVersions
-      });
+    if (!Array.isArray(cartridge.cap_groups)) {
+      throw new Error(`Cartridge ${id} (${channel}): missing cap_groups array`);
     }
 
-    return cartridges;
-  }
-
-  /**
-   * Get all cartridges (API response format)
-   */
-  getCartridges() {
     return {
-      cartridges: this.transformToCartridgeArray()
+      id,
+      name: cartridge.name,
+      version: latestVersion,
+      description: cartridge.description,
+      author: cartridge.author,
+      pageUrl: cartridge.pageUrl || '',
+      teamId: cartridge.teamId,
+      signedAt: versionData.releaseDate,
+      minAppVersion: versionData.minAppVersion || cartridge.minAppVersion,
+      cap_groups: cartridge.cap_groups,
+      categories: cartridge.categories,
+      tags: cartridge.tags,
+      versions: cartridge.versions,
+      availableVersions,
+      channel
     };
   }
 
   /**
-   * Get cartridge by ID
+   * Walk both channels and emit a flat array of CartridgeInfo. Release
+   * entries appear before nightly entries — UIs that paint in array
+   * order get the user-facing channel at the top by default.
    */
-  getCartridgeById(id) {
-    const cartridges = this.transformToCartridgeArray();
-    return cartridges.find(p => p.id === id);
+  transformToCartridgeArray() {
+    const out = [];
+    for (const channel of [CartridgeChannel.Release, CartridgeChannel.Nightly]) {
+      const map = (this.registry.channels[channel].cartridges) || {};
+      for (const [id, cartridge] of Object.entries(map)) {
+        out.push(this._entryToCartridgeInfo(channel, id, cartridge));
+      }
+    }
+    return out;
   }
 
   /**
-   * Search cartridges by free-text query.
+   * Get all cartridges (API response format) — both channels.
+   */
+  getCartridges() {
+    return { cartridges: this.transformToCartridgeArray() };
+  }
+
+  /**
+   * Get cartridge by `(channel, id)`. Channel is required because the
+   * same id can independently exist in both channels. Returns
+   * `undefined` if the cartridge isn't in the requested channel.
+   */
+  getCartridgeById(channel, id) {
+    if (!_validChannel(channel)) {
+      throw new Error(`Invalid channel '${channel}' — must be 'release' or 'nightly'`);
+    }
+    const cartridge = this.registry.channels[channel].cartridges[id];
+    if (!cartridge) return undefined;
+    return this._entryToCartridgeInfo(channel, id, cartridge);
+  }
+
+  /**
+   * Search cartridges by free-text query across both channels.
    *
    * Matches against cartridge name, description, tags, and cap titles.
    * Cap URN strings are not substring-matched: a cap URN is a tagged
@@ -4051,7 +4135,6 @@ class CartridgeRepoServer {
   searchCartridges(query) {
     const cartridges = this.transformToCartridgeArray();
     const lowerQuery = query.toLowerCase();
-
     return cartridges.filter(p => {
       const allCaps = (p.cap_groups || []).flatMap(g => g.caps || []);
       return p.name.toLowerCase().includes(lowerQuery) ||
@@ -4062,7 +4145,7 @@ class CartridgeRepoServer {
   }
 
   /**
-   * Get cartridges by category
+   * Get cartridges by category — both channels.
    */
   getCartridgesByCategory(category) {
     const cartridges = this.transformToCartridgeArray();
@@ -4072,10 +4155,14 @@ class CartridgeRepoServer {
   /**
    * Get cartridges that provide a specific cap.
    *
-   * Both the request URN and each candidate cap URN are parsed via
-   * CapUrn.fromString and matched with `isEquivalent` so caps declared
-   * in any tag order resolve. A malformed input URN throws — there is
-   * no fallback that compares the raw strings.
+   * The request URN is parsed via CapUrn.fromString. Each declared
+   * cartridge cap is parsed and matched with `conformsTo`: cap dispatch
+   * is the partial-order question "does the declared cap conform to
+   * (i.e. refine, equal, or be more specific than) the requested
+   * pattern?". Only `in` and `out` tags are semantically meaningful —
+   * no string comparison, no special role for the `op` tag. A malformed
+   * input URN throws; a malformed declared URN in the registry also
+   * throws (registry corruption is not a fallback condition).
    */
   getCartridgesByCap(capUrn) {
     const requested = CapUrn.fromString(capUrn);
@@ -4083,13 +4170,8 @@ class CartridgeRepoServer {
     return cartridges.filter(p =>
       (p.cap_groups || []).some(g =>
         (g.caps || []).some(c => {
-          let parsed;
-          try {
-            parsed = CapUrn.fromString(c.urn);
-          } catch (_e) {
-            return false;
-          }
-          return parsed.isEquivalent(requested);
+          const declared = CapUrn.fromString(c.urn);
+          return declared.conformsTo(requested);
         })
       )
     );
@@ -5326,6 +5408,7 @@ module.exports = {
   CartridgeRepoCache,
   CartridgeRepoClient,
   CartridgeRepoServer,
+  CartridgeChannel,
   // Machine notation
   MachineSyntaxError,
   MachineSyntaxErrorCodes,
