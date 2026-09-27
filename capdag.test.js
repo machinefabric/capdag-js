@@ -211,9 +211,13 @@ function test003_directionMatching() {
   const requestDiff = CapUrn.fromString('cap:in="media:enc=utf-8";generate;out="media:enc=utf-8;record"');
   assert(!cap.accepts(requestDiff), 'Different inSpec should not match');
 
-  // Wildcard direction matches any
+  // A wildcard INPUT takes any request input; a wildcard OUTPUT promises no
+  // particular output, so it does not satisfy a request that needs a record —
+  // the rule dispatch applies (capdag/formal, Legacy.accepts_skipping_top_output_not_transitive).
   const wildcardCap = CapUrn.fromString('cap:in=*;generate;out=*');
-  assert(wildcardCap.accepts(request), 'Wildcard direction should match any');
+  assert(!wildcardCap.accepts(request), 'a media: output does not promise the record the request needs');
+  const anyOutputRequest = CapUrn.fromString(request.toString().replace(/;out="[^"]*"|;out=[^;]*/, ''));
+  assert(wildcardCap.accepts(anyOutputRequest), 'Wildcard input accepts a request that asks for no particular output');
 }
 
 // TEST4: Test that unquoted keys and values are normalized to lowercase
@@ -694,10 +698,15 @@ function test042_matchingSemanticsCapHasExtraTag() {
 }
 
 // TEST43: Matching semantics - request wildcard matches specific cap value
+// A request that says only "some ext" is not a pdf, so a pattern requiring
+// ext=pdf does not accept it: `ext` promises presence, not a value, and
+// reading it as "whatever the pattern wants" made `ext` and `ext=pdf`
+// equivalent (capdag/formal, Legacy.marker_equivalent_to_exact).
 function test043_matchingSemanticsRequestHasWildcard() {
   const cap = CapUrn.fromString(test6204_Urn('generate;ext=pdf'));
   const request = CapUrn.fromString(test6204_Urn('generate;ext=*'));
-  assert(cap.accepts(request), 'Request wildcard should match specific cap value');
+  assert(!cap.accepts(request), 'a pdf pattern does not accept "some ext"');
+  assert(request.accepts(cap), '"some ext" accepts a pdf');
 }
 
 // TEST44: Matching semantics - cap wildcard matches specific request value
@@ -730,10 +739,16 @@ function test047_matchingSemanticsThumbnailVoidInput() {
 }
 
 // TEST48: Matching semantics - wildcard direction matches anything
+// A handler whose output is `media:` promises no particular output, so it does
+// not accept a request that needs one — the rule dispatch applies. Skipping the
+// output axis for a `media:` handler made acceptance non-transitive
+// (capdag/formal, Legacy.accepts_skipping_top_output_not_transitive).
 function test048_matchingSemanticsWildcardDirection() {
   const cap = CapUrn.fromString('cap:generate');
   const request = CapUrn.fromString(test6204_Urn('generate;ext=pdf'));
-  assert(cap.accepts(request), 'Generic declared directions should accept a more specific matching request');
+  assert(!cap.accepts(request), 'a media:-output handler does not promise the output the request needs');
+  const anyOutput = CapUrn.fromString('cap:ext=pdf;generate;in="media:enc=utf-8"');
+  assert(cap.accepts(anyOutput), 'a generic handler accepts a request that asks for no particular output');
 }
 
 // TEST49: Non-overlapping tags — neither direction accepts
@@ -3193,8 +3208,13 @@ function test648_wildcardAcceptsSpecific() {
   const wildcard = CapUrn.fromString('cap:in=*;out=*;raw');
   const specific = CapUrn.fromString('cap:in="media:";out="media:text";raw');
 
-  assert(wildcard.accepts(specific), 'Wildcard should accept specific');
-  assert(specific.conformsTo(wildcard), 'Specific should conform to wildcard');
+  // `media:` output promises no particular output: the generic handler does not
+  // promise text; the text handler satisfies a request asking for none.
+  assert(!wildcard.accepts(specific), 'a media:-output handler does not promise text out');
+  assert(specific.accepts(wildcard), 'a text-producing handler satisfies a request asking for no particular output');
+  const specificIn = CapUrn.fromString('cap:in="media:text";out=*;raw');
+  assert(wildcard.accepts(specificIn), 'a handler taking any input accepts a request that sends text');
+  assert(specificIn.conformsTo(wildcard), 'the text-sending request conforms to the generic handler');
 }
 
 // TEST649: Specificity - wildcard has 0, specific has tag count
@@ -6630,12 +6650,17 @@ function test1835_canonicalizeMustNotHave() {
 // TEST1842: Full 6×6 truth table.
 function test1842_truthTableFullCrossProduct() {
   const forms = ['', '?x', 'x?=v', 'x', 'x!=v', 'x=v', '!x'];
+  // Each form means the set of states it allows, on either side; an instance
+  // is accepted when its set lies inside the pattern's (capdag/formal,
+  // `tagMatch_iff_allows`). A missing key and `?x` promise nothing, so they
+  // satisfy only patterns that ask for nothing; `x` promises presence, not a
+  // value.
   // miss   ?x    x?=v   x      x!=v   x=v    !x
   const expected = [
-    [true,  true, true,  false, false, false, true ], // missing
-    [true,  true, true,  true,  true,  true,  true ], // ?x
-    [true,  true, true,  false, false, false, true ], // x?=v
-    [true,  true, true,  true,  true,  true,  false], // x
+    [true,  true, false, false, false, false, false], // missing
+    [true,  true, false, false, false, false, false], // ?x
+    [true,  true, true,  false, false, false, false], // x?=v
+    [true,  true, false, true,  false, false, false], // x
     [true,  true, true,  true,  true,  false, false], // x!=v
     [true,  true, false, true,  false, true,  false], // x=v
     [true,  true, true,  false, false, false, true ], // !x
@@ -7476,6 +7501,7 @@ async function runTests() {
   runTest('TEST8155: registry_verdict_wire_round_trip', test8155_registryVerdictWireRoundTrip);
   runTest('TEST8157: signature_formats_from_library', test8157_signatureFormatDiscriminatorsComeFromTheLibrary);
   runTest('TEST8158: attachment_kinds_separate_situations', test8158_attachmentKindsSeparateTheirSituations);
+  runTest('TEST12166: the_implementation_is_the_proved_model', test12166_theImplementationIsTheProvedModel);
   runTest('TEST8121: effect_conformance_declared_asymmetry', test8121_effectConformanceDeclaredAsymmetry);
   runTest('TEST8122: effect_conformance_none_requires_equivalence', test8122_effectConformanceNoneRequiresEquivalence);
   runTest('TEST8123: effect_conformance_patch_requires_patched_input', test8123_effectConformancePatchRequiresPatchedInput);
@@ -7989,6 +8015,40 @@ function test8158_attachmentKindsSeparateTheirSituations() {
   );
 }
 
+
+/**
+ * TEST12166: matching, specificity and dispatch are the proved model's.
+ *
+ * `capdag/formal` proves the rules have no holes — refinement is transitive,
+ * equivalence is "the same tag set", dispatch composes. Those are proofs about
+ * the MODEL. What ties them to this implementation is `conformance.json`,
+ * generated from the model (`lake exe conformance`), every row of which is
+ * parsed with this mirror's own parser and must get the model's answer. The
+ * same table runs in every mirror, so a mirror that drifts fails naming the row.
+ */
+function test12166_theImplementationIsTheProvedModel() {
+  const table = JSON.parse(require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'formal', 'conformance.json'), 'utf8'));
+  const wrong = [];
+  for (const row of table.refines) {
+    const got = MediaUrn.fromString(row.instance).conformsTo(MediaUrn.fromString(row.pattern));
+    if (got !== row.refines) wrong.push(`${row.instance} ⪯ ${row.pattern}: model ${row.refines}, got ${got}`);
+  }
+  for (const row of table.scores) {
+    const got = MediaUrn.fromString(row.urn).specificity();
+    if (got !== row.score) wrong.push(`score ${row.urn}: model ${row.score}, got ${got}`);
+  }
+  for (const row of table.dispatch) {
+    const candidate = CapUrn.fromString(row.candidate);
+    const request = CapUrn.fromString(row.request);
+    const got = candidate.isDispatchable(request);
+    if (got !== row.dispatch) wrong.push(`${row.candidate} serves ${row.request}: model ${row.dispatch}, got ${got}`);
+    const accepted = candidate.accepts(request);
+    if (accepted !== row.accepts) wrong.push(`${row.candidate} accepts ${row.request}: model ${row.accepts}, got ${accepted}`);
+  }
+  assert(table.refines.length > 4000 && table.dispatch.length > 20000, 'the table is the full one');
+  assert(wrong.length === 0, `${wrong.length} row(s) differ from the model, e.g.\n  ${wrong.slice(0, 8).join('\n  ')}`);
+}
 
 // Run the tests
 if (require.main === module) {

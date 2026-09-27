@@ -615,9 +615,12 @@ class CapUrn {
       }
     }
 
-    // Output direction: candidate output must conform to requested output.
-    // `media:` on the pattern side is wildcard top and skips the check.
-    if (this.outSpec !== 'media:' && this.outSpec !== '*') {
+    // Output direction: the handler's output must refine the request's. No
+    // case for `media:` here: a handler whose output is `media:` promises no
+    // particular output, as in dispatch. Skipping the axis for it made
+    // acceptance non-transitive (capdag/formal,
+    // Legacy.accepts_skipping_top_output_not_transitive).
+    {
       const capOut = MediaUrn.fromString(this.outSpec);
       const requestOut = MediaUrn.fromString(request.outSpec);
       if (!capOut.conformsTo(requestOut)) {
@@ -863,15 +866,19 @@ class CapUrn {
       && this._capTagsDispatchable(request);
   }
 
+  // Both directional axes are TYPES, compared by refinement and nothing else
+  // (capdag/formal, `dispatch`). A request whose input is `media:` may send
+  // anything, so only a candidate that accepts anything serves it: reading it
+  // as "don't care" served it with a PDF-only cap, and dispatch stopped
+  // composing — a cap could serve a request that could serve another, and not
+  // serve that one. And top-ness is a meaning, not a spelling: `media:?ext`
+  // constrains nothing exactly as `media:` does, and a comparison against the
+  // string "media:" answered differently for the two.
   _inputDispatchable(request) {
-    if (request.inSpec === 'media:') return true;
-    if (this.inSpec === 'media:') return true;
     return MediaUrn.fromString(request.inSpec).conformsTo(MediaUrn.fromString(this.inSpec));
   }
 
   _outputDispatchable(request) {
-    if (request.outSpec === 'media:') return true;
-    if (this.outSpec === 'media:') return false;
     return MediaUrn.fromString(this.outSpec).conformsTo(MediaUrn.fromString(request.outSpec));
   }
 
