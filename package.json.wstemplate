@@ -11,7 +11,8 @@
   },
   "exports": {
     ".": "./capdag.js",
-    "./cap-fab-renderer": "./cap-fab-renderer.js"
+    "./cap-fab-renderer": "./cap-fab-renderer.js",
+    "./machine-parser": "./machine-parser.js"
   },
   "files": [
     "capdag.js",

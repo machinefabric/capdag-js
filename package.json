@@ -11,7 +11,8 @@
   },
   "exports": {
     ".": "./capdag.js",
-    "./cap-fab-renderer": "./cap-fab-renderer.js"
+    "./cap-fab-renderer": "./cap-fab-renderer.js",
+    "./machine-parser": "./machine-parser.js"
   },
   "files": [
     "capdag.js",
@@ -49,5 +50,5 @@
     "test": "node capdag.test.js"
   },
   "type": "module",
-  "version": "1.349.244"
+  "version": "1.350.258"
 }
