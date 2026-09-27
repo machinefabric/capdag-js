@@ -2,7 +2,13 @@
 // Tests mirror Rust test numbering (TEST###) for cross-language tracking.
 // All implementations (Rust, Go, JS, ObjC, Python) must pass these identically.
 
-const {
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { TaggedUrn } from 'tagged-urn';
+import * as plannerNS from './planner.js';
+import {
   CapUrn, CapKind, CapEffect, CapUrnBuilder, CapMatcher, CapUrnError, ErrorCodes,
   MediaUrn, MediaUrnError, MediaUrnErrorCodes,
   Cap, CapGroup, CapManifest, MediaDef, MediaDefError, MediaDefErrorCodes,
@@ -44,7 +50,9 @@ const {
   tokenIsUrn, isAliasToken, normalizeAliasName, classifyAliasTarget,
   selectDisplayAlias,
   StoredAlias, Manifest
-} = require('./capdag.js');
+} from './capdag.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 // ============================================================================
 // Test utilities
@@ -1593,7 +1601,6 @@ function test283_capArgumentValueLargeBinary() {
 // standard/caps.rs: TEST304-TEST312
 // ============================================================================
 
-const { TaggedUrn } = require('tagged-urn');
 
 // TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags
 function test304_mediaAvailabilityOutputConstant() {
@@ -2636,8 +2643,6 @@ function test1874_registryUrlFromBuildEnvRejectsEmptyString() {
 // accepts the directory and discovery reaches its own identity checks. Mirrors
 // the Rust test helper install_fixture.
 function discoveryInstallFixture(root, slug, channelFolder, name, version, cartridgeJson, entry) {
-  const fs = require('fs');
-  const path = require('path');
   // {slug}/v1/{channel}/{name}/{version} — the version level pins to the host
   // registry version (the tests construct identities at cartridgeRegistryVersion 1).
   const dir = path.join(root, slug, 'v1', channelFolder, name, version);
@@ -2665,14 +2670,10 @@ function discoveryRegistryCartridgeJson(url, channel, fmv) {
 }
 
 function discoveryMakeTempRoot() {
-  const fs = require('fs');
-  const os = require('os');
-  const path = require('path');
   return fs.mkdtempSync(path.join(os.tmpdir(), 'capdag-disc-'));
 }
 
 function discoveryRemoveRoot(root) {
-  const fs = require('fs');
   try { fs.rmSync(root, { recursive: true, force: true }); } catch (_e) { /* best effort */ }
 }
 
@@ -4556,41 +4557,25 @@ function assertThrowsWithCode(fn, expectedCode) {
 // in the browser; these tests cover the pure data transforms underneath it.
 // ============================================================================
 
-const {
-  cardinalityLabel: rendererCardinalityLabel,
-  cardinalityFromCap: rendererCardinalityFromCap,
-  canonicalMediaUrn: rendererCanonicalMediaUrn,
-  mediaNodeLabel: rendererMediaNodeLabel,
-  buildBrowseGraphData: rendererBuildBrowseGraphData,
-  buildStrandGraphData: rendererBuildStrandGraphData,
-  collapseStrandShapeTransitions: rendererCollapseStrandShapeTransitions,
-  buildRunGraphData: rendererBuildRunGraphData,
-  buildEditorGraphData: rendererBuildEditorGraphData,
-  buildResolvedMachineGraphData: rendererBuildResolvedMachineGraphData,
-  classifyStrandCapSteps: rendererClassifyStrandCapSteps,
-  validateStrandPayload: rendererValidateStrandPayload,
-  validateRunPayload: rendererValidateRunPayload,
-  validateEditorGraphPayload: rendererValidateEditorGraphPayload,
-  validateResolvedMachinePayload: rendererValidateResolvedMachinePayload,
-  validateStrandStep: rendererValidateStrandStep,
-  validateBodyOutcome: rendererValidateBodyOutcome,
-} = require('./cap-fab-renderer.js');
-
-// The renderer module reads its dependencies off `window` or `global` at
-// call time (it is browser-first). Node has no window, so we install the
-// needed capdag-js classes on `global` before the tests run. Every
-// renderer path exercised by the tests resolves through these.
-if (typeof global.TaggedUrn === 'undefined') {
-  global.TaggedUrn = require('tagged-urn').TaggedUrn;
-}
-if (typeof global.MediaUrn === 'undefined') global.MediaUrn = MediaUrn;
-if (typeof global.CapUrn === 'undefined') global.CapUrn = CapUrn;
-if (typeof global.Cap === 'undefined') global.Cap = Cap;
-if (typeof global.CapFab === 'undefined') global.CapFab = CapFab;
-// Reference the top-of-file destructured createCap via the module export.
-if (typeof global.createCap === 'undefined') {
-  global.createCap = require('./capdag.js').createCap;
-}
+import {
+  cardinalityLabel as rendererCardinalityLabel,
+  cardinalityFromCap as rendererCardinalityFromCap,
+  canonicalMediaUrn as rendererCanonicalMediaUrn,
+  mediaNodeLabel as rendererMediaNodeLabel,
+  buildBrowseGraphData as rendererBuildBrowseGraphData,
+  buildStrandGraphData as rendererBuildStrandGraphData,
+  collapseStrandShapeTransitions as rendererCollapseStrandShapeTransitions,
+  buildRunGraphData as rendererBuildRunGraphData,
+  buildEditorGraphData as rendererBuildEditorGraphData,
+  buildResolvedMachineGraphData as rendererBuildResolvedMachineGraphData,
+  classifyStrandCapSteps as rendererClassifyStrandCapSteps,
+  validateStrandPayload as rendererValidateStrandPayload,
+  validateRunPayload as rendererValidateRunPayload,
+  validateEditorGraphPayload as rendererValidateEditorGraphPayload,
+  validateResolvedMachinePayload as rendererValidateResolvedMachinePayload,
+  validateStrandStep as rendererValidateStrandStep,
+  validateBodyOutcome as rendererValidateBodyOutcome,
+} from './cap-fab-renderer.js';
 
 // TEST6471: Renderer cardinality label all four cases
 function test6471_Renderer_cardinalityLabel_allFourCases() {
@@ -7050,7 +7035,6 @@ function test1196_aliasedSerializationUsesAliasAndDropsHeader() {
 // Unified planner plan-space (planner.js) — TEST1450+
 // ============================================================================
 
-const plannerNS = require('./planner.js');
 
 /** Planner-specific throw assertion: any PlanStateError counts. */
 function assertThrowsPlanState(fn, message) {
@@ -8027,8 +8011,8 @@ function test8158_attachmentKindsSeparateTheirSituations() {
  * same table runs in every mirror, so a mirror that drifts fails naming the row.
  */
 function test12166_theImplementationIsTheProvedModel() {
-  const table = JSON.parse(require('fs').readFileSync(
-    require('path').join(__dirname, '..', 'formal', 'conformance.json'), 'utf8'));
+  const table = JSON.parse(fs.readFileSync(
+    path.join(here, '..', 'formal', 'conformance.json'), 'utf8'));
   const wrong = [];
   for (const row of table.refines) {
     const got = MediaUrn.fromString(row.instance).conformsTo(MediaUrn.fromString(row.pattern));
@@ -8051,13 +8035,9 @@ function test12166_theImplementationIsTheProvedModel() {
 }
 
 // Run the tests
-if (require.main === module) {
-  runTests()
-    .then(() => process.exit(0))
-    .catch(error => {
-      console.error('\nERR Test failed:', error.message);
-      process.exit(1);
-    });
-}
-
-module.exports = { runTests };
+runTests()
+  .then(() => process.exit(0))
+  .catch(error => {
+    console.error('\nERR Test failed:', error.message);
+    process.exit(1);
+  });

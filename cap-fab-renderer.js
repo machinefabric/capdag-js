@@ -41,27 +41,19 @@
 // uses a different name for the same concept, the fix is at the producer,
 // not here.
 
-'use strict';
+import { CapUrn, CapFab, MediaUrn, createCap } from './capdag.js';
 
 // =============================================================================
-// Host dependencies — resolved at call time. When this file runs inside
-// Node (for tests) the globals are on `global`.
+// Host dependencies — the page's: cytoscape and cytoscape-elk, loaded as
+// scripts, resolved from the global object when a graph is drawn.
 // =============================================================================
 
 function requireHostDependency(name) {
-  const g = (typeof window !== 'undefined') ? window
-           : (typeof global !== 'undefined') ? global
-           : null;
-  if (g === null) {
-    throw new Error(
-      `CapFabRenderer: no global object (window/global) — cannot resolve '${name}'`
-    );
-  }
-  const value = g[name];
+  const value = globalThis[name];
   if (value === undefined) {
     throw new Error(
       `CapFabRenderer: required host dependency '${name}' is not loaded. ` +
-      `Load cytoscape, cytoscape-elk, tagged-urn.js, and capdag.js before this script.`
+      `Load cytoscape and cytoscape-elk before drawing a graph.`
     );
   }
   return value;
@@ -104,7 +96,6 @@ function cardinalityFromCap(cap) {
 // =============================================================================
 
 function canonicalMediaUrn(mediaUrnString) {
-  const MediaUrn = requireHostDependency('MediaUrn');
   return MediaUrn.fromString(mediaUrnString).toString();
 }
 
@@ -118,7 +109,6 @@ function mediaNodeLabel() {
 }
 
 function requireExplicitDisplayName(canonicalUrn, displayEntries, context) {
-  const MediaUrn = requireHostDependency('MediaUrn');
   const candidate = MediaUrn.fromString(canonicalUrn);
   for (const entry of displayEntries) {
     if (candidate.isEquivalent(entry.media)) return entry.display;
@@ -1159,9 +1149,6 @@ function annotateCrowdedBrowseEdges(edges) {
 function buildBrowseGraphData(capabilities) {
   validateBrowseData(capabilities);
 
-  const CapUrn = requireHostDependency('CapUrn');
-  const createCap = requireHostDependency('createCap');
-  const CapFab = requireHostDependency('CapFab');
 
   const nodesMap = new Map();
   const edges = [];
@@ -1328,7 +1315,6 @@ function buildStrandGraphData(data) {
   // Look up a display name for a media URN via the host-supplied map.
   // Uses `MediaUrn.isEquivalent` so tag-order variation doesn't defeat
   // the lookup — URNs are compared semantically, never as raw strings.
-  const MediaUrn = requireHostDependency('MediaUrn');
   const displayEntries = [];
   for (const [urn, display] of Object.entries(mediaDisplayNames)) {
     if (typeof display !== 'string' || display.length === 0) continue;
@@ -1652,7 +1638,6 @@ function buildStrandGraphData(data) {
 //      cap edge lands on that merged endpoint. Removes the visible
 //      duplicate node.
 function collapseStrandShapeTransitions(built) {
-  const MediaUrn = requireHostDependency('MediaUrn');
 
   // Index for lookups.
   const nodeById = new Map();
@@ -1817,7 +1802,6 @@ function strandCytoscapeElements(built, options) {
 // matches the supplied URN string. Uses CapUrn.isEquivalent — never
 // string equality.
 function findCapStepIndexByUrn(steps, targetUrnString) {
-  const CapUrn = requireHostDependency('CapUrn');
   const target = CapUrn.fromString(targetUrnString);
   for (let i = 0; i < steps.length; i++) {
     const variant = Object.keys(steps[i].step_type)[0];
@@ -2171,7 +2155,6 @@ function buildRunGraphData(data) {
   // Look up a display name for a media URN via the host-supplied
   // `media_display_names` map. Uses `MediaUrn.isEquivalent` for
   // semantic URN equality.
-  const MediaUrn = requireHostDependency('MediaUrn');
   const mediaDisplayNames = data.media_display_names || {};
   const displayEntries = [];
   for (const [urn, display] of Object.entries(mediaDisplayNames)) {
@@ -3649,7 +3632,6 @@ class CapFabRenderer {
       return;
     }
 
-    const CapUrn = requireHostDependency('CapUrn');
     const target = CapUrn.fromString(this._capUrnString(cap));
 
     for (const [edgeId, edgeCap] of this.capabilitiesByEdgeId) {
@@ -3691,7 +3673,6 @@ class CapFabRenderer {
   getEdgeDataByCapUrn(capUrnString) {
     if (this.mode !== 'browse') return null;
     if (!this.cy || typeof capUrnString !== 'string' || capUrnString.length === 0) return null;
-    const CapUrn = requireHostDependency('CapUrn');
     const target = CapUrn.fromString(capUrnString);
     for (const [edgeId, edgeCap] of this.capabilitiesByEdgeId) {
       const candidate = CapUrn.fromString(edgeCap.urn);
@@ -3708,7 +3689,6 @@ class CapFabRenderer {
       throw new Error(`CapFabRenderer: selectEdgeByCapUrn is only valid in browse mode (current: ${this.mode})`);
     }
     if (!this.cy || typeof capUrnString !== 'string' || capUrnString.length === 0) return;
-    const CapUrn = requireHostDependency('CapUrn');
     const target = CapUrn.fromString(capUrnString);
     for (const [edgeId, edgeCap] of this.capabilitiesByEdgeId) {
       const candidate = CapUrn.fromString(edgeCap.urn);
@@ -4067,30 +4047,26 @@ class CapFabRenderer {
 }
 
 // =============================================================================
-// Module exports — CJS for Node tests. Browser-side the build-browser.js
-// concatenation wraps these declarations in an IIFE and assigns
-// `window.CapFabRenderer`.
+// Module exports
 // =============================================================================
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    CapFabRenderer,
-    cardinalityLabel,
-    cardinalityFromCap,
-    canonicalMediaUrn,
-    mediaNodeLabel,
-    buildBrowseGraphData,
-    buildStrandGraphData,
-    collapseStrandShapeTransitions,
-    buildRunGraphData,
-    buildEditorGraphData,
-    buildResolvedMachineGraphData,
-    classifyStrandCapSteps,
-    validateStrandPayload,
-    validateRunPayload,
-    validateEditorGraphPayload,
-    validateResolvedMachinePayload,
-    validateStrandStep,
-    validateBodyOutcome,
-  };
-}
+export {
+  CapFabRenderer,
+  cardinalityLabel,
+  cardinalityFromCap,
+  canonicalMediaUrn,
+  mediaNodeLabel,
+  buildBrowseGraphData,
+  buildStrandGraphData,
+  collapseStrandShapeTransitions,
+  buildRunGraphData,
+  buildEditorGraphData,
+  buildResolvedMachineGraphData,
+  classifyStrandCapSteps,
+  validateStrandPayload,
+  validateRunPayload,
+  validateEditorGraphPayload,
+  validateResolvedMachinePayload,
+  validateStrandStep,
+  validateBodyOutcome,
+};

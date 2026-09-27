@@ -1,18 +1,25 @@
 {
   "author": "Bahram Joharshamshiri",
   "dependencies": {
+    "lungo-ts": {% if env.MFR_LOCAL_LIBS %}"file:{{ build.root_from_here }}/lungo/distribution/ts"{% else %}"{{ projects.lungo.latest_remote_version }}"{% endif %},
     "peggy": "^5.1.0",
     "tagged-urn": {% if env.MFR_LOCAL_LIBS %}"file:{{ projects.tagged_urn_js.path_from_here }}"{% else %}"^{{ projects.tagged_urn_js.latest_remote_version }}"{% endif %}
   },
   "description": "JavaScript implementation of Cap URN (Capability Uniform Resource Names) with strict validation and matching",
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./capdag.js",
+    "./cap-fab-renderer": "./cap-fab-renderer.js"
   },
   "files": [
     "capdag.js",
     "cap-fab-renderer.js",
     "build-browser.js",
-    "capdag.test.js",
+    "formal/index.js",
+    "formal/index.d.ts",
+    "formal/program.wasm",
     "machine.pegjs",
     "machine-parser.js",
     "planner.js",
@@ -36,10 +43,11 @@
     "url": "https://github.com/machinefabric/capdag-js.git"
   },
   "scripts": {
-    "build:parser": "npx peggy --format commonjs -o machine-parser.js machine.pegjs",
+    "build:parser": "npx peggy --format es -o machine-parser.js machine.pegjs",
     "build:browser": "npm run build:parser && node build-browser.js",
     "pretest": "npm run build:parser",
     "test": "node capdag.test.js"
   },
+  "type": "module",
   "version": "{{ project.version }}"
 }

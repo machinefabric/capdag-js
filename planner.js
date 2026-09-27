@@ -11,8 +11,6 @@
 // Every parser fails hard on malformed input: a missing/mistyped field is a
 // wire bug to surface, never a value to default away.
 
-'use strict';
-
 // ============================================================================
 // Knob enums — string values ⇄ proto enum numbers
 // ============================================================================
@@ -403,7 +401,7 @@ function parseConvergentTargets(raw, context = 'discoverConvergentTargets') {
   );
 }
 
-module.exports = {
+export {
   PlanStateError,
   ConvergencePresence,
   ConvergenceLocation,

@@ -2,7 +2,6 @@
 //
 // https://peggyjs.org/
 
-"use strict";
 
 class peg$SyntaxError extends SyntaxError {
   constructor(message, expected, found, location) {
@@ -1158,8 +1157,12 @@ function peg$parse(input, options) {
   }
 }
 
-module.exports = {
-  StartRules: ["program"],
-  SyntaxError: peg$SyntaxError,
-  parse: peg$parse,
+const peg$allowedStartRules = [
+  "program"
+];
+
+export {
+  peg$allowedStartRules as StartRules,
+  peg$SyntaxError as SyntaxError,
+  peg$parse as parse
 };

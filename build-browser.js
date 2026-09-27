@@ -1,205 +1,108 @@
 #!/usr/bin/env node
-// Build browser-compatible bundles of tagged-urn, capdag, and
-// cap-fab-renderer from the local sources + resolved tagged-urn
-// dependency. Outputs three self-contained IIFE-wrapped JS files to
-// `dist/` that each expose their exported classes as window globals.
+// Lay out capdag, tagged-urn and lungo-ts for a browser: the ES modules as
+// they are, each beside the WebAssembly program it instantiates, with the
+// package names they import by rewritten to the paths they are laid out at —
+// so a page loads them without a bundler or an import map.
 //
-// The browser build exists because capdag-js source files are CJS:
-// they use `require()` and `module.exports`, which a plain <script tag>
-// cannot load. For browser consumers (capdag-dot-com, macfloom
-// WKWebViews) we strip those CJS hooks and wrap the result in an IIFE
-// that assigns to window.*.
+//   <outDir>/lungo-ts/        the WebAssembly host every generated program runs on
+//   <outDir>/tagged-urn/      tagged-urn.js and its model (formal/)
+//   <outDir>/capdag/          capdag.js, cap-fab-renderer.js and their model (formal/)
+//   <outDir>/capdag/browser.js
 //
-// Load order at the consumer:
-//   1. tagged-urn.js       — defines window.TaggedUrn, etc.
-//   2. capdag.js           — reads window.TaggedUrn, defines CapUrn,
-//                            MediaUrn, Cap, CapFab, createCap, …
-//   3. cap-fab-renderer.js — reads window.cytoscape + capdag globals
-//                              at call time, defines CapFabRenderer.
+// browser.js puts the public names of tagged-urn, capdag and the renderer on
+// the page's global object, for page scripts that are not modules
+// (capdag-dot-com, macfloom's web views). The programs are instantiated when
+// the modules are first imported, so a page imports browser.js from a module
+// script of its own and uses the globals after that import.
 //
 // Running: `node build-browser.js [outDir]`. Default outDir is ./dist.
 
-'use strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const fs = require('fs');
-const path = require('path');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const outDir = process.argv[2] ? path.resolve(process.argv[2]) : path.join(here, 'dist');
 
-const here = __dirname;
-const outDir = process.argv[2]
-  ? path.resolve(process.argv[2])
-  : path.join(here, 'dist');
-fs.mkdirSync(outDir, { recursive: true });
-
-function stripCJS(src) {
-  // Strip the CJS `Import TaggedUrn` comment and the trailing
-  // `module.exports = {...}` block, then rewrite any single-line
-  // `const { ... } = require('tagged-urn')` destructure into a
-  // destructure from `window`. The destructure may include any subset
-  // of names (TaggedUrn, valuesMatch, scoreTagValue, …) so long as it
-  // is one line; renames like `valuesMatch: taggedUrnValuesMatch` are
-  // preserved verbatim.
-  return src
-    .replace(/^\/\/.*Import TaggedUrn.*\n/m, '')
-    .replace(
-      /^const\s*(\{[^}]*\})\s*=\s*require\s*\(\s*['"]tagged-urn['"]\s*\)\s*;?\s*$/gm,
-      'const $1 = window;'
-    )
-    .replace(/^module\.exports\s*=\s*\{[\s\S]*?\};?\s*$/m, '');
-}
-
-function buildTaggedUrn() {
-  // tagged-urn is a sibling npm dependency. Resolve its main file.
-  const srcPath = require.resolve('tagged-urn');
-  const src = fs.readFileSync(srcPath, 'utf8');
-  const processed = src.replace(/^module\.exports\s*=\s*\{[\s\S]*?\};?\s*$/m, '');
-  const wrapped = `// tagged-urn — browser build
-// Generated from the tagged-urn npm package by capdag-js/build-browser.js.
-// Do not edit directly.
-
-(function() {
-'use strict';
-
-${processed}
-
-window.TaggedUrn = TaggedUrn;
-window.TaggedUrnBuilder = TaggedUrnBuilder;
-window.UrnMatcher = UrnMatcher;
-window.TaggedUrnError = TaggedUrnError;
-window.TaggedUrnErrorCodes = ErrorCodes;
-window.valuesMatch = valuesMatch;
-window.scoreTagValue = scoreTagValue;
-
-})();
-`;
-  fs.writeFileSync(path.join(outDir, 'tagged-urn.js'), wrapped);
-  console.log(`  wrote ${path.join(outDir, 'tagged-urn.js')}`);
-}
-
-function buildCapdag() {
-  const srcPath = path.join(here, 'capdag.js');
-  const src = fs.readFileSync(srcPath, 'utf8');
-
-  const parserPath = path.join(here, 'machine-parser.js');
-  if (!fs.existsSync(parserPath)) {
-    throw new Error(`machine-parser.js not found at ${parserPath} — run 'npm run build:parser' first`);
+/** The directory of a package this one imports, as Node resolves it from here. */
+function packageDir(name, entry) {
+  const dir = path.dirname(fileURLToPath(import.meta.resolve(name)));
+  if (!fs.existsSync(path.join(dir, entry))) {
+    throw new Error(`${name} resolved to ${dir}, which has no ${entry}`);
   }
-  const parserSrc = fs.readFileSync(parserPath, 'utf8');
-
-  let processed = stripCJS(src);
-  // Replace the `const machineParser = require('./machine-parser.js')`
-  // line with a local variable the inlined parser assigns below.
-  processed = processed.replace(
-    /^const\s+machineParser\s*=\s*require\s*\(\s*['"]\.\/machine-parser\.js['"]\s*\)\s*;?\s*$/m,
-    '// machineParser is inlined above'
-  );
-
-  const inlinedParser = `
-// Inlined Peggy-generated machine parser.
-var machineParser = (function() {
-  var module = { exports: {} };
-  var exports = module.exports;
-${parserSrc}
-  return module.exports;
-})();
-`;
-
-  const wrapped = `// capdag — browser build
-// Generated from capdag-js/capdag.js by capdag-js/build-browser.js.
-// Do not edit directly. Requires tagged-urn.js loaded first.
-
-(function() {
-'use strict';
-
-if (!window.TaggedUrn) {
-  throw new Error('TaggedUrn global is not defined. Load tagged-urn.js before capdag.js.');
+  return dir;
 }
 
-${inlinedParser}
-
-${processed}
-
-// Expose every public class and function as a window global.
-window.CapUrn = CapUrn;
-window.CapUrnBuilder = CapUrnBuilder;
-window.CapMatcher = CapMatcher;
-window.CapUrnError = CapUrnError;
-window.CapUrnErrorCodes = ErrorCodes;
-window.MediaUrn = MediaUrn;
-window.MediaUrnError = MediaUrnError;
-window.MediaUrnErrorCodes = MediaUrnErrorCodes;
-window.Cap = Cap;
-window.CapArg = CapArg;
-window.ArgSource = ArgSource;
-window.RegisteredBy = RegisteredBy;
-window.createCap = createCap;
-window.createCapWithDescription = createCapWithDescription;
-window.createCapWithMetadata = createCapWithMetadata;
-window.createCapWithDescriptionAndMetadata = createCapWithDescriptionAndMetadata;
-window.ValidationError = ValidationError;
-window.InputValidator = InputValidator;
-window.OutputValidator = OutputValidator;
-window.CapValidator = CapValidator;
-window.validateCapArgs = validateCapArgs;
-window.RESERVED_CLI_FLAGS = RESERVED_CLI_FLAGS;
-window.MediaDef = MediaDef;
-window.MediaDefError = MediaDefError;
-window.MediaDefErrorCodes = MediaDefErrorCodes;
-window.isBinaryCapUrn = isBinaryCapUrn;
-window.isJSONCapUrn = isJSONCapUrn;
-window.isStructuredCapUrn = isStructuredCapUrn;
-window.resolveMediaUrn = resolveMediaUrn;
-window.buildExtensionIndex = buildExtensionIndex;
-window.mediaUrnsForExtension = mediaUrnsForExtension;
-window.getExtensionMappings = getExtensionMappings;
-window.CapFabEdge = CapFabEdge;
-window.CapFabStats = CapFabStats;
-window.CapFab = CapFab;
-window.StdinSource = StdinSource;
-window.StdinSourceKind = StdinSourceKind;
-window.CapArgumentValue = CapArgumentValue;
-window.MachineSyntaxError = MachineSyntaxError;
-window.MachineSyntaxErrorCodes = MachineSyntaxErrorCodes;
-window.MachineEdge = MachineEdge;
-window.Machine = Machine;
-window.MachineBuilder = MachineBuilder;
-window.parseMachine = parseMachine;
-
-})();
-`;
-
-  fs.writeFileSync(path.join(outDir, 'capdag.js'), wrapped);
-  console.log(`  wrote ${path.join(outDir, 'capdag.js')}`);
+/**
+ * Copy `files` from `from` to `to`, replacing in each the import specifiers
+ * `rewrites` names for it. Every rewrite must apply: a source that no longer
+ * imports what this expects would otherwise ship still naming a package the
+ * browser cannot resolve.
+ */
+function lay(from, to, files, rewrites = {}) {
+  for (const file of files) {
+    const source = path.join(from, file);
+    const target = path.join(to, file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const replacing = rewrites[file];
+    if (!replacing) {
+      fs.copyFileSync(source, target);
+      continue;
+    }
+    let text = fs.readFileSync(source, 'utf8');
+    for (const [specifier, replacement] of Object.entries(replacing)) {
+      const forms = [`from '${specifier}'`, `from "${specifier}"`];
+      const found = forms.filter((form) => text.includes(form));
+      if (found.length === 0) {
+        throw new Error(`${source} does not import '${specifier}', which the browser layout rewrites`);
+      }
+      for (const form of found) {
+        text = text.split(form).join(`from '${replacement}'`);
+      }
+    }
+    fs.writeFileSync(target, text);
+  }
+  console.log(`  laid out ${to}`);
 }
 
-function buildCapFabRenderer() {
-  const srcPath = path.join(here, 'cap-fab-renderer.js');
-  const src = fs.readFileSync(srcPath, 'utf8');
-  // The file's CJS exports block is at the bottom, guarded by
-  // `typeof module !== 'undefined'`. Strip everything from that guard
-  // to the end of the file.
-  const stripped = src.replace(
-    /if\s*\(\s*typeof\s+module\s*!==\s*'undefined'[\s\S]*$/,
-    ''
-  );
-  const wrapped = `// cap-fab-renderer — browser build
-// Generated from capdag-js/cap-fab-renderer.js by capdag-js/build-browser.js.
-// Do not edit directly. Requires cytoscape, cytoscape-elk, tagged-urn.js,
-// and capdag.js to be loaded first.
-
-(function() {
-'use strict';
-
-${stripped}
-
-window.CapFabRenderer = CapFabRenderer;
-
-})();
-`;
-  fs.writeFileSync(path.join(outDir, 'cap-fab-renderer.js'), wrapped);
-  console.log(`  wrote ${path.join(outDir, 'cap-fab-renderer.js')}`);
+const taggedUrnDir = packageDir('tagged-urn', 'tagged-urn.js');
+const lungoTsDir = packageDir('lungo-ts', 'index.js');
+const parser = path.join(here, 'machine-parser.js');
+if (!fs.existsSync(parser)) {
+  throw new Error(`machine-parser.js not found at ${parser} — run 'npm run build:parser' first`);
 }
 
-buildTaggedUrn();
-buildCapdag();
-buildCapFabRenderer();
-console.log(`browser bundles written to ${outDir}`);
+for (const dir of ['lungo-ts', 'tagged-urn', 'capdag']) {
+  fs.rmSync(path.join(outDir, dir), { recursive: true, force: true });
+}
+
+const model = { 'formal/index.js': { 'lungo-ts': '../../lungo-ts/index.js' } };
+
+lay(lungoTsDir, path.join(outDir, 'lungo-ts'), ['index.js', 'wasi.js']);
+lay(taggedUrnDir, path.join(outDir, 'tagged-urn'),
+  ['tagged-urn.js', 'formal/index.js', 'formal/program.wasm'], model);
+lay(here, path.join(outDir, 'capdag'),
+  ['capdag.js', 'planner.js', 'machine-parser.js', 'cap-fab-renderer.js', 'formal/index.js', 'formal/program.wasm'],
+  { ...model, 'capdag.js': { 'tagged-urn': '../tagged-urn/tagged-urn.js' } });
+
+fs.writeFileSync(path.join(outDir, 'capdag', 'browser.js'), `// Generated by capdag-js/build-browser.js. Do not edit.
+//
+// The public names of tagged-urn, capdag and the renderer, on the page's
+// global object. Import this from a module script; the names are there once
+// the import has completed.
+
+import * as taggedUrn from '../tagged-urn/tagged-urn.js';
+import * as capdag from './capdag.js';
+import { CapFabRenderer } from './cap-fab-renderer.js';
+
+// Both packages export an ErrorCodes; each is published under its own name.
+const { ErrorCodes: TaggedUrnErrorCodes, ...taggedUrnNames } = taggedUrn;
+const { ErrorCodes: CapUrnErrorCodes, ...capdagNames } = capdag;
+
+Object.assign(globalThis, taggedUrnNames, capdagNames, {
+  TaggedUrnErrorCodes,
+  CapUrnErrorCodes,
+  CapFabRenderer,
+});
+`);
+console.log(`browser modules written to ${outDir}`);

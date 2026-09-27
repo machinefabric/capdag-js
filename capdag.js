@@ -1,12 +1,36 @@
 // Cap URN JavaScript Implementation
 // Follows the exact same rules as Rust, Go, and Objective-C implementations
+//
+// Dispatch, acceptance, equivalence and specificity are decided by code
+// generated from the proved model in ../formal (Lean) by lungo, in ./formal,
+// not written here. It runs as WebAssembly, instantiated once when this module
+// is first imported.
 
-// Import TaggedUrn from the tagged-urn package
-const {
-  TaggedUrn,
-  valuesMatch: taggedUrnValuesMatch,
-  scoreTagValue
-} = require('tagged-urn');
+import { TaggedUrn } from 'tagged-urn';
+import * as machineParser from './machine-parser.js';
+import { load } from './formal/index.js';
+
+const model = await load();
+
+// Node's modules, for what works with the file system and with processes:
+// cartridge discovery, installation records and directory hashes. They exist
+// only under Node; elsewhere this module loads without them, and asking for
+// them there is an error naming what needed them.
+const node = (typeof process !== 'undefined' && process.versions && process.versions.node)
+  ? {
+      fs: await import('node:fs'),
+      path: await import('node:path'),
+      crypto: await import('node:crypto'),
+      childProcess: await import('node:child_process'),
+    }
+  : null;
+
+function nodeModules(what) {
+  if (node === null) {
+    throw new Error(`capdag: ${what} needs Node's file system and processes, which this runtime does not have`);
+  }
+  return node;
+}
 
 /**
  * Error types for Cap URN operations
@@ -83,7 +107,7 @@ function processDirectionTag(taggedUrn, tagName) {
  */
 function canonicalizeDirectionSpec(spec, tagName) {
   if (spec === 'media:' || spec === '*') {
-    return spec;
+    return 'media:';
   }
 
   try {
@@ -106,7 +130,7 @@ function canonicalizeDirectionSpec(spec, tagName) {
  */
 function validatePreservedDirectionSpec(spec, tagName) {
   if (spec === 'media:' || spec === '*') {
-    return spec;
+    return 'media:';
   }
 
   try {
@@ -195,6 +219,27 @@ function validateNonStructuralTags(tags) {
   }
 }
 
+/**
+ * A tagged URN as capdag's model takes it. Each program generated for
+ * JavaScript runs in a WebAssembly instance of its own, so tagged-urn's model
+ * value of a URN cannot pass here: this program makes its own, from the same
+ * tags, with the same function of the same model.
+ */
+function modelUrn(urn) {
+  const made = model.make(urn.prefix, urn.modelTags());
+  if (made === null) {
+    throw new Error(`capdag: the model refused ${urn.toString()}, whose keys are sorted`);
+  }
+  return made;
+}
+
+const MODEL_EFFECTS = Object.freeze({
+  declared: Object.freeze({ kind: 'declared' }),
+  none: Object.freeze({ kind: 'none' }),
+  patch: Object.freeze({ kind: 'patch' }),
+  '?': Object.freeze({ kind: 'unspecified' }),
+});
+
 class CapUrn {
   // Per-axis weights for cap-URN specificity. Two orders of
   // magnitude separate each axis to keep them in distinct digit
@@ -224,6 +269,20 @@ class CapUrn {
     }
     validateNonStructuralTags(this.tags);
     this._validateAdmissible();
+    // The same cap on the proved model's side: its three URNs and its effect.
+    // Dispatch, acceptance, equivalence and specificity are asked of it. Made
+    // here, from the same fields, and the cap is frozen, so the two can never
+    // describe different caps; it is not enumerable, so it is not part of what
+    // a cap serializes or compares as.
+    const formal = {
+      input: modelUrn(MediaUrn.fromString(this.inSpec)._urn),
+      output: modelUrn(MediaUrn.fromString(this.outSpec)._urn),
+      other: modelUrn(new TaggedUrn('cap', this.tags)),
+      effect: MODEL_EFFECTS[this.effectValue],
+    };
+    Object.defineProperty(this, 'formal', { value: formal, enumerable: false });
+    Object.freeze(this.tags);
+    Object.freeze(this);
   }
 
   /**
@@ -604,54 +663,10 @@ class CapUrn {
     if (!request) {
       return true;
     }
-
-    // Input direction: pattern accepts instance. `media:` on the pattern side is
-    // the wildcard top and skips the check.
-    if (this.inSpec !== 'media:' && this.inSpec !== '*') {
-      const capIn = MediaUrn.fromString(this.inSpec);
-      const requestIn = MediaUrn.fromString(request.inSpec);
-      if (!capIn.accepts(requestIn)) {
-        return false;
-      }
-    }
-
-    // Output direction: the handler's output must refine the request's. No
-    // case for `media:` here: a handler whose output is `media:` promises no
-    // particular output, as in dispatch. Skipping the axis for it made
-    // acceptance non-transitive (capdag/formal,
-    // Legacy.accepts_skipping_top_output_not_transitive).
-    {
-      const capOut = MediaUrn.fromString(this.outSpec);
-      const requestOut = MediaUrn.fromString(request.outSpec);
-      if (!capOut.conformsTo(requestOut)) {
-        return false;
-      }
-    }
-
-    if (this.effectValue !== CapEffect.ANY && this.effectValue !== request.effectValue) {
-      return false;
-    }
-
-    // Y-axis: every tag's per-key match runs through the six-form
-    // truth table (taggedUrnValuesMatch). Walk the union of all keys
-    // appearing on either side so missing-on-pattern and
-    // missing-on-instance cells both get evaluated.
-    const allKeys = new Set([
-      ...Object.keys(this.tags),
-      ...Object.keys(request.tags),
-    ]);
-    for (const key of allKeys) {
-      const patt = Object.prototype.hasOwnProperty.call(this.tags, key)
-        ? this.tags[key]
-        : undefined;
-      const inst = Object.prototype.hasOwnProperty.call(request.tags, key)
-        ? request.tags[key]
-        : undefined;
-      if (!taggedUrnValuesMatch(inst, patt)) {
-        return false;
-      }
-    }
-    return true;
+    // Decided by the proved model (CapDAG.Exec.accepts). The cap-tag axis runs
+    // opposite to isDispatchable's: this is the pattern relation, dispatch is
+    // the routing one.
+    return model.accepts(this.formal, request.formal);
   }
 
   /**
@@ -692,16 +707,8 @@ class CapUrn {
    * @returns {number} The specificity score
    */
   specificity() {
-    const inUrn = MediaUrn.fromString(this.inSpec);
-    const outUrn = MediaUrn.fromString(this.outSpec);
-
-    let yScore = 0;
-    for (const value of Object.values(this.tags)) {
-      yScore += scoreTagValue(value);
-    }
-    return CapUrn.WEIGHT_OUT * outUrn.specificity()
-         + CapUrn.WEIGHT_IN  * inUrn.specificity()
-         + yScore;
+    // Computed by the proved model (CapDAG.Exec.specificity).
+    return Number(model.specificity(this.formal));
   }
 
   /**
@@ -784,7 +791,7 @@ class CapUrn {
    * @returns {boolean}
    */
   isComparable(other) {
-    return this.accepts(other) || other.accepts(this);
+    return model.comparable(this.formal, other.formal);
   }
 
   /**
@@ -795,7 +802,7 @@ class CapUrn {
    * @returns {boolean}
    */
   isEquivalent(other) {
-    return this.accepts(other) && other.accepts(this);
+    return model.equivalent(this.formal, other.formal);
   }
 
   /**
@@ -860,49 +867,13 @@ class CapUrn {
    * @returns {boolean}
    */
   isDispatchable(request) {
-    return this._inputDispatchable(request)
-      && this._outputDispatchable(request)
-      && this._effectDispatchable(request)
-      && this._capTagsDispatchable(request);
-  }
-
-  // Both directional axes are TYPES, compared by refinement and nothing else
-  // (capdag/formal, `dispatch`). A request whose input is `media:` may send
-  // anything, so only a candidate that accepts anything serves it: reading it
-  // as "don't care" served it with a PDF-only cap, and dispatch stopped
-  // composing — a cap could serve a request that could serve another, and not
-  // serve that one. And top-ness is a meaning, not a spelling: `media:?ext`
-  // constrains nothing exactly as `media:` does, and a comparison against the
-  // string "media:" answered differently for the two.
-  _inputDispatchable(request) {
-    return MediaUrn.fromString(request.inSpec).conformsTo(MediaUrn.fromString(this.inSpec));
-  }
-
-  _outputDispatchable(request) {
-    return MediaUrn.fromString(this.outSpec).conformsTo(MediaUrn.fromString(request.outSpec));
-  }
-
-  _effectDispatchable(request) {
-    return request.effectValue === CapEffect.ANY || this.effectValue === request.effectValue;
-  }
-
-  _capTagsDispatchable(request) {
-    const allKeys = new Set([
-      ...Object.keys(this.tags),
-      ...Object.keys(request.tags),
-    ]);
-    for (const key of allKeys) {
-      const patt = Object.prototype.hasOwnProperty.call(request.tags, key)
-        ? request.tags[key]
-        : undefined;
-      const inst = Object.prototype.hasOwnProperty.call(this.tags, key)
-        ? this.tags[key]
-        : undefined;
-      if (!taggedUrnValuesMatch(inst, patt)) {
-        return false;
-      }
-    }
-    return true;
+    // Decided by the proved model (CapDAG.Exec.dispatch): every axis is a type.
+    // The request's input refines the candidate's, the candidate's output
+    // refines the request's, the effect matches unless the request says
+    // ?effect, and the candidate's cap-tags refine the request's. `media:` on
+    // a request's input is a type — "may send anything" — so only a candidate
+    // that accepts anything serves it, which is what makes dispatch compose.
+    return model.dispatch(this.formal, request.formal);
   }
 
   /**
@@ -6179,8 +6150,7 @@ class CartridgeJson {
    * @throws {CartridgeJsonError}
    */
   static readFromDir(versionDir, expectedSlug) {
-    const fs = require('fs');
-    const path = require('path');
+    const { fs, path } = nodeModules('reading cartridge.json');
     const jsonPath = path.join(versionDir, 'cartridge.json');
 
     if (!fs.existsSync(jsonPath)) {
@@ -6262,7 +6232,7 @@ class CartridgeJson {
    * @returns {string}
    */
   resolveEntryPoint(versionDir) {
-    const path = require('path');
+    const { path } = nodeModules('resolving an entry point');
     return path.join(versionDir, this.entry);
   }
 }
@@ -6279,9 +6249,7 @@ class CartridgeJson {
  * @returns {string} Lowercase hex SHA256.
  */
 function hashCartridgeDirectory(dir) {
-  const fs = require('fs');
-  const path = require('path');
-  const crypto = require('crypto');
+  const { fs, path, crypto } = nodeModules('hashing a cartridge directory');
 
   const files = [];
   const collect = (current) => {
@@ -6584,7 +6552,7 @@ function encodeHelloFrame() {
  * @throws {Error} when the handshake/probe fails.
  */
 function probeCartridgeCapGroups(entryPath) {
-  const { spawn } = require('child_process');
+  const { spawn } = nodeModules('probing a cartridge').childProcess;
   return new Promise((resolve, reject) => {
     let child;
     try {
@@ -6721,8 +6689,7 @@ function probeCartridgeCapGroups(entryPath) {
  * @returns {Promise<Array<DiscoveredCartridge>>}
  */
 async function discoverCartridges(cartridgesRoot, identity) {
-  const fs = require('fs');
-  const path = require('path');
+  const { fs, path } = nodeModules('discovering cartridges');
   const discovered = [];
 
   let rootStat;
@@ -6762,8 +6729,7 @@ async function discoverCartridges(cartridgesRoot, identity) {
  * Mirrors capdag::cartridge_discovery::scan_channel_root.
  */
 async function scanChannelRoot(scanRoot, expectedSlug, identity, discovered) {
-  const fs = require('fs');
-  const path = require('path');
+  const { fs, path } = nodeModules('discovering cartridges');
 
   let nameEntries;
   try {
@@ -7652,7 +7618,6 @@ class Machine {
 // ============================================================================
 
 // Load the Peggy-generated parser
-const machineParser = require('./machine-parser.js');
 
 /**
  * Assign a media URN to a node, or check consistency if already assigned.
@@ -8033,22 +7998,13 @@ class MediaRegistryEntry {
  * implementations (capdag, capdag-js, capdag-py, capdag-go, capdag-objc)
  * use this same algorithm so a URN's key is identical across languages.
  *
- * Runtime detection: `crypto.subtle` is available in browsers and
- * modern Node (≥ 16, exposed via `globalThis.crypto`); CommonJS Node
- * also has the synchronous `crypto` module. We prefer subtle for
- * portability and fall back to the Node module when subtle is absent.
+ * `crypto.subtle` is on `globalThis` in browsers and in every Node this
+ * package supports.
  */
 async function sha256Hex(s) {
   const utf8 = new TextEncoder().encode(s);
-  if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.subtle) {
-    const buf = await globalThis.crypto.subtle.digest('SHA-256', utf8);
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-  // Node CommonJS fallback. require() may throw in strict ESM contexts;
-  // we let it propagate because every supported runtime has a crypto API.
-  // eslint-disable-next-line global-require
-  const nodeCrypto = require('crypto');
-  return nodeCrypto.createHash('sha256').update(utf8).digest('hex');
+  const buf = await globalThis.crypto.subtle.digest('SHA-256', utf8);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -8452,12 +8408,7 @@ class Manifest {
   }
 }
 
-// Unified configurable planner vocabulary (mirrors Rust plan_space.rs and the
-// PlanMachines/DiscoverConvergentTargets proto surface).
-const planner = require('./planner.js');
-
-// Export for CommonJS
-module.exports = {
+export {
   // Registry trust vocabulary — one verdict per registry, shared by every
   // cartridge that claims provenance from it.
   RegistryVerdict,
@@ -8473,24 +8424,6 @@ module.exports = {
   registryVerdictRemedy,
   MANIFEST_SIG_FORMAT,
   RELEASE_KEY_CERT_FORMAT,
-  // Planner plan-space vocabulary
-  PlanStateError: planner.PlanStateError,
-  ConvergencePresence: planner.ConvergencePresence,
-  ConvergenceLocation: planner.ConvergenceLocation,
-  ConvergenceMechanism: planner.ConvergenceMechanism,
-  ConvergenceArity: planner.ConvergenceArity,
-  DivergencePresence: planner.DivergencePresence,
-  DivergenceLocation: planner.DivergenceLocation,
-  RankPolicy: planner.RankPolicy,
-  PlanMode: planner.PlanMode,
-  PlanRequest: planner.PlanRequest,
-  parsePlanApex: planner.parsePlanApex,
-  parsePlanProfile: planner.parsePlanProfile,
-  parsePlanCost: planner.parsePlanCost,
-  parsePlanCandidate: planner.parsePlanCandidate,
-  parsePlanCandidates: planner.parsePlanCandidates,
-  parseConvergentTarget: planner.parseConvergentTarget,
-  parseConvergentTargets: planner.parseConvergentTargets,
   ALIAS_TARGET_CAP,
   ALIAS_TARGET_MEDIA,
   tokenIsUrn,
@@ -8548,7 +8481,7 @@ module.exports = {
   MEDIA_OBJECT,
   // List types
   MEDIA_LIST,
-  MEDIA_TEXTABLE_LIST: MEDIA_STRING_LIST,
+  MEDIA_STRING_LIST as MEDIA_TEXTABLE_LIST,
   MEDIA_STRING_LIST,
   MEDIA_INTEGER_LIST,
   MEDIA_NUMBER_LIST,
@@ -8712,3 +8645,25 @@ module.exports = {
   MediaRegistryEntry,
   FabricRegistryClient,
 };
+
+// Unified configurable planner vocabulary (mirrors Rust plan_space.rs and the
+// PlanMachines/DiscoverConvergentTargets proto surface).
+export {
+  PlanStateError,
+  ConvergencePresence,
+  ConvergenceLocation,
+  ConvergenceMechanism,
+  ConvergenceArity,
+  DivergencePresence,
+  DivergenceLocation,
+  RankPolicy,
+  PlanMode,
+  PlanRequest,
+  parsePlanApex,
+  parsePlanProfile,
+  parsePlanCost,
+  parsePlanCandidate,
+  parsePlanCandidates,
+  parseConvergentTarget,
+  parseConvergentTargets,
+} from './planner.js';
