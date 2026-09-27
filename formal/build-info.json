@@ -1,0 +1,31 @@
+{
+  "build_key": "2a1a0fb1acebb1e8a5aef6b8a176921d6b6aebfce695ee02c996f2d2830957d8",
+  "lean_version": "4.34.1",
+  "lean_githash": "5045d0056413266e57c625dcd7c365b10e377c52",
+  "bir_version": 3,
+  "adapter_version": 1,
+  "lungo_version": "1.68.2857",
+  "runtime_abi": 1,
+  "worker_identity": "0587064dd2f5b65f8d77fefae9b7a41737221883cc74030f7cd7469534700252",
+  "input_digests": {
+    "../../tagged-urn/formal/TaggedUrn.lean": "51c451ad004b38af0d8212ffdfa8098e8e3de3831ad4850052301fac4963ed34",
+    "../../tagged-urn/formal/TaggedUrn/Constraint.lean": "3cb5e897ae54194e4aa4723c780a1f89dac0c690214380466189354824757cce",
+    "../../tagged-urn/formal/TaggedUrn/Exec.lean": "70a0fd49506097586de6dcbf7cb4f3df60d2ee66356004eacc46b5610f0b719d",
+    "../../tagged-urn/formal/TaggedUrn/Sorted.lean": "13c19ed80afcd9a7fc458a5ccc26333ebd7122821cfacd7c41a7b4f355435759",
+    "../../tagged-urn/formal/TaggedUrn/Urn.lean": "f1d82390b05b93b96a46dddcf70033199035902036a77402ed232febd2af8559",
+    "../../tagged-urn/formal/lakefile.toml": "339b574de2949b141e2fcd301464c4144dc3de55e179f91a30e4c2ac1898c0d1",
+    "CapDAG/Cap.lean": "37bef3ba3b14bc95b1b0bb0805c1575cd30c62ab381afc4ad06e84f281456e2e",
+    "CapDAG/Exec.lean": "19168d587fff617bca5cf3afc9604b516de9fd64811c2b3d6c33b08929a8608d",
+    "CapDAG/Ranking.lean": "ef9728b9a1cd483e88eea2b9c711132733a87fd87700eb33911018121cffd439",
+    "lake-manifest.json": "5111b205ad227f73bd21f03d8c4a1c8458b7fd972c9392d2ecbc18058b9a0ce7",
+    "lakefile.lean": "f4c9dee58b561ec59dd22a26bb9502f511e88edfd09b4a119ea2916023d73c29",
+    "lean-toolchain": "7fc3c9ca176374a841abdad2bb4fa8c3c57363d50b728a512b513374610ae696"
+  },
+  "project": "formal",
+  "link_directives": [],
+  "output_digests": {
+    "index.d.ts": "bd9aae6e457969ef7492e05ce9b15bfc63de2220d9ee2ccf34f4375e08642f41",
+    "index.js": "c0b424d58df22de0bcc25216be2d8e9fffb779b5d6970554dab8b0e9a44303ed",
+    "program.wasm": "798657d38ba4b47c220e78251ae7ea204930f667f18a19414dbf00e76a2063db"
+  }
+}
