@@ -1,7 +1,7 @@
 {
   "author": "Bahram Joharshamshiri",
   "dependencies": {
-    "lungo-ts": {% if env.MFR_LOCAL_LIBS %}"file:{{ build.root_from_here }}/lungo/distribution/ts"{% else %}"{{ projects.lungo.latest_remote_version }}"{% endif %},
+    "lungo-ts": {% if env.MFR_LOCAL_LIBS %}"file:{{ build.root_from_here }}/lungo/distribution/ts"{% else %}"{{ projects.lungo.version }}"{% endif %},
     "peggy": "^5.1.0",
     "tagged-urn": {% if env.MFR_LOCAL_LIBS %}"file:{{ projects.tagged_urn_js.path_from_here }}"{% else %}"^{{ projects.tagged_urn_js.latest_remote_version }}"{% endif %}
   },
