@@ -8014,17 +8014,29 @@ function test12166_theImplementationIsTheProvedModel() {
   const table = JSON.parse(fs.readFileSync(
     path.join(here, '..', 'formal', 'conformance.json'), 'utf8'));
   const wrong = [];
+  // Each distinct URN is parsed once: the table names a few hundred of them
+  // across twenty thousand rows, and every parse makes its model values in
+  // WebAssembly. Each ROW is still decided on its own.
+  const parsed = (parse) => {
+    const seen = new Map();
+    return (text) => {
+      if (!seen.has(text)) seen.set(text, parse(text));
+      return seen.get(text);
+    };
+  };
+  const media = parsed((text) => MediaUrn.fromString(text));
+  const cap = parsed((text) => CapUrn.fromString(text));
   for (const row of table.refines) {
-    const got = MediaUrn.fromString(row.instance).conformsTo(MediaUrn.fromString(row.pattern));
+    const got = media(row.instance).conformsTo(media(row.pattern));
     if (got !== row.refines) wrong.push(`${row.instance} ⪯ ${row.pattern}: model ${row.refines}, got ${got}`);
   }
   for (const row of table.scores) {
-    const got = MediaUrn.fromString(row.urn).specificity();
+    const got = media(row.urn).specificity();
     if (got !== row.score) wrong.push(`score ${row.urn}: model ${row.score}, got ${got}`);
   }
   for (const row of table.dispatch) {
-    const candidate = CapUrn.fromString(row.candidate);
-    const request = CapUrn.fromString(row.request);
+    const candidate = cap(row.candidate);
+    const request = cap(row.request);
     const got = candidate.isDispatchable(request);
     if (got !== row.dispatch) wrong.push(`${row.candidate} serves ${row.request}: model ${row.dispatch}, got ${got}`);
     const accepted = candidate.accepts(request);
