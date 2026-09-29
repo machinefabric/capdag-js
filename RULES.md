@@ -106,6 +106,6 @@ const result = await validateNoMediaDefRedefinition(mediaDefs, {
 ## Cross-Language Compatibility
 
 This JavaScript implementation follows the same rules as:
-- [Rust reference implementation](https://github.com/machinefabric/capdag)
+- [Rust reference implementation](https://github.com/machinefabric/capdag-rs)
 - [Go implementation](https://github.com/machinefabric/capdag-go)
 - [Objective-C implementation](https://github.com/machinefabric/capdag-objc)
