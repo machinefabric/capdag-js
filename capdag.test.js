@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { TaggedUrn } from 'tagged-urn';
 import * as plannerNS from './planner.js';
 import {
-  CapUrn, CapKind, CapEffect, CapUrnBuilder, CapMatcher, CapUrnError, ErrorCodes,
+  CapUrn, CapKind, CapEffect, CapUrnBuilder, CapMatcher, CapQuery, MatchGrade, CapUrnError, ErrorCodes,
   MediaUrn, MediaUrnError, MediaUrnErrorCodes,
   Cap, CapGroup, CapManifest, MediaDef, MediaDefError, MediaDefErrorCodes,
   resolveMediaUrn, buildExtensionIndex, mediaUrnsForExtension, getExtensionMappings,
@@ -219,13 +219,14 @@ function test003_directionMatching() {
   const requestDiff = CapUrn.fromString('cap:in="media:enc=utf-8";generate;out="media:enc=utf-8;record"');
   assert(!cap.accepts(requestDiff), 'Different inSpec should not match');
 
-  // A wildcard INPUT takes any request input; a wildcard OUTPUT promises no
-  // particular output, so it does not satisfy a request that needs a record —
-  // the rule dispatch applies (capdag/formal, Legacy.accepts_skipping_top_output_not_transitive).
+  // A pattern that leaves both sides open asks nothing of them: it fits the
+  // cap whatever it takes and gives (capdag/formal, Query.ofPattern). As a
+  // CANDIDATE the same URN does not serve a request that needs the record: a
+  // media: output guarantees nothing.
   const wildcardCap = CapUrn.fromString('cap:in=*;generate;out=*');
-  assert(!wildcardCap.accepts(request), 'a media: output does not promise the record the request needs');
-  const anyOutputRequest = CapUrn.fromString(request.toString().replace(/;out="[^"]*"|;out=[^;]*/, ''));
-  assert(wildcardCap.accepts(anyOutputRequest), 'Wildcard input accepts a request that asks for no particular output');
+  assert(wildcardCap.accepts(request), 'an open pattern fits a cap whatever it takes and gives');
+  assert(!wildcardCap.isDispatchable(request), 'a media: output does not promise the record the request needs');
+  assert(!wildcardCap.isEquivalent(request), 'fitting a pattern is not being the same cap');
 }
 
 // TEST4: Test that unquoted keys and values are normalized to lowercase
@@ -746,17 +747,20 @@ function test047_matchingSemanticsThumbnailVoidInput() {
   assert(cap.accepts(request), 'Void input cap should accept request; cap output conforms to less-specific request output');
 }
 
-// TEST48: Matching semantics - wildcard direction matches anything
-// A handler whose output is `media:` promises no particular output, so it does
-// not accept a request that needs one — the rule dispatch applies. Skipping the
-// output axis for a `media:` handler made acceptance non-transitive
-// (capdag/formal, Legacy.accepts_skipping_top_output_not_transitive).
+// TEST48: A pattern that leaves a side open asks nothing of it
+// `cap:generate` as a pattern says nothing of what a cap takes or gives: both
+// are unknown, not the type "anything", so it fits a cap that takes text and
+// gives a record. Read as a type, its open output would be covered only by a
+// cap that gives `media:` — which is how a pattern search came to find nothing
+// (capdag/formal, Query.ofPattern and Legacy.skipping_top_output_is_fits).
 function test048_matchingSemanticsWildcardDirection() {
   const cap = CapUrn.fromString('cap:generate');
   const request = CapUrn.fromString(test6204_Urn('generate;ext=pdf'));
-  assert(!cap.accepts(request), 'a media:-output handler does not promise the output the request needs');
+  assert(cap.accepts(request), 'a pattern with open sides fits a cap whatever it takes and gives');
+  assert(!cap.isEquivalent(request), 'fitting a pattern is not being the same cap');
+  assert(!cap.isDispatchable(request), 'media: out guarantees no particular output');
   const anyOutput = CapUrn.fromString('cap:ext=pdf;generate;in="media:enc=utf-8"');
-  assert(cap.accepts(anyOutput), 'a generic handler accepts a request that asks for no particular output');
+  assert(cap.accepts(anyOutput), 'and one that asks for no particular output');
 }
 
 // TEST49: Non-overlapping tags — neither direction accepts
@@ -3204,18 +3208,109 @@ function test647_invalidOutSpecFails() {
   );
 }
 
-// TEST648: Wildcard in/out match specific caps
+// TEST648: An open pattern fits specific caps; fitting is not serving
+//
+// `cap:raw` as a pattern leaves both sides open, so it fits a cap that gives
+// text and one that takes text. Whether `cap:raw`, as a CANDIDATE, serves a
+// request that needs text out is a different question with a different answer:
+// a `media:` output guarantees nothing.
 function test648_wildcardAcceptsSpecific() {
   const wildcard = CapUrn.fromString('cap:in=*;out=*;raw');
   const specific = CapUrn.fromString('cap:in="media:";out="media:text";raw');
 
-  // `media:` output promises no particular output: the generic handler does not
-  // promise text; the text handler satisfies a request asking for none.
-  assert(!wildcard.accepts(specific), 'a media:-output handler does not promise text out');
-  assert(specific.accepts(wildcard), 'a text-producing handler satisfies a request asking for no particular output');
+  assert(wildcard.accepts(specific), 'an open pattern fits a cap that gives text');
+  assert(specific.conformsTo(wildcard), 'the same, asked from the cap\'s side');
+  assert(!wildcard.isDispatchable(specific), 'a media:-output candidate does not serve a request that needs text');
+  assert(specific.accepts(wildcard), 'a pattern asking for text out is covered by a cap that gives anything');
   const specificIn = CapUrn.fromString('cap:in="media:text";out=*;raw');
-  assert(wildcard.accepts(specificIn), 'a handler taking any input accepts a request that sends text');
-  assert(specificIn.conformsTo(wildcard), 'the text-sending request conforms to the generic handler');
+  assert(wildcard.accepts(specificIn), 'an open pattern fits a cap that takes text');
+  assert(specificIn.conformsTo(wildcard));
+}
+
+// TEST825: a request that leaves its input open has not said what it will
+// send, and is served whatever the candidate takes
+//
+// The open input is unknown — "some input" — not the type "anything": the
+// request is served by exactly the candidates that serve SOME typed call it
+// could become (capdag/formal, serves_unknown_iff). What a candidate cannot do
+// is stand in for the request AS A DESCRIPTION — that relation is typed and
+// composes (Legacy.wildcard_input_not_transitive is why the two were never one).
+function test825_dispatchRequestUnconstrainedInput() {
+  const pdfOnly = CapUrn.fromString('cap:in="media:ext=pdf";analyze;out="media:enc=utf-8;record"');
+  const acceptsAnything = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf-8;record"');
+  const request = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf-8;record"');
+  assert(pdfOnly.isDispatchable(request), 'the request has not said what it sends: a PDF-only candidate serves it');
+  assert(acceptsAnything.isDispatchable(request));
+  // A request that DOES say what it sends is held to it.
+  const pngRequest = CapUrn.fromString('cap:in="media:ext=png";analyze;out="media:enc=utf-8;record"');
+  assert(!pdfOnly.isDispatchable(pngRequest));
+  assert(acceptsAnything.isDispatchable(pngRequest));
+  assert(!pdfOnly.isEquivalent(request), 'serving a request is not being it');
+}
+
+// TEST12368: "what gives me this, whatever it takes?" and "what can this
+// become?" are questions with a side unknown, and each cap answers with a grade.
+//
+// No cap URN can ask them: `media:` on a side is the type "anything", so a
+// request spelled that way asked for a cap that takes everything, and found
+// none. The unknown side asks nothing; the stated side is held to.
+function test12368_aQuestionMayLeaveASideUnknown() {
+  const pages = CapUrn.fromString('cap:disbind;in="media:ext=pdf";out="media:enc=utf-8;ext=txt;page"');
+  const toJpeg = CapUrn.fromString('cap:convert-image;in="media:ext=png;image";out="media:ext=jpeg;image"');
+  const someImage = CapUrn.fromString('cap:render;in="media:ext=pdf";out="media:image"');
+  const passesThrough = CapUrn.fromString('cap:decimate-sequence;effect=none');
+
+  const wantsJpeg = CapQuery.producing(MediaUrn.fromString('media:ext=jpeg;image'));
+  assertEqual(wantsJpeg.grade(toJpeg), MatchGrade.EXACT);
+  assert(wantsJpeg.admits(toJpeg), 'whatever it takes: a png here');
+  // "Some image" is not a jpeg, and not excluded: possible, never routed on.
+  assertEqual(wantsJpeg.grade(someImage), MatchGrade.POSSIBLE);
+  assert(!wantsJpeg.admits(someImage) && wantsJpeg.mayAdmit(someImage));
+  assertEqual(wantsJpeg.grade(pages), MatchGrade.NONE);
+
+  // Asked for any image, a jpeg is guaranteed to be one, not exactly it.
+  const wantsImage = CapQuery.producing(MediaUrn.fromString('media:image'));
+  assertEqual(wantsImage.grade(toJpeg), MatchGrade.GUARANTEED);
+  assertEqual(wantsImage.grade(someImage), MatchGrade.EXACT);
+  assert(!wantsImage.admits(passesThrough), 'media: out promises no image');
+
+  // What can a pdf become? Whatever takes a pdf — or takes anything.
+  const hasPdf = CapQuery.consuming(MediaUrn.fromString('media:ext=pdf'));
+  assert(hasPdf.admits(pages) && hasPdf.admits(someImage));
+  assert(hasPdf.admits(passesThrough), 'it takes anything, a pdf included');
+  assert(!hasPdf.admits(toJpeg), 'a png converter does not take a pdf');
+  assertEqual(hasPdf.grade(toJpeg), MatchGrade.NONE);
+
+  // Both sides stated is the typed call.
+  const pdfToImage = CapQuery.between(MediaUrn.fromString('media:ext=pdf'), MediaUrn.fromString('media:image'));
+  assert(pdfToImage.admits(someImage));
+  assert(!pdfToImage.admits(pages) && !pdfToImage.admits(toJpeg));
+}
+
+// TEST12369: the cap-tags a query asks for are matched against the tags the
+// cap HAS — a cap's own list is complete.
+//
+// So asking that a tag be absent selects the caps that do not carry it, which
+// no cap needs to declare; and a cap may carry tags nobody asked about.
+function test12369_aQuerysTagsAreAskedOfTheTagsACapHas() {
+  const toJpeg = CapUrn.fromString('cap:convert-image;in="media:ext=png;image";out="media:ext=jpeg;image"');
+  const someImage = CapUrn.fromString('cap:render;in="media:ext=pdf";out="media:image"');
+  const anyImage = MediaUrn.fromString('media:image');
+
+  const converters = CapQuery.producing(anyImage, { 'convert-image': '*' });
+  assert(converters.admits(toJpeg));
+  assert(!converters.admits(someImage), 'it renders; it is not tagged convert-image');
+
+  const notConverters = CapQuery.producing(anyImage, { 'convert-image': '!' });
+  assert(notConverters.admits(someImage), 'it does not have the tag');
+  assert(!notConverters.admits(toJpeg), 'it has it');
+  assertEqual(notConverters.grade(toJpeg), MatchGrade.NONE);
+
+  // The same holds of a request: `!x` is served by a cap silent on x.
+  const request = CapUrn.fromString('cap:!convert-image;out="media:image"');
+  assert(someImage.isDispatchable(request));
+  assert(!toJpeg.isDispatchable(request));
+  assertEqual(CapQuery.fromRequest(request).grade(someImage), MatchGrade.EXACT);
 }
 
 // TEST649: Specificity - wildcard has 0, specific has tag count
@@ -6635,14 +6730,15 @@ function test1835_canonicalizeMustNotHave() {
 // TEST1842: Full 6×6 truth table.
 function test1842_truthTableFullCrossProduct() {
   const forms = ['', '?x', 'x?=v', 'x', 'x!=v', 'x=v', '!x'];
-  // Each form means the set of states it allows, on either side; an instance
-  // is accepted when its set lies inside the pattern's (capdag/formal,
-  // `tagMatch_iff_allows`). A missing key and `?x` promise nothing, so they
-  // satisfy only patterns that ask for nothing; `x` promises presence, not a
-  // value.
+  // Each form means the set of states it allows; the cap fits when, key by
+  // key, its set lies inside the pattern's (capdag/formal,
+  // `tagMatch_iff_allows`). The cap's own tags are complete, so a key it does
+  // not mention it does not have: its "missing" row is the row of `!x`
+  // (`Constraint.closed`), not of "anything". `?x` promises nothing, and `x`
+  // promises presence, not a value.
   // miss   ?x    x?=v   x      x!=v   x=v    !x
   const expected = [
-    [true,  true, false, false, false, false, false], // missing
+    [true,  true, true,  false, false, false, true ], // missing
     [true,  true, false, false, false, false, false], // ?x
     [true,  true, true,  false, false, false, false], // x?=v
     [true,  true, false, true,  false, false, false], // x
@@ -7466,6 +7562,9 @@ async function runTests() {
   runTest('TEST646: invalid_in_spec_fails', test646_invalidInSpecFails);
   runTest('TEST647: invalid_out_spec_fails', test647_invalidOutSpecFails);
   runTest('TEST648: wildcard_accepts_specific', test648_wildcardAcceptsSpecific);
+  runTest('TEST825: dispatch_request_unconstrained_input', test825_dispatchRequestUnconstrainedInput);
+  runTest('TEST12368: a_question_may_leave_a_side_unknown', test12368_aQuestionMayLeaveASideUnknown);
+  runTest('TEST12369: a_querys_tags_are_asked_of_the_tags_a_cap_has', test12369_aQuerysTagsAreAskedOfTheTagsACapHas);
   runTest('TEST649: specificity_scoring', test649_specificityScoring);
   runTest('TEST650: wildcard_preserve_other_tags', test650_wildcardPreserveOtherTags);
   runTest('TEST651: wildcard_generic_forms_rejected', test6620_wildcardGenericFormsRejected);
@@ -8001,11 +8100,12 @@ function test8158_attachmentKindsSeparateTheirSituations() {
 
 
 /**
- * TEST12166: matching, specificity and dispatch are the proved model's.
+ * TEST12166: every answer about media and caps is the proved model's.
  *
  * `capdag/formal` proves the rules have no holes — refinement is transitive,
- * equivalence is "the same tag set", dispatch composes. Those are proofs about
- * the MODEL. What ties them to this implementation is `conformance.json`,
+ * equivalence is "the same tag set", a request with an unknown side is served
+ * by exactly what serves some typed call it could become. Those are proofs
+ * about the MODEL. What ties them to this implementation is `conformance.json`,
  * generated from the model (`lake exe conformance`), every row of which is
  * parsed with this mirror's own parser and must get the model's answer. The
  * same table runs in every mirror, so a mirror that drifts fails naming the row.
@@ -8027,22 +8127,44 @@ function test12166_theImplementationIsTheProvedModel() {
   const media = parsed((text) => MediaUrn.fromString(text));
   const cap = parsed((text) => CapUrn.fromString(text));
   for (const row of table.refines) {
-    const got = media(row.instance).conformsTo(media(row.pattern));
-    if (got !== row.refines) wrong.push(`${row.instance} ⪯ ${row.pattern}: model ${row.refines}, got ${got}`);
+    const a = media(row.instance);
+    const b = media(row.pattern);
+    for (const [name, got, expected] of [
+      ['refines', a.conformsTo(b), row.refines],
+      ['meets', a.meets(b), row.meets],
+      ['satisfies', a.satisfies(b), row.satisfies],
+      ['may satisfy', a.maySatisfy(b), row.may_satisfy],
+    ]) {
+      if (got !== expected) wrong.push(`${row.instance} ${name} ${row.pattern}: model ${expected}, got ${got}`);
+    }
   }
   for (const row of table.scores) {
     const got = media(row.urn).specificity();
     if (got !== row.score) wrong.push(`score ${row.urn}: model ${row.score}, got ${got}`);
   }
+  const requestOf = parsed((text) => CapQuery.fromRequest(cap(text)));
+  const patternOf = parsed((text) => CapQuery.fromPattern(cap(text)));
   for (const row of table.dispatch) {
     const candidate = cap(row.candidate);
     const request = cap(row.request);
-    const got = candidate.isDispatchable(request);
-    if (got !== row.dispatch) wrong.push(`${row.candidate} serves ${row.request}: model ${row.dispatch}, got ${got}`);
-    const accepted = candidate.accepts(request);
-    if (accepted !== row.accepts) wrong.push(`${row.candidate} accepts ${row.request}: model ${row.accepts}, got ${accepted}`);
+    const asked = requestOf(row.request);
+    const grade = asked.grade(candidate);
+    if (grade !== row.grade) wrong.push(`grade of ${row.candidate} for ${row.request}: model ${row.grade}, got ${grade}`);
+    for (const [name, got, expected] of [
+      ['dispatch', candidate.isDispatchable(request), row.dispatch],
+      ['dispatch (query)', asked.admits(candidate), row.dispatch],
+      ['may dispatch', candidate.mayDispatch(request), row.may_dispatch],
+      ['may dispatch (query)', asked.mayAdmit(candidate), row.may_dispatch],
+      ['accepts', candidate.accepts(request), row.accepts],
+      ['accepts (query)', patternOf(row.candidate).admits(request), row.accepts],
+      ['accepts (conforms)', request.conformsTo(candidate), row.accepts],
+      ['equivalent', candidate.isEquivalent(request), row.equivalent],
+      ['flows', candidate.flowsInto(request), row.flows],
+    ]) {
+      if (got !== expected) wrong.push(`${name}: ${row.candidate} / ${row.request}: model ${expected}, got ${got}`);
+    }
   }
-  assert(table.refines.length > 4000 && table.dispatch.length > 20000, 'the table is the full one');
+  assert(table.refines.length > 4000 && table.dispatch.length > 30000, 'the table is the full one');
   assert(wrong.length === 0, `${wrong.length} row(s) differ from the model, e.g.\n  ${wrong.slice(0, 8).join('\n  ')}`);
 }
 

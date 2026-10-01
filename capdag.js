@@ -646,38 +646,38 @@ class CapUrn {
   }
 
   /**
-   * Check if this cap (pattern/handler) accepts a request (instance).
+   * Whether `cap` fits this cap read as a PATTERN over caps — what a search
+   * asks: `cap`'s input is within this pattern's, its output covers the
+   * pattern's, its effect is the pattern's (a pattern's `?effect` fits any),
+   * and its cap-tags — complete: a cap has the tags it has — satisfy the
+   * pattern's.
    *
-   * Direction (in/out) uses TaggedUrn.accepts()/conformsTo() (via MediaUrn matching):
-   * - Input: capIn.accepts(requestIn) — cap's input spec is pattern, request's input is instance
-   * - Output: capOut.conformsTo(requestOut) — cap's output is instance, request's output is pattern
-   * For other tags:
-   * - For each tag in the request: cap has same value, wildcard (*), or missing tag
-   * - For each tag in the cap: if request is missing that tag, that's fine (cap is more specific)
-   * Missing tags (except in/out) are treated as wildcards (less specific, can handle any value).
+   * A side the pattern leaves open is not asked about. `cap:candle` fits every
+   * cap tagged `candle`, whatever it takes and gives: its open output is "not
+   * established", not the type "anything".
    *
-   * @param {CapUrn} request - The request cap to check
-   * @returns {boolean} Whether this cap accepts the request
+   * Decided by the proved model (CapDAG.Exec.accepts, which is CapDAG.fits).
+   * For a question no cap URN can spell — "what gives this, whatever it
+   * takes" — ask a CapQuery.
+   *
+   * @param {CapUrn} cap - The cap to test against this pattern
+   * @returns {boolean} Whether the cap fits
    */
-  accepts(request) {
-    if (!request) {
+  accepts(cap) {
+    if (!cap) {
       return true;
     }
-    // Decided by the proved model (CapDAG.Exec.accepts). The cap-tag axis runs
-    // opposite to isDispatchable's: this is the pattern relation, dispatch is
-    // the routing one.
-    return model.accepts(this.formal, request.formal);
+    return model.accepts(this.formal, cap.formal);
   }
 
   /**
-   * Check if this cap (instance) conforms to another cap (pattern).
-   * Equivalent to cap.accepts(this).
+   * Whether this cap fits `pattern`: `pattern.accepts(this)`.
    *
-   * @param {CapUrn} cap - The cap to check conformance against
-   * @returns {boolean} Whether this cap conforms to the given cap
+   * @param {CapUrn} pattern
+   * @returns {boolean}
    */
-  conformsTo(cap) {
-    return cap.accepts(this);
+  conformsTo(pattern) {
+    return pattern.accepts(this);
   }
 
   /**
@@ -861,19 +861,62 @@ class CapUrn {
   }
 
   /**
-   * Check if this candidate can dispatch the given request.
+   * Whether this candidate SERVES `request` — the predicate routing and
+   * dispatch act on.
+   *
+   * The candidate takes at least what the request sends, gives at least what
+   * the request needs, has the effect asked for unless the request says
+   * `?effect`, and has the cap-tags asked for — its own tags being complete, so
+   * a request for `!x` is served by a candidate that does not mention `x`, and
+   * a candidate may carry tags the request does not ask about.
+   *
+   * An input the request leaves open is not established: the caller has not
+   * said what it will send, and every candidate passes that side. That is
+   * "some input", not "any input" — `media:` on a CANDIDATE's input does mean
+   * it takes anything.
+   *
+   * This is a guarantee. What only could serve does not; see mayDispatch and
+   * CapQuery.grade. Decided by the proved model (CapDAG.Exec.dispatch, which is
+   * CapDAG.serves). Not symmetric.
    *
    * @param {CapUrn} request
    * @returns {boolean}
    */
   isDispatchable(request) {
-    // Decided by the proved model (CapDAG.Exec.dispatch): every axis is a type.
-    // The request's input refines the candidate's, the candidate's output
-    // refines the request's, the effect matches unless the request says
-    // ?effect, and the candidate's cap-tags refine the request's. `media:` on
-    // a request's input is a type — "may send anything" — so only a candidate
-    // that accepts anything serves it, which is what makes dispatch compose.
     return model.dispatch(this.formal, request.formal);
+  }
+
+  /**
+   * Whether this candidate COULD serve `request`: not guaranteed, not
+   * excluded. For exploring what the fabric might do — never for routing a
+   * call, which must be served.
+   *
+   * @param {CapUrn} request
+   * @returns {boolean}
+   */
+  mayDispatch(request) {
+    return model.mayDispatch(this.formal, request.formal);
+  }
+
+  /**
+   * Whether what this cap gives, `next` takes: the edge of a route.
+   *
+   * @param {CapUrn} next
+   * @returns {boolean}
+   */
+  flowsInto(next) {
+    return model.flows(this.formal, next.formal);
+  }
+
+  /**
+   * Whether what this cap gives COULD be something `next` takes: an edge a
+   * search may explore and a run has to check.
+   *
+   * @param {CapUrn} next
+   * @returns {boolean}
+   */
+  mayFlowInto(next) {
+    return model.mayFlow(this.formal, next.formal);
   }
 
   /**
@@ -886,7 +929,9 @@ class CapUrn {
     const declaredIn = this.inMediaUrn();
     const declaredOut = this.outMediaUrn();
 
-    if (!runtimeInput.conformsTo(declaredIn)) {
+    // A runtime media URN is the media of a value that exists, so it is read
+    // complete: it SATISFIES the declared type, or does not.
+    if (!runtimeInput.satisfies(declaredIn)) {
       throw new CapUrnError(
         ErrorCodes.INVALID_EFFECT_APPLICATION,
         `Runtime input '${runtimeInput}' does not conform to declared input '${declaredIn}'`
@@ -918,7 +963,7 @@ class CapUrn {
         );
     }
 
-    if (!runtimeOut.conformsTo(declaredOut)) {
+    if (!runtimeOut.satisfies(declaredOut)) {
       throw new CapUrnError(
         ErrorCodes.INVALID_EFFECT_APPLICATION,
         `Inferred runtime output '${runtimeOut}' does not conform to declared output '${declaredOut}'`
@@ -962,7 +1007,7 @@ class CapUrn {
       case CapEffect.PATCH:
         return runtimeOutput.isEquivalent(inferred);
       case CapEffect.DECLARED:
-        return runtimeOutput.conformsTo(inferred);
+        return runtimeOutput.satisfies(inferred);
       default:
         throw new CapUrnError(
           ErrorCodes.INVALID_EFFECT_APPLICATION,
@@ -1103,6 +1148,109 @@ class CapUrnBuilder {
       throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' spec - call outSpec() before build()");
     }
     return new CapUrn(this._inSpec, this._outSpec, this._effect, this._tags);
+  }
+}
+
+/**
+ * How a registered cap answers a CapQuery.
+ *
+ * - EXACT: guaranteed, and exactly what was asked on every side that was asked.
+ * - GUARANTEED: whatever the cap takes and gives, it is what was asked.
+ * - POSSIBLE: not guaranteed and not excluded — only running it tells. For
+ *   exploring; a call is never routed on it.
+ * - NONE: excluded.
+ */
+const MatchGrade = Object.freeze({
+  EXACT: 'exact',
+  GUARANTEED: 'guaranteed',
+  POSSIBLE: 'possible',
+  NONE: 'none',
+});
+
+/** Whether routing may act on a grade. */
+function gradeIsGuaranteed(grade) {
+  return grade === MatchGrade.EXACT || grade === MatchGrade.GUARANTEED;
+}
+
+/** The cap-tag pattern a query asks for: `cap:` with these tags (none asks for none). */
+function queryTagPattern(tags) {
+  return modelUrn(new TaggedUrn('cap', { ...(tags || {}) }));
+}
+
+/**
+ * A question about caps.
+ *
+ * A request is not a cap. A cap takes this and gives that; a request is a
+ * QUESTION about caps, and may leave a side unasked: "what gives me this file,
+ * whatever it takes?", "what can this input become?". Those are not cap URNs
+ * with `media:` on a side — `media:` is the type "anything", a claim about
+ * every input — they are queries with that side unknown.
+ *
+ * A cap URN read as a request or as a pattern is one (fromRequest, fromPattern)
+ * — which is what CapUrn.isDispatchable and CapUrn.accepts ask — and so are the
+ * questions no cap URN can spell (producing, consuming, between). Every answer
+ * is decided by the proved model (formal/CapDAG/Query.lean).
+ */
+class CapQuery {
+  constructor(formal, asked) {
+    Object.defineProperty(this, 'formal', { value: formal, enumerable: false });
+    this.asked = asked;
+    Object.freeze(this);
+  }
+
+  toString() {
+    return this.asked;
+  }
+
+  /** The cap URN `request`, read as a request: an input it leaves open is not established. */
+  static fromRequest(request) {
+    return new CapQuery(model.queryOfRequest(request.formal), `request ${request}`);
+  }
+
+  /** The cap URN `pattern`, read as a pattern over caps: an output it leaves open is not established. */
+  static fromPattern(pattern) {
+    return new CapQuery(model.queryOfPattern(pattern.formal), `pattern ${pattern}`);
+  }
+
+  /** Caps that GIVE `output`, whatever they take, with the cap-tags `tags` asks for. */
+  static producing(output, tags) {
+    return new CapQuery(
+      model.queryProducing(modelUrn(output._urn), queryTagPattern(tags)),
+      `anything giving ${output}`);
+  }
+
+  /** Caps that TAKE `input`, whatever they give: what this input can become in one step. */
+  static consuming(input, tags) {
+    return new CapQuery(
+      model.queryConsuming(modelUrn(input._urn), queryTagPattern(tags)),
+      `anything taking ${input}`);
+  }
+
+  /** Caps that take `input` and give `output`: nothing unknown. */
+  static between(input, output, tags) {
+    return new CapQuery(
+      model.queryBetween(modelUrn(input._urn), modelUrn(output._urn), queryTagPattern(tags)),
+      `anything taking ${input} and giving ${output}`);
+  }
+
+  /** Whether `cap` is guaranteed to be what is asked. */
+  admits(cap) {
+    return model.queryAdmits(this.formal, cap.formal);
+  }
+
+  /** Whether `cap` could be what is asked. */
+  mayAdmit(cap) {
+    return model.queryMayAdmit(this.formal, cap.formal);
+  }
+
+  /** How `cap` answers: one of MatchGrade. */
+  grade(cap) {
+    const answer = model.queryGrade(this.formal, cap.formal);
+    const grade = { exact: MatchGrade.EXACT, guaranteed: MatchGrade.GUARANTEED, possible: MatchGrade.POSSIBLE, none: MatchGrade.NONE }[answer.kind];
+    if (grade === undefined) {
+      throw new Error(`capdag: the model answered with a grade this mirror does not know: ${JSON.stringify(answer)}`);
+    }
+    return grade;
   }
 }
 
@@ -1614,6 +1762,34 @@ class MediaUrn {
    * @returns {boolean}
    */
   accepts(instance) { return this._urn.accepts(instance._urn); }
+
+  /**
+   * Whether this media type and `other` COULD describe the same value: not a
+   * guarantee (conformsTo), and not excluded. `media:ext` meets
+   * `media:ext=pdf`; `media:ext=pdf` does not meet `media:ext=png`.
+   * @param {MediaUrn} other
+   * @returns {boolean}
+   */
+  meets(other) { return this._urn.meets(other._urn); }
+
+  /**
+   * Whether a VALUE whose media this is satisfies the type `pattern`.
+   *
+   * conformsTo compares two types, and a type that does not mention a key
+   * says nothing about it. A value that exists is complete: the tags it does
+   * not have, it does not have. Use this where the receiver is the media of
+   * actual data — a stream that arrived, an output that was produced.
+   * @param {MediaUrn} pattern
+   * @returns {boolean}
+   */
+  satisfies(pattern) { return this._urn.satisfies(pattern._urn); }
+
+  /**
+   * Whether a value whose media this is COULD satisfy `pattern`.
+   * @param {MediaUrn} pattern
+   * @returns {boolean}
+   */
+  maySatisfy(pattern) { return this._urn.maySatisfy(pattern._urn); }
 
   /** @returns {number} Specificity score (tag count based) */
   specificity() { return this._urn.specificity(); }
@@ -2720,13 +2896,14 @@ class Cap {
   }
 
   /**
-   * Check if this capability accepts a request string
+   * Whether this capability, as a candidate, can serve the request
+   * (CapUrn.isDispatchable).
    * @param {string} request - The request string
-   * @returns {boolean} Whether this capability accepts the request
+   * @returns {boolean} Whether this capability serves the request
    */
   acceptsRequest(request) {
     const requestUrn = CapUrn.fromString(request);
-    return this.urn.accepts(requestUrn);
+    return this.urn.isDispatchable(requestUrn);
   }
 
   /**
@@ -5343,16 +5520,17 @@ class CartridgeRepoServer {
   }
 
   /**
-   * Get cartridges that provide a specific cap.
+   * Get every cartridge with a cap that can SERVE the requested URN.
    *
-   * The request URN is parsed via CapUrn.fromString. Each declared
-   * cartridge cap is parsed and matched with `conformsTo`: cap dispatch
-   * is the partial-order question "does the declared cap conform to
-   * (i.e. refine, equal, or be more specific than) the requested
-   * pattern?". Only `in` and `out` tags are semantically meaningful —
-   * no string comparison, no special role for the `op` tag. A malformed
-   * input URN throws; a malformed declared URN in the registry also
-   * throws (registry corruption is not a fallback condition).
+   * The request URN is parsed via CapUrn.fromString; each declared
+   * cartridge cap is parsed too and asked `isDispatchable` — "can this
+   * declared candidate serve the request?" (it takes at least what is
+   * sent, gives at least what is needed, has the tags asked for; a side the
+   * request leaves open is not asked about). This is deliberately looser
+   * than the equivalence used to resolve an alias to its exact cap: here
+   * everything capable is enumerated. A malformed input URN throws; a
+   * malformed declared URN in the registry also throws (registry corruption
+   * is not a fallback condition).
    */
   getCartridgesByCap(capUrn) {
     const requested = CapUrn.fromString(capUrn);
@@ -5361,7 +5539,7 @@ class CartridgeRepoServer {
       (p.cap_groups || []).some(g =>
         (g.caps || []).some(c => {
           const declared = CapUrn.fromString(c.urn);
-          return declared.conformsTo(requested);
+          return declared.isDispatchable(requested);
         })
       )
     );
@@ -8438,6 +8616,9 @@ export {
   CapEffect,
   CapUrnBuilder,
   CapMatcher,
+  CapQuery,
+  MatchGrade,
+  gradeIsGuaranteed,
   CapUrnError,
   ErrorCodes,
   MediaUrn,

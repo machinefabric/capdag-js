@@ -1,22 +1,24 @@
 {
-  "build_key": "f60640d64e10ff1e6bf6f432eb23e1be93c7b5c1f9d61e773c025abdb1dfe15f",
+  "build_key": "586d8ca04c97317c26335fa0bae5798d6ffbfbb502076d812f07479d92158f0c",
   "lean_version": "4.34.1",
   "lean_githash": "5045d0056413266e57c625dcd7c365b10e377c52",
   "bir_version": 3,
   "adapter_version": 1,
-  "lungo_version": "1.78.3254",
+  "lungo_version": "1.81.24",
   "runtime_abi": 1,
   "worker_identity": "0587064dd2f5b65f8d77fefae9b7a41737221883cc74030f7cd7469534700252",
   "input_digests": {
     "../../tagged-urn/formal/TaggedUrn.lean": "51c451ad004b38af0d8212ffdfa8098e8e3de3831ad4850052301fac4963ed34",
-    "../../tagged-urn/formal/TaggedUrn/Constraint.lean": "3cb5e897ae54194e4aa4723c780a1f89dac0c690214380466189354824757cce",
-    "../../tagged-urn/formal/TaggedUrn/Exec.lean": "70a0fd49506097586de6dcbf7cb4f3df60d2ee66356004eacc46b5610f0b719d",
-    "../../tagged-urn/formal/TaggedUrn/Sorted.lean": "13c19ed80afcd9a7fc458a5ccc26333ebd7122821cfacd7c41a7b4f355435759",
-    "../../tagged-urn/formal/TaggedUrn/Urn.lean": "f1d82390b05b93b96a46dddcf70033199035902036a77402ed232febd2af8559",
+    "../../tagged-urn/formal/TaggedUrn/Constraint.lean": "80aff9f308ea2e2110c89b7da66929c1bc178e23e8431f3224acfd5fbd861a85",
+    "../../tagged-urn/formal/TaggedUrn/Exec.lean": "e4c460d057c61dafeb9c3039ae75b1eb8327d6dd6b876e3e1d4adb8ae72e7097",
+    "../../tagged-urn/formal/TaggedUrn/Sorted.lean": "63673529b50aeb2faa578b8852be2414d2a3df9e03e2685f6a5a67ebf6da2c9d",
+    "../../tagged-urn/formal/TaggedUrn/Urn.lean": "c2a9d726486b3bd422223682b045a0500040b8b6e9d350ab3332300a95314b4e",
     "../../tagged-urn/formal/lakefile.toml": "339b574de2949b141e2fcd301464c4144dc3de55e179f91a30e4c2ac1898c0d1",
-    "CapDAG/Cap.lean": "37bef3ba3b14bc95b1b0bb0805c1575cd30c62ab381afc4ad06e84f281456e2e",
-    "CapDAG/Exec.lean": "19168d587fff617bca5cf3afc9604b516de9fd64811c2b3d6c33b08929a8608d",
-    "CapDAG/Ranking.lean": "ef9728b9a1cd483e88eea2b9c711132733a87fd87700eb33911018121cffd439",
+    "CapDAG/Cap.lean": "d864c1bbdb383a187c977e48b0506bbf0442c6dc6657fa5493acb401c6b6fb62",
+    "CapDAG/Exec.lean": "2d25f490de74bc2778c00ca9d6eee2b4d2850c3aff2764b42eabf74cfe4c0351",
+    "CapDAG/Query.lean": "e7a91bebd37f3ea2f28dab6e0638e9424cf3a5214a97ec9da189da3ebf4fdad2",
+    "CapDAG/Ranking.lean": "7aa97235c0b9e8c6790973948825e04720417bf9864fcf49e5c96171277cb526",
+    "CapDAG/Route.lean": "3beee40f9056450688a70c62574da0a89f148452c399bd4cde2f79c9626e365d",
     "lake-manifest.json": "5111b205ad227f73bd21f03d8c4a1c8458b7fd972c9392d2ecbc18058b9a0ce7",
     "lakefile.lean": "f4c9dee58b561ec59dd22a26bb9502f511e88edfd09b4a119ea2916023d73c29",
     "lean-toolchain": "7fc3c9ca176374a841abdad2bb4fa8c3c57363d50b728a512b513374610ae696"
@@ -24,8 +26,8 @@
   "project": "formal",
   "link_directives": [],
   "output_digests": {
-    "index.d.ts": "b2bbb4ba25eed44793c901d1abed30a29fdfdd73373f960a8d7c28b902b1284c",
-    "index.js": "2f2331fef235af132362d5b54b9b6ea5ca225b15e877a16ba75c3254af6565df",
-    "program.wasm": "0cc5c27e60f3db7631728eb83ffdaf6d9f1ba1e82abba5482d8fdb1b7608870d"
+    "index.d.ts": "03c7fcf615aa6b81fecf820d44d24d71b26ec98ed0c0d3c52e7327dd03deb5ad",
+    "index.js": "cf9e61619f212596a174095bc985930ce168293fcdb84223825574599bf6cf74",
+    "program.wasm": "dd005ab32fb59a694aecb8e54ab8d14b846f367218152e85b109e0085fdbf49a"
   }
 }
