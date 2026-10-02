@@ -1,10 +1,10 @@
 {
-  "build_key": "f60640d64e10ff1e6bf6f432eb23e1be93c7b5c1f9d61e773c025abdb1dfe15f",
+  "build_key": "403602107e2ea5f663fac11677991109ce50f3976386d132a594f367794b72c0",
   "lean_version": "4.34.1",
   "lean_githash": "5045d0056413266e57c625dcd7c365b10e377c52",
   "bir_version": 3,
   "adapter_version": 1,
-  "lungo_version": "1.78.3254",
+  "lungo_version": "1.81.24",
   "runtime_abi": 1,
   "worker_identity": "0587064dd2f5b65f8d77fefae9b7a41737221883cc74030f7cd7469534700252",
   "input_digests": {
@@ -14,20 +14,24 @@
     "../../tagged-urn/formal/TaggedUrn/Sorted.lean": "63673529b50aeb2faa578b8852be2414d2a3df9e03e2685f6a5a67ebf6da2c9d",
     "../../tagged-urn/formal/TaggedUrn/Urn.lean": "c2a9d726486b3bd422223682b045a0500040b8b6e9d350ab3332300a95314b4e",
     "../../tagged-urn/formal/lakefile.toml": "339b574de2949b141e2fcd301464c4144dc3de55e179f91a30e4c2ac1898c0d1",
+    "CapDAG/Bifaci/Credit.lean": "aca7f1c2904127a3b4c626fd5f366c4dd84dddc0348c68864d9871ac212723ad",
+    "CapDAG/Bifaci/Flow.lean": "cb536115a4d43d34c307683077a8a43ac48e41fb45f6bc1e36db327495da41a8",
+    "CapDAG/Bifaci/Pools.lean": "d908a12c733e27c4801581bedae058898e702ea27ad9e597a28cd123a94c8ace",
+    "CapDAG/Bifaci/Request.lean": "604c9ab7c41ee1d61431c2a4bcaafd172b8dc8db5d31bda2f47feb226024b674",
     "CapDAG/Cap.lean": "d864c1bbdb383a187c977e48b0506bbf0442c6dc6657fa5493acb401c6b6fb62",
     "CapDAG/Exec.lean": "2d25f490de74bc2778c00ca9d6eee2b4d2850c3aff2764b42eabf74cfe4c0351",
     "CapDAG/Query.lean": "e7a91bebd37f3ea2f28dab6e0638e9424cf3a5214a97ec9da189da3ebf4fdad2",
     "CapDAG/Ranking.lean": "7aa97235c0b9e8c6790973948825e04720417bf9864fcf49e5c96171277cb526",
     "CapDAG/Route.lean": "3beee40f9056450688a70c62574da0a89f148452c399bd4cde2f79c9626e365d",
     "lake-manifest.json": "5111b205ad227f73bd21f03d8c4a1c8458b7fd972c9392d2ecbc18058b9a0ce7",
-    "lakefile.lean": "f4c9dee58b561ec59dd22a26bb9502f511e88edfd09b4a119ea2916023d73c29",
+    "lakefile.lean": "5c9187dc7a06dbc2915b090452d1596626350f3845ba9bcb3b1443d04ee31ed2",
     "lean-toolchain": "7fc3c9ca176374a841abdad2bb4fa8c3c57363d50b728a512b513374610ae696"
   },
   "project": "formal",
   "link_directives": [],
   "output_digests": {
-    "index.d.ts": "b081f76a1b906801d383d864504ac08c525c18348162bddea87eb9de9dd5c0f7",
-    "index.js": "6ce595dbc4d352f87f4fc7477a71a015b52446f0a8b8ca43c8fb585fd9dc512e",
-    "program.wasm": "a045ab079c872d672789c3d7c7bcbb677a8f5105326118925d910b59d82717f3"
+    "index.d.ts": "8c68bfd377369783016beb65b1ef8d68f20ac5a6318ae6e85f6f1c873db9eeb5",
+    "index.js": "cb33274529e19dde101a4b8a1d3a92914cfe4be530c0a4c5c2a1a5cef4f5bf7d",
+    "program.wasm": "b20978427a6cdcd3fb6c84b2772e191ea3b98fe98de3aa36a9c2a9cfc78a90f9"
   }
 }
