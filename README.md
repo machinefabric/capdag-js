@@ -17,7 +17,7 @@ npm install capdag
 
 The package is an ES module and needs Node.js 20 or newer. Dispatch,
 acceptance, equivalence and specificity are decided by code generated from the
-proved model ([formal foundations](https://capdag.com/docs/02-formal-foundations/)),
+proved model ([formal foundations](https://machinefabric.com/capdag/docs/02-formal-foundations/)),
 which runs as WebAssembly: it is instantiated when the package is first
 imported, so importing it waits for that (top-level `await`), and a CommonJS
 `require` cannot load it.
@@ -53,7 +53,7 @@ equivalence, conformance, dispatch, and ranking instead of string surgery.
 - [`RULES.md`](RULES.md) records package-specific construction rules.
 
 The normative semantics and terminology live in the
-[CapDAG specification](https://capdag.com/docs/01-overview/). Source comments and
+[CapDAG specification](https://machinefabric.com/capdag/docs/01-overview/). Source comments and
 exports are the JavaScript API reference.
 
 ## Use it in a browser
