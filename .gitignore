@@ -4,3 +4,6 @@ package-lock.json
 diffs/
 .scrap/
 *.log
+# Linked on each machine from the generated sources (`lungo generate`, or
+# `lungo generate --link`): a build product, packed by npm, never committed.
+formal/program.wasm
