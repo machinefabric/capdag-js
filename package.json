@@ -50,5 +50,5 @@
     "test": "node capdag.test.js"
   },
   "type": "module",
-  "version": "1.391.6"
+  "version": "1.392.0"
 }
