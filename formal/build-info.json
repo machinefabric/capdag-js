@@ -1,10 +1,10 @@
 {
-  "build_key": "bd29145d6b78f8ce58b89767d149281b140f068f39578eb377952788971d7b56",
+  "build_key": "f8ea947fe154d4c64a1033b629bce21c893d1f34886a390bd547f8806c4c4c53",
   "lean_version": "4.34.1",
   "lean_githash": "5045d0056413266e57c625dcd7c365b10e377c52",
   "bir_version": 3,
   "adapter_version": 1,
-  "lungo_version": "1.86.160",
+  "lungo_version": "1.88.0",
   "runtime_abi": 1,
   "worker_identity": "0587064dd2f5b65f8d77fefae9b7a41737221883cc74030f7cd7469534700252",
   "input_digests": {
@@ -30,8 +30,8 @@
   "project": "formal",
   "link_directives": [],
   "output_digests": {
-    "index.d.ts": "65a8682a1730727be8edb4d6741126ccc8ceab47082c7648dd3f493299f0d6a5",
-    "index.js": "60b1b87f6c7e6a09a602a5064c59dfa924a1e4826fd074880d1350aefd508573"
+    "index.d.ts": "745452356356771efac97bac0bd6768c5b0ec64944a6dd14e054a38a2a237d18",
+    "index.js": "92e10096e632e433522276acf6097fb986bf2002e01684c8bcef2ba250c6d0a5"
   },
   "platform_products": [
     "program.wasm"
