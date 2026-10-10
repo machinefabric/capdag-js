@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TaggedUrn } from 'tagged-urn';
 import * as plannerNS from './planner.js';
+import { ASSURANCE } from './formal/index.js';
 import {
   CapUrn, CapKind, CapEffect, CapUrnBuilder, CapMatcher, CapQuery, MatchGrade, CapUrnError, ErrorCodes,
   MediaUrn, MediaUrnError, MediaUrnErrorCodes,
@@ -7585,6 +7586,7 @@ async function runTests() {
   runTest('TEST8157: signature_formats_from_library', test8157_signatureFormatDiscriminatorsComeFromTheLibrary);
   runTest('TEST8158: attachment_kinds_separate_situations', test8158_attachmentKindsSeparateTheirSituations);
   runTest('TEST12166: the_implementation_is_the_proved_model', test12166_theImplementationIsTheProvedModel);
+  runTest('TEST12597: every_model_function_carries_a_proved_claim', test12597_everyModelFunctionCarriesAProvedClaim);
   runTest('TEST8121: effect_conformance_declared_asymmetry', test8121_effectConformanceDeclaredAsymmetry);
   runTest('TEST8122: effect_conformance_none_requires_equivalence', test8122_effectConformanceNoneRequiresEquivalence);
   runTest('TEST8123: effect_conformance_patch_requires_patched_input', test8123_effectConformancePatchRequiresPatchedInput);
@@ -8098,6 +8100,31 @@ function test8158_attachmentKindsSeparateTheirSituations() {
   );
 }
 
+
+/**
+ * TEST12597: every function of the proved model this mirror calls carries a proved claim.
+ *
+ * The model's package carries what is proved of each function it exports (its assurance
+ * document, generated from ../formal): each one decides, equals or keeps what its claim says,
+ * and none rests on an assumption about the host — the model needs none.
+ */
+function test12597_everyModelFunctionCarriesAProvedClaim() {
+  assertEqual(ASSURANCE.facilities.length, 0, 'the model assumes nothing of the host');
+  assertEqual(ASSURANCE.assumptions.length, 0, 'no assumptions');
+  assert(ASSURANCE.exports.length > 0, 'the model exports functions');
+  for (const e of ASSURANCE.exports) {
+    assert(e.claims.length > 0, `${e.name} carries no claim`);
+    assertEqual(e.assumptions.length, 0, `${e.name} rests on an assumption`);
+    for (const name of e.claims) {
+      const claim = ASSURANCE.claims.find((c) => c.name === name);
+      assertEqual(claim.status, 'proved', name);
+      assert(claim.subjects.includes(e.name), `${name} is about ${e.name}`);
+    }
+  }
+  const dispatch = ASSURANCE.claims.find((c) => c.name === 'CapDAG.Exec.dispatch_decides');
+  assertEqual(dispatch.relation, 'lungo.decides', 'dispatch decides');
+  assertEqual(dispatch.specifications.join(','), 'CapDAG.serves', 'dispatch decides CapDAG.serves');
+}
 
 /**
  * TEST12166: every answer about media and caps is the proved model's.
