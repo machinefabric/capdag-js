@@ -980,12 +980,12 @@ function validateEditorGraphPayload(data) {
 //   {
 //     "strands": [
 //       {
-//         "nodes": [{"id": "n0", "urn": "media:ext=pdf"}, ...],
+//         "nodes": [{"id": "n0", "urn": "media:document;ext=pdf"}, ...],
 //         "edges": [{
 //           "alias": "edge_0",
 //           "cap_urn": "...",
 //           "is_loop": false,
-//           "assignment": [{"cap_arg_media_urn": "media:ext=pdf", "source_node": "n0"}, ...],
+//           "assignment": [{"cap_arg_media_urn": "media:document;ext=pdf", "source_node": "n0"}, ...],
 //           "target_node": "n1"
 //         }, ...],
 //         "input_anchor_nodes": ["n0"],
@@ -2239,7 +2239,7 @@ function buildRunGraphData(data) {
   // labels the anchor→entry edge on the first body.
   //
   // Without such a preceding sequence cap, the source itself is
-  // already a list (e.g. `media:ext=pdf;list` source_media_urn) and the
+  // already a list (e.g. `media:document;ext=pdf;list` source_media_urn) and the
   // ForEach iterates it directly.
   let seqProducerStepIdx = -1;
   let seqProducerStep = null;

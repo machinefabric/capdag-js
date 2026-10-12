@@ -38,6 +38,7 @@ import {
   MEDIA_OBJECT, MEDIA_STRING_LIST, MEDIA_INTEGER_LIST,
   MEDIA_NUMBER_LIST, MEDIA_BOOLEAN_LIST, MEDIA_OBJECT_LIST,
   MEDIA_IDENTITY, MEDIA_VOID, MEDIA_PNG, MEDIA_AUDIO, MEDIA_VIDEO,
+  MEDIA_IMAGE, MEDIA_DOCUMENT,
   MEDIA_PDF, MEDIA_EPUB, MEDIA_MD, MEDIA_TXT, MEDIA_RST, MEDIA_LOG,
   MEDIA_HTML, MEDIA_XML, MEDIA_JSON, MEDIA_YAML, MEDIA_JSON_SCHEMA,
   MEDIA_MODEL_SPEC, MEDIA_AVAILABILITY_OUTPUT, MEDIA_PATH_OUTPUT,
@@ -790,19 +791,19 @@ function test890_directionSemanticMatching() {
     'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
   );
   const pdfRequest = CapUrn.fromString(
-    'cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
+    'cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
   );
   assert(genericCap.accepts(pdfRequest), 'Generic wildcard cap must accept pdf request');
 
   // Also accepts epub
   const epubRequest = CapUrn.fromString(
-    'cap:in="media:ext=epub";generate-thumbnail;out="media:ext=png;image;thumbnail"'
+    'cap:in="media:document;ext=epub";generate-thumbnail;out="media:ext=png;image;thumbnail"'
   );
   assert(genericCap.accepts(epubRequest), 'Generic wildcard cap must accept epub request');
 
   // Reverse: specific pdf cap does NOT accept generic bytes request
   const pdfCap = CapUrn.fromString(
-    'cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
+    'cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
   );
   const genericRequest = CapUrn.fromString(
     'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
@@ -839,7 +840,7 @@ function test891_directionSemanticSpecificity() {
     'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
   );
   const specificCap = CapUrn.fromString(
-    'cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
+    'cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
   );
 
   // generic:
@@ -851,20 +852,20 @@ function test891_directionSemanticSpecificity() {
     'out=ext=png(4)+image(2)+thumbnail(2)=8 + in=media:(0) + generate-thumbnail marker(2) = 80002');
   // specific:
   //   out=media:ext=png;image;thumbnail -> 8
-  //   in=media:ext=pdf              -> 4 (ext=pdf is an exact-value tag, not a bare marker)
+  //   in=media:document;ext=pdf              -> 6 (ext=pdf is an exact-value tag: 4; document is a marker: 2)
   //   y: generate-thumbnail marker  -> 2
-  //   spec_C = 10000*8 + 100*4 + 2 = 80402
-  assertEqual(specificCap.specificity(), 10000*8 + 100*4 + 2,
-    'out=ext=png(4)+image(2)+thumbnail(2)=8 + in=ext=pdf(4) + generate-thumbnail marker(2) = 80402');
+  //   spec_C = 10000*8 + 100*6 + 2 = 80602
+  assertEqual(specificCap.specificity(), 10000*8 + 100*6 + 2,
+    'out=ext=png(4)+image(2)+thumbnail(2)=8 + in=ext=pdf(4)+document(2)=6 + generate-thumbnail marker(2) = 80602');
   assert(specificCap.specificity() > genericCap.specificity(), 'pdf should be more specific');
 
   // CapMatcher should prefer more specific
   const pdfRequest = CapUrn.fromString(
-    'cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
+    'cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"'
   );
   const best = CapMatcher.findBestMatch([genericCap, specificCap], pdfRequest);
   assert(best !== null, 'Should find a match');
-  assertEqual(best.getInSpec(), 'media:ext=pdf', 'Should prefer more specific pdf cap');
+  assertEqual(best.getInSpec(), 'media:document;ext=pdf', 'Should prefer more specific pdf cap');
 }
 
 // ============================================================================
@@ -1037,8 +1038,8 @@ function test072_constantsParse() {
 // TEST74: Test media URN conforms_to using tagged URN semantics with specific and generic requirements
 function test074_mediaUrnMatching() {
   const pdfUrn = MediaUrn.fromString(MEDIA_PDF);
-  const pdfPattern = MediaUrn.fromString('media:ext=pdf');
-  assert(pdfUrn.conformsTo(pdfPattern), 'MEDIA_PDF should conform to media:ext=pdf');
+  const pdfPattern = MediaUrn.fromString('media:document;ext=pdf');
+  assert(pdfUrn.conformsTo(pdfPattern), 'MEDIA_PDF should conform to media:document;ext=pdf');
 
   const mdUrn = MediaUrn.fromString(MEDIA_MD);
   const mdPattern = MediaUrn.fromString('media:ext=md');
@@ -1062,7 +1063,7 @@ function test075_accepts() {
 // TEST76: Test specificity increases with more tags for ranking conformance
 function test076_specificity() {
   const s1 = MediaUrn.fromString('media:');
-  const s2 = MediaUrn.fromString('media:ext=pdf');
+  const s2 = MediaUrn.fromString('media:document;ext=pdf');
   const s3 = MediaUrn.fromString('media:ext=png;image;thumbnail');
   assert(s2.specificity() > s1.specificity(), 'pdf should be more specific than wildcard');
   assert(s3.specificity() > s2.specificity(), 'image;png;thumbnail should be more specific than pdf');
@@ -1220,13 +1221,13 @@ function test106_metadataWithValidation() {
 function test107_extensionsPropagation() {
   const mediaDefs = [
     {
-      urn: 'media:ext=pdf',
+      urn: 'media:document;ext=pdf',
       media_type: 'application/pdf',
       title: 'PDF Document',
       extensions: ['pdf']
     }
   ];
-  const resolved = resolveMediaUrn('media:ext=pdf', mediaDefs);
+  const resolved = resolveMediaUrn('media:document;ext=pdf', mediaDefs);
   assert(Array.isArray(resolved.extensions), 'Extensions should be an array');
   assertEqual(resolved.extensions.length, 1, 'Should have one extension');
   assertEqual(resolved.extensions[0], 'pdf', 'Should have pdf extension');
@@ -1235,7 +1236,7 @@ function test107_extensionsPropagation() {
 // TEST108: Test creating new cap with URN, title, and command verifies correct initialization
 function test108_extensionsSerialization() {
   // Test that MediaDef can hold extensions correctly
-  const spec = new MediaDef('application/pdf', null, null, 'PDF', null, 'media:ext=pdf', null, null, ['pdf']);
+  const spec = new MediaDef('application/pdf', null, null, 'PDF', null, 'media:document;ext=pdf', null, null, ['pdf']);
   assert(Array.isArray(spec.extensions), 'Extensions should be array');
   assertEqual(spec.extensions[0], 'pdf', 'Should have pdf extension');
 }
@@ -1340,7 +1341,7 @@ function test116_capArgConstructors() {
 function test150_capManifestJsonSerialization() {
   const capUrn = CapUrn.fromString(test6204_Urn('extract;target=metadata'));
   const cap = new Cap(capUrn, 'Extract Metadata', ['extract-metadata']);
-  cap.addArg(new CapArg('media:ext=pdf', true, [new ArgSource({ stdin: 'media:ext=pdf' })]));
+  cap.addArg(new CapArg('media:document;ext=pdf', true, [new ArgSource({ stdin: 'media:document;ext=pdf' })]));
   cap.addArg(new CapArg(
     'media:chunk-size;enc=utf-8;numeric',
     false,
@@ -1438,17 +1439,17 @@ function test597_capArgWithFullDefinition() {
 // registry name we passed. This is exactly the shape the renderer depends on.
 function test6206_CapFabAddCapPopulatesEdgesAndNodes() {
   const graph = new CapFab();
-  const cap = makeGraphCap('media:ext=pdf', 'media:enc=utf-8', 'PDF to Text');
+  const cap = makeGraphCap('media:document;ext=pdf', 'media:enc=utf-8', 'PDF to Text');
   graph.addCap(cap, 'registry');
 
   const edges = graph.getEdges();
   assertEqual(edges.length, 1, 'Graph must have one edge after a single addCap');
-  assertEqual(edges[0].fromUrn, 'media:ext=pdf', 'Edge fromUrn must be cap in_spec');
+  assertEqual(edges[0].fromUrn, 'media:document;ext=pdf', 'Edge fromUrn must be cap in_spec');
   assertEqual(edges[0].toUrn, 'media:enc=utf-8', 'Edge toUrn must be cap out_spec');
   assertEqual(edges[0].registryName, 'registry', 'Edge must carry the registry name passed to addCap');
 
   const nodes = graph.getNodes();
-  assert(nodes.has('media:ext=pdf'), 'from_spec must appear as a node');
+  assert(nodes.has('media:document;ext=pdf'), 'from_spec must appear as a node');
   assert(nodes.has('media:enc=utf-8'), 'to_spec must appear as a node');
 }
 
@@ -1477,7 +1478,7 @@ function test6208_CapFabGetOutgoingConformsToMatching() {
 // the renderer colours/groups edges by provenance in browse mode.
 function test6224_CapFabDistinctRegistryNames() {
   const graph = new CapFab();
-  graph.addCap(makeGraphCap('media:ext=pdf', 'media:enc=utf-8', 'PDF to Text'), 'bundled-cartridges');
+  graph.addCap(makeGraphCap('media:document;ext=pdf', 'media:enc=utf-8', 'PDF to Text'), 'bundled-cartridges');
   graph.addCap(makeGraphCap('media:enc=utf-8', 'media:embedding-vector', 'Embed'), 'cartridges');
 
   const edges = graph.getEdges();
@@ -1508,7 +1509,7 @@ function test157_stdinSourceFromFileReference() {
   const trackedFileId = 'tracked-file-123';
   const originalPath = '/path/to/original.pdf';
   const securityBookmark = new Uint8Array([0x62, 0x6f, 0x6f, 0x6b]);
-  const mediaUrn = 'media:ext=pdf';
+  const mediaUrn = 'media:document;ext=pdf';
 
   const source = StdinSource.fromFileReference(trackedFileId, originalPath, securityBookmark, mediaUrn);
   assert(source !== null, 'Should create source');
@@ -1564,7 +1565,7 @@ function test276_capArgumentValueAsStrValid() {
 
 // TEST277: Test CapArgumentValue::value_as_str fails for non-UTF-8 binary data
 function test277_capArgumentValueAsStrInvalidUtf8() {
-  const arg = new CapArgumentValue('media:ext=pdf', new Uint8Array([0xFF, 0xFE, 0x80]));
+  const arg = new CapArgumentValue('media:document;ext=pdf', new Uint8Array([0xFF, 0xFE, 0x80]));
   let threw = false;
   try {
     arg.valueAsStr();
@@ -1595,7 +1596,7 @@ function test283_capArgumentValueLargeBinary() {
   for (let i = 0; i < 10000; i++) {
     data[i] = i % 256;
   }
-  const arg = new CapArgumentValue('media:ext=pdf', data);
+  const arg = new CapArgumentValue('media:document;ext=pdf', data);
   assertEqual(arg.value.length, 10000, 'large binary must preserve all bytes');
   assertEqual(arg.value[0], 0, 'first byte check');
   assertEqual(arg.value[255], 255, 'byte 255 check');
@@ -1716,7 +1717,7 @@ function test312_allUrnBuildersProduceValidUrns() {
 
 function test6232_JS_buildExtensionIndex() {
   const mediaDefs = [
-    { urn: 'media:ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
+    { urn: 'media:document;ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
     { urn: 'media:ext=jpeg;image', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] },
     { urn: 'media:fmt=json', media_type: 'application/json', extensions: ['json'] }
   ];
@@ -1727,13 +1728,13 @@ function test6232_JS_buildExtensionIndex() {
   assert(index.has('jpg'), 'Should have jpg');
   assert(index.has('jpeg'), 'Should have jpeg');
   assert(index.has('json'), 'Should have json');
-  assertEqual(index.get('pdf')[0], 'media:ext=pdf', 'pdf should map correctly');
+  assertEqual(index.get('pdf')[0], 'media:document;ext=pdf', 'pdf should map correctly');
 }
 
 // TEST6236: J s media urns for extension
 function test6236_JS_mediaUrnsForExtension() {
   const mediaDefs = [
-    { urn: 'media:ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
+    { urn: 'media:document;ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
     { urn: 'media:fmt=json;record', media_type: 'application/json', extensions: ['json'] },
     { urn: 'media:fmt=json;list', media_type: 'application/json', extensions: ['json'] }
   ];
@@ -1762,7 +1763,7 @@ function test6236_JS_mediaUrnsForExtension() {
 // TEST6240: J s get extension mappings
 function test6240_JS_getExtensionMappings() {
   const mediaDefs = [
-    { urn: 'media:ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
+    { urn: 'media:document;ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
     { urn: 'media:ext=jpeg;image', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] }
   ];
   const mappings = getExtensionMappings(mediaDefs);
@@ -1939,15 +1940,15 @@ const sampleRegistry = {
       cap_groups: [
         {
           name: 'pdf-processing',
-          adapter_urns: ['media:ext=pdf'],
+          adapter_urns: ['media:document;ext=pdf'],
           caps: [
             {
-              urn: 'cap:in="media:ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"',
+              urn: 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"',
               title: 'Disbind PDF',
               description: 'Extract pages'
             },
             {
-              urn: 'cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"',
+              urn: 'cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"',
               title: 'Extract Metadata',
               description: 'Get PDF metadata'
             }
@@ -2300,13 +2301,13 @@ function test328_cartridgeRepoServerGetByCategory() {
 function test329_cartridgeRepoServerGetByCap() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
-  const disbindCap = 'cap:in="media:ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"';
+  const disbindCap = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"';
   const cartridges = server.getCartridgesByCap(disbindCap);
 
   assert(cartridges.length === 1, 'Should find 1 cartridge with this cap');
   assert(cartridges[0].id === 'pdfcartridge', 'Should be pdfcartridge');
 
-  const metadataCap = 'cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"';
+  const metadataCap = 'cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"';
   const metadataCartridges = server.getCartridgesByCap(metadataCap);
   assert(metadataCartridges.length === 1, 'Should find metadata cap');
 }
@@ -2349,7 +2350,7 @@ function test331_cartridgeRepoClientGetSuggestions() {
 
   client.updateCache('https://example.com/api/cartridges', cartridges);
 
-  const disbindCap = 'cap:in="media:ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"';
+  const disbindCap = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"';
   const suggestions = client.getSuggestionsForCap(disbindCap);
 
   assert(suggestions.length === 1, 'Should find 1 suggestion');
@@ -2470,7 +2471,7 @@ function test335_cartridgeRepoServerClientIntegration() {
   assert(cartridge.buildForPlatform('darwin-arm64') !== null, 'Cartridge should have darwin-arm64 build');
 
   // Client can get suggestions
-  const capUrn = 'cap:in="media:ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"';
+  const capUrn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"';
   const suggestions = client.getSuggestionsForCap(capUrn);
   assert(suggestions.length === 1, 'Should get suggestions');
   assert(suggestions[0].cartridgeId === 'pdfcartridge', 'Should suggest correct cartridge');
@@ -2781,7 +2782,7 @@ async function test1878_bundledCartridgeWithoutBakedHashIsRejected() {
 // media_urn.rs: TEST1294-TEST1302 (MediaUrn predicates)
 // ============================================================================
 
-// TEST546: is_image returns true only when image marker tag is present
+// TEST546: is_image returns true only when image marker tag is present; a format conforms to its own medium and to no other
 function test546_isImage() {
   assert(MediaUrn.fromString(MEDIA_PNG).isImage(), 'MEDIA_PNG should be image');
   assert(MediaUrn.fromString('media:ext=png;image;thumbnail').isImage(), 'media:ext=png;image;thumbnail should be image');
@@ -2791,6 +2792,20 @@ function test546_isImage() {
   assert(!MediaUrn.fromString(MEDIA_STRING).isImage(), 'MEDIA_STRING should not be image');
   assert(!MediaUrn.fromString(MEDIA_AUDIO).isImage(), 'MEDIA_AUDIO should not be image');
   assert(!MediaUrn.fromString(MEDIA_VIDEO).isImage(), 'MEDIA_VIDEO should not be image');
+
+  // The medium itself, and what its formats are to it.
+  const image = MediaUrn.fromString(MEDIA_IMAGE);
+  const document = MediaUrn.fromString(MEDIA_DOCUMENT);
+  const png = MediaUrn.fromString(MEDIA_PNG);
+  const pdf = MediaUrn.fromString(MEDIA_PDF);
+  assert(image.isImage(), 'MEDIA_IMAGE should be image');
+  assert(!document.isImage(), 'MEDIA_DOCUMENT should not be image');
+  assert(png.conformsTo(image), 'a png is an image');
+  assert(pdf.conformsTo(document), 'a pdf is a document');
+  assert(!png.conformsTo(document), 'a png is not a document');
+  assert(!pdf.conformsTo(image), 'a pdf is not an image');
+  // The medium is wider than any one format of it.
+  assert(!image.conformsTo(png), 'an image is not necessarily a png');
 }
 
 // TEST547: is_audio returns true only when audio marker tag is present
@@ -2940,13 +2955,13 @@ function test560_withInOutSpec() {
   assertEqual(changedOut.getOutSpec(), 'media:string', 'withOutSpec should change outSpec');
 
   // Chain both
-  const changedBoth = cap.withInSpec('media:ext=pdf').withOutSpec(MEDIA_TXT);
-  assertEqual(changedBoth.getInSpec(), 'media:ext=pdf', 'Chain should set inSpec');
+  const changedBoth = cap.withInSpec('media:document;ext=pdf').withOutSpec(MEDIA_TXT);
+  assertEqual(changedBoth.getInSpec(), 'media:document;ext=pdf', 'Chain should set inSpec');
   assertEqual(changedBoth.getOutSpec(), 'media:enc=utf-8;ext=txt', 'Chain should set outSpec');
 
   const identity = CapUrn.fromString('cap:effect=none');
   assertThrows(
-    () => identity.withOutSpec('media:ext=pdf'),
+    () => identity.withOutSpec('media:document;ext=pdf'),
     ErrorCodes.ILLEGAL_DECLARATION,
     'withOutSpec must revalidate admissibility'
   );
@@ -3237,7 +3252,7 @@ function test648_wildcardAcceptsSpecific() {
 // is stand in for the request AS A DESCRIPTION — that relation is typed and
 // composes (Legacy.wildcard_input_not_transitive is why the two were never one).
 function test825_dispatchRequestUnconstrainedInput() {
-  const pdfOnly = CapUrn.fromString('cap:in="media:ext=pdf";analyze;out="media:enc=utf-8;record"');
+  const pdfOnly = CapUrn.fromString('cap:in="media:document;ext=pdf";analyze;out="media:enc=utf-8;record"');
   const acceptsAnything = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf-8;record"');
   const request = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf-8;record"');
   assert(pdfOnly.isDispatchable(request), 'the request has not said what it sends: a PDF-only candidate serves it');
@@ -3256,9 +3271,9 @@ function test825_dispatchRequestUnconstrainedInput() {
 // request spelled that way asked for a cap that takes everything, and found
 // none. The unknown side asks nothing; the stated side is held to.
 function test12368_aQuestionMayLeaveASideUnknown() {
-  const pages = CapUrn.fromString('cap:disbind;in="media:ext=pdf";out="media:enc=utf-8;ext=txt;page"');
+  const pages = CapUrn.fromString('cap:disbind;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt;page"');
   const toJpeg = CapUrn.fromString('cap:convert-image;in="media:ext=png;image";out="media:ext=jpeg;image"');
-  const someImage = CapUrn.fromString('cap:render;in="media:ext=pdf";out="media:image"');
+  const someImage = CapUrn.fromString('cap:render;in="media:document;ext=pdf";out="media:image"');
   const passesThrough = CapUrn.fromString('cap:decimate-sequence;effect=none');
 
   const wantsJpeg = CapQuery.producing(MediaUrn.fromString('media:ext=jpeg;image'));
@@ -3276,14 +3291,14 @@ function test12368_aQuestionMayLeaveASideUnknown() {
   assert(!wantsImage.admits(passesThrough), 'media: out promises no image');
 
   // What can a pdf become? Whatever takes a pdf — or takes anything.
-  const hasPdf = CapQuery.consuming(MediaUrn.fromString('media:ext=pdf'));
+  const hasPdf = CapQuery.consuming(MediaUrn.fromString('media:document;ext=pdf'));
   assert(hasPdf.admits(pages) && hasPdf.admits(someImage));
   assert(hasPdf.admits(passesThrough), 'it takes anything, a pdf included');
   assert(!hasPdf.admits(toJpeg), 'a png converter does not take a pdf');
   assertEqual(hasPdf.grade(toJpeg), MatchGrade.NONE);
 
   // Both sides stated is the typed call.
-  const pdfToImage = CapQuery.between(MediaUrn.fromString('media:ext=pdf'), MediaUrn.fromString('media:image'));
+  const pdfToImage = CapQuery.between(MediaUrn.fromString('media:document;ext=pdf'), MediaUrn.fromString('media:image'));
   assert(pdfToImage.admits(someImage));
   assert(!pdfToImage.admits(pages) && !pdfToImage.admits(toJpeg));
 }
@@ -3295,7 +3310,7 @@ function test12368_aQuestionMayLeaveASideUnknown() {
 // no cap needs to declare; and a cap may carry tags nobody asked about.
 function test12369_aQuerysTagsAreAskedOfTheTagsACapHas() {
   const toJpeg = CapUrn.fromString('cap:convert-image;in="media:ext=png;image";out="media:ext=jpeg;image"');
-  const someImage = CapUrn.fromString('cap:render;in="media:ext=pdf";out="media:image"');
+  const someImage = CapUrn.fromString('cap:render;in="media:document;ext=pdf";out="media:image"');
   const anyImage = MediaUrn.fromString('media:image');
 
   const converters = CapQuery.producing(anyImage, { 'convert-image': '*' });
@@ -3373,7 +3388,7 @@ function test6621_capIdentityConstantWorks() {
 // TEST653: invalid effect=none declarations fail at construction
 function test653_invalidEffectNoneDeclarationRejected() {
   assertThrows(
-    () => CapUrn.fromString('cap:in="media:ext=pdf";effect=none;out="media:enc=utf-8"'),
+    () => CapUrn.fromString('cap:in="media:document;ext=pdf";effect=none;out="media:enc=utf-8"'),
     ErrorCodes.ILLEGAL_DECLARATION,
     'invalid effect=none declaration must fail at construction'
   );
@@ -3383,7 +3398,7 @@ function test653_invalidEffectNoneDeclarationRejected() {
 function test125_effectNonePreservesRuntimeMedia() {
   const decimate = CapUrn.fromString('cap:decimate-sequence;effect=none');
   const png = MediaUrn.fromString('media:ext=png;image');
-  const pdf = MediaUrn.fromString('media:ext=pdf');
+  const pdf = MediaUrn.fromString('media:document;ext=pdf');
   assertEqual(decimate.inferRuntimeOutputMedia(png).toString(), png.toString(), 'effect=none should preserve png');
   assertEqual(decimate.inferRuntimeOutputMedia(pdf).toString(), pdf.toString(), 'effect=none should preserve pdf');
 }
@@ -3402,7 +3417,7 @@ function test126_effectDeclaredUsesDeclaredOutput() {
 // TEST127: invalid effect=none declarations fail hard
 function test127_invalidEffectNoneFailsHard() {
   assertThrows(
-    () => CapUrn.fromString('cap:in="media:ext=pdf";effect=none;out="media:enc=utf-8"'),
+    () => CapUrn.fromString('cap:in="media:document;ext=pdf";effect=none;out="media:enc=utf-8"'),
     ErrorCodes.ILLEGAL_DECLARATION,
     'invalid effect=none declaration must fail at construction'
   );
@@ -3411,8 +3426,8 @@ function test127_invalidEffectNoneFailsHard() {
 // TEST8121: isConformantRuntimeOutput — effect=declared accepts a more
 // specific emission, rejects a more generic one
 function test8121_effectConformanceDeclaredAsymmetry() {
-  const cap = CapUrn.fromString('cap:extract;in="media:ext=pdf";out="media:record"');
-  const input = MediaUrn.fromString('media:ext=pdf');
+  const cap = CapUrn.fromString('cap:extract;in="media:document;ext=pdf";out="media:record"');
+  const input = MediaUrn.fromString('media:document;ext=pdf');
 
   assert(
     cap.isConformantRuntimeOutput(input, MediaUrn.fromString('media:record')),
@@ -3452,7 +3467,7 @@ function test8122_effectConformanceNoneRequiresEquivalence() {
   );
 
   const strict = CapUrn.fromString('cap:effect=none;in="media:image";out="media:image"');
-  const nonImage = MediaUrn.fromString('media:ext=pdf');
+  const nonImage = MediaUrn.fromString('media:document;ext=pdf');
   assertThrows(
     () => strict.isConformantRuntimeOutput(nonImage, nonImage),
     ErrorCodes.INVALID_EFFECT_APPLICATION,
@@ -3509,7 +3524,7 @@ function test6277_Machine_whitespaceOnly() {
 // TEST6279: Machine header only no wirings
 function test6279_Machine_headerOnlyNoWirings() {
   assertThrowsWithCode(
-    () => Machine.fromString('[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]'),
+    () => Machine.fromString('[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]'),
     MachineSyntaxErrorCodes.NO_EDGES
   );
 }
@@ -3518,8 +3533,8 @@ function test6279_Machine_headerOnlyNoWirings() {
 function test6280_Machine_duplicateAlias() {
   assertThrowsWithCode(
     () => Machine.fromString(
-      '[ex cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-      '[ex cap:in="media:ext=pdf";summarize;out="media:enc=utf-8;ext=txt"]' +
+      '[ex cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+      '[ex cap:in="media:document;ext=pdf";summarize;out="media:enc=utf-8;ext=txt"]' +
       '[a -> ex -> b]'
     ),
     MachineSyntaxErrorCodes.DUPLICATE_ALIAS
@@ -3529,14 +3544,14 @@ function test6280_Machine_duplicateAlias() {
 // TEST6286: Machine simple linear chain
 function test6286_Machine_simpleLinearChain() {
   const g = Machine.fromString(
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
     '[doc -> extract -> text]'
   );
   assertEqual(g.edgeCount(), 1);
   const edge = g.edges()[0];
   assertEqual(edge.sources.length, 1);
-  assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:ext=pdf')),
-    'Source should be media:ext=pdf');
+  assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
+    'Source should be media:document;ext=pdf');
   assert(edge.target.isEquivalent(MediaUrn.fromString('media:enc=utf-8;ext=txt')),
     'Target should be media:enc=utf-8;ext=txt');
   assertEqual(edge.isLoop, false);
@@ -3545,14 +3560,14 @@ function test6286_Machine_simpleLinearChain() {
 // TEST6288: Machine two step chain
 function test6288_Machine_twoStepChain() {
   const g = Machine.fromString(
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
     '[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]' +
     '[doc -> extract -> text]' +
     '[text -> embed -> vectors]'
   );
   assertEqual(g.edgeCount(), 2);
-  assert(g.edges()[0].sources[0].isEquivalent(MediaUrn.fromString('media:ext=pdf')),
-    'First edge source should be media:ext=pdf');
+  assert(g.edges()[0].sources[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
+    'First edge source should be media:document;ext=pdf');
   assert(g.edges()[1].target.isEquivalent(MediaUrn.fromString('media:embedding-vector;enc=utf-8;record')),
     'Second edge target should be media:embedding-vector;enc=utf-8;record');
 }
@@ -3560,9 +3575,9 @@ function test6288_Machine_twoStepChain() {
 // TEST6290: Machine fan out
 function test6290_Machine_fanOut() {
   const g = Machine.fromString(
-    '[meta cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]' +
-    '[outline cap:in="media:ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]' +
-    '[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]' +
+    '[meta cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]' +
+    '[outline cap:in="media:document;ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]' +
+    '[thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]' +
     '[doc -> meta -> metadata]' +
     '[doc -> outline -> outline_data]' +
     '[doc -> thumb -> thumbnail]'
@@ -3570,15 +3585,15 @@ function test6290_Machine_fanOut() {
   assertEqual(g.edgeCount(), 3);
   for (const edge of g.edges()) {
     assertEqual(edge.sources.length, 1);
-    assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:ext=pdf')),
-      'All fan-out sources should be media:ext=pdf');
+    assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
+      'All fan-out sources should be media:document;ext=pdf');
   }
 }
 
 // TEST6292: Machine fan in secondary assigned by prior wiring
 function test6292_Machine_fanInSecondaryAssignedByPriorWiring() {
   const g = Machine.fromString(
-    '[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]' +
+    '[thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]' +
     '[model_dl cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"]' +
     '[describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"]' +
     '[doc -> thumb -> thumbnail]' +
@@ -3634,7 +3649,7 @@ function test6308_Machine_undefinedAliasFails() {
 function test6310_Machine_nodeAliasCollision() {
   assertThrowsWithCode(
     () => Machine.fromString(
-      '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+      '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
       '[extract -> extract -> text]'
     ),
     MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION
@@ -3645,7 +3660,7 @@ function test6310_Machine_nodeAliasCollision() {
 function test6312_Machine_conflictingMediaTypesFail() {
   assertThrowsWithCode(
     () => Machine.fromString(
-      '[cap1 cap:in="media:enc=utf-8;ext=txt";a;out="media:ext=pdf"]' +
+      '[cap1 cap:in="media:enc=utf-8;ext=txt";a;out="media:document;ext=pdf"]' +
       '[cap2 cap:in="media:audio;ext=wav";b;out="media:enc=utf-8;ext=txt"]' +
       '[src -> cap1 -> mid]' +
       '[mid -> cap2 -> dst]'
@@ -3657,7 +3672,7 @@ function test6312_Machine_conflictingMediaTypesFail() {
 // TEST6315: Machine multiline format
 function test6315_Machine_multilineFormat() {
   const g = Machine.fromString(
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n' +
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n' +
     '[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]\n' +
     '[doc -> extract -> text]\n' +
     '[text -> embed -> vectors]\n'
@@ -3668,11 +3683,11 @@ function test6315_Machine_multilineFormat() {
 // TEST6318: Machine different aliases same graph
 function test6318_Machine_differentAliasesSameGraph() {
   const g1 = Machine.fromString(
-    '[ex cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+    '[ex cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
     '[a -> ex -> b]'
   );
   const g2 = Machine.fromString(
-    '[xt cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+    '[xt cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
     '[x -> xt -> y]'
   );
   assert(g1.isEquivalent(g2), 'Different aliases should produce equivalent graphs');
@@ -3689,7 +3704,7 @@ function test6321_Machine_malformedInputFails() {
 // TEST6323: Machine unterminated bracket fails
 function test6323_Machine_unterminatedBracketFails() {
   assertThrowsWithCode(
-    () => parseMachine('[extract cap:in=media:ext=pdf'),
+    () => parseMachine('[extract cap:in=media:document;ext=pdf'),
     MachineSyntaxErrorCodes.PARSE_ERROR
   );
 }
@@ -3698,13 +3713,13 @@ function test6323_Machine_unterminatedBracketFails() {
 
 function test6327_Machine_lineBasedSimpleChain() {
   const g = Machine.fromString(
-    'extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"\n' +
+    'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"\n' +
     'doc -> extract -> text'
   );
   assertEqual(g.edgeCount(), 1);
   const edge = g.edges()[0];
-  assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:ext=pdf')),
-    'Source should be media:ext=pdf');
+  assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
+    'Source should be media:document;ext=pdf');
   assert(edge.target.isEquivalent(MediaUrn.fromString('media:enc=utf-8;ext=txt')),
     'Target should be media:enc=utf-8;ext=txt');
 }
@@ -3712,7 +3727,7 @@ function test6327_Machine_lineBasedSimpleChain() {
 // TEST6331: Machine line based two step chain
 function test6331_Machine_lineBasedTwoStepChain() {
   const g = Machine.fromString(
-    'extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"\n' +
+    'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"\n' +
     'embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"\n' +
     'doc -> extract -> text\n' +
     'text -> embed -> vectors'
@@ -3735,7 +3750,7 @@ function test6334_Machine_lineBasedLoopKeywordIsNotGrammar() {
 // TEST6337: Machine line based fan in
 function test6337_Machine_lineBasedFanIn() {
   const g = Machine.fromString(
-    'thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"\n' +
+    'thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"\n' +
     'model_dl cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"\n' +
     'describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"\n' +
     'doc -> thumb -> thumbnail\n' +
@@ -3749,7 +3764,7 @@ function test6337_Machine_lineBasedFanIn() {
 // TEST6341: Machine mixed bracketed and line based
 function test6341_Machine_mixedBracketedAndLineBased() {
   const g = Machine.fromString(
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n' +
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n' +
     'doc -> extract -> text'
   );
   assertEqual(g.edgeCount(), 1);
@@ -3758,11 +3773,11 @@ function test6341_Machine_mixedBracketedAndLineBased() {
 // TEST6345: Machine line based equivalent to bracketed
 function test6345_Machine_lineBasedEquivalentToBracketed() {
   const g1 = Machine.fromString(
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
     '[doc -> extract -> text]'
   );
   const g2 = Machine.fromString(
-    'extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"\n' +
+    'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"\n' +
     'doc -> extract -> text'
   );
   assert(g1.isEquivalent(g2), 'Line-based and bracketed must produce equivalent graphs');
@@ -3772,8 +3787,8 @@ function test6345_Machine_lineBasedEquivalentToBracketed() {
 function test6349_Machine_lineBasedFormatSerialization() {
   const g = new Machine([
     new MachineEdge(
-      [MediaUrn.fromString('media:ext=pdf')],
-      CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+      [MediaUrn.fromString('media:document;ext=pdf')],
+      CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
       MediaUrn.fromString('media:enc=utf-8;ext=txt'),
       false
     ),
@@ -3794,8 +3809,8 @@ function test6349_Machine_lineBasedFormatSerialization() {
 function test6353_Machine_lineBasedAndBracketedParseSameGraph() {
   const g = new Machine([
     new MachineEdge(
-      [MediaUrn.fromString('media:ext=pdf')],
-      CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+      [MediaUrn.fromString('media:document;ext=pdf')],
+      CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
       MediaUrn.fromString('media:enc=utf-8;ext=txt'),
       false
     ),
@@ -3819,14 +3834,14 @@ function test6353_Machine_lineBasedAndBracketedParseSameGraph() {
 
 function test6357_Machine_edgeEquivalenceSameUrns() {
   const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   );
   const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   );
@@ -3836,14 +3851,14 @@ function test6357_Machine_edgeEquivalenceSameUrns() {
 // TEST6361: Machine edge equivalence different cap urns
 function test6361_Machine_edgeEquivalenceDifferentCapUrns() {
   const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   );
   const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";summarize;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";summarize;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   );
@@ -3853,14 +3868,14 @@ function test6361_Machine_edgeEquivalenceDifferentCapUrns() {
 // TEST6365: Machine edge equivalence different targets
 function test6365_Machine_edgeEquivalenceDifferentTargets() {
   const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   );
   const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:fmt=json;record'),
     false
   );
@@ -3870,14 +3885,14 @@ function test6365_Machine_edgeEquivalenceDifferentTargets() {
 // TEST6369: Machine edge equivalence different loop flag
 function test6369_Machine_edgeEquivalenceDifferentLoopFlag() {
   const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   );
   const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     true
   );
@@ -3924,11 +3939,11 @@ function test6377_Machine_graphEquivalenceSameEdges() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const g1 = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   const g2 = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   assert(g1.isEquivalent(g2), 'Same edges should be equivalent');
@@ -3940,12 +3955,12 @@ function test6380_Machine_graphEquivalenceReorderedEdges() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const g1 = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   const g2 = new Machine([
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
   ]);
   assert(g1.isEquivalent(g2), 'Reordered edges should still be equivalent');
 }
@@ -3956,10 +3971,10 @@ function test6383_Machine_graphNotEquivalentDifferentEdgeCount() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const g1 = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
   ]);
   const g2 = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   assert(!g1.isEquivalent(g2), 'Different edge counts should not be equivalent');
@@ -3971,10 +3986,10 @@ function test6386_Machine_graphNotEquivalentDifferentCap() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const g1 = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
   ]);
   const g2 = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";summarize;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";summarize;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
   ]);
   assert(!g1.isEquivalent(g2), 'Different caps should not be equivalent');
 }
@@ -3999,13 +4014,13 @@ function test6395_Machine_rootSourcesLinearChain() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const g = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   const roots = g.rootSources();
   assertEqual(roots.length, 1);
-  assert(roots[0].isEquivalent(MediaUrn.fromString('media:ext=pdf')),
-    'Root source should be media:ext=pdf');
+  assert(roots[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
+    'Root source should be media:document;ext=pdf');
 }
 
 // TEST6397: Machine leaf targets linear chain
@@ -4014,7 +4029,7 @@ function test6397_Machine_leafTargetsLinearChain() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const g = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   const leaves = g.leafTargets();
@@ -4039,20 +4054,20 @@ function test6398_Machine_rootSourcesFanIn() {
 // TEST6400: Machine display edge
 function test6400_Machine_displayEdge() {
   const e = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   );
   const display = e.toString();
-  assert(display.includes('media:ext=pdf'), 'Display should contain media:ext=pdf');
+  assert(display.includes('media:document;ext=pdf'), 'Display should contain media:document;ext=pdf');
 }
 
 // TEST6402: Machine display graph
 function test6402_Machine_displayGraph() {
   const e = new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   );
@@ -4064,8 +4079,8 @@ function test6402_Machine_displayGraph() {
 
 function test6404_Machine_serializeSingleEdge() {
   const g = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   )]);
@@ -4083,7 +4098,7 @@ function test6406_Machine_serializeTwoEdgeChain() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const g = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   const notation = g.toMachineNotation();
@@ -4099,8 +4114,8 @@ function test6408_Machine_serializeEmptyGraph() {
 // TEST6410: Machine roundtrip single edge
 function test6410_Machine_roundtripSingleEdge() {
   const original = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   )]);
@@ -4116,7 +4131,7 @@ function test6413_Machine_roundtripTwoEdgeChain() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const original = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   const notation = original.toMachineNotation();
@@ -4131,9 +4146,9 @@ function test6415_Machine_roundtripFanOut() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const original = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"', 'media:enc=utf-8;file-metadata;record'),
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"', 'media:document-outline;enc=utf-8;record'),
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"', 'media:ext=png;image;thumbnail'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"', 'media:enc=utf-8;file-metadata;record'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"', 'media:document-outline;enc=utf-8;record'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"', 'media:ext=png;image;thumbnail'),
   ]);
   const notation = original.toMachineNotation();
   const reparsed = Machine.fromString(notation);
@@ -4173,7 +4188,7 @@ function test6419_Machine_serializationIsDeterministic() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const g = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   const n1 = g.toMachineNotation();
@@ -4187,12 +4202,12 @@ function test6421_Machine_reorderedEdgesProduceSameNotation() {
     [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
   );
   const g1 = new Machine([
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
   ]);
   const g2 = new Machine([
     mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-    mkEdge('media:ext=pdf', 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
+    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
   ]);
   assertEqual(g1.toMachineNotation(), g2.toMachineNotation(),
     'Same graph with reordered edges must produce identical notation');
@@ -4201,8 +4216,8 @@ function test6421_Machine_reorderedEdgesProduceSameNotation() {
 // TEST6429: Machine multiline serialize format
 function test6429_Machine_multilineSerializeFormat() {
   const g = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   )]);
@@ -4217,8 +4232,8 @@ function test6429_Machine_multilineSerializeFormat() {
 // no privileged `op` tag to derive a friendlier name from.
 function test6432_Machine_aliasFromOpTag() {
   const g = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   )]);
@@ -4229,8 +4244,8 @@ function test6432_Machine_aliasFromOpTag() {
 // TEST6434: Machine alias fallback without op tag
 function test6434_Machine_aliasFallbackWithoutOpTag() {
   const g = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:ext=pdf')],
-    CapUrn.fromString('cap:in="media:ext=pdf";out="media:enc=utf-8;ext=txt"'),
+    [MediaUrn.fromString('media:document;ext=pdf')],
+    CapUrn.fromString('cap:in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"'),
     MediaUrn.fromString('media:enc=utf-8;ext=txt'),
     false
   )]);
@@ -4242,14 +4257,14 @@ function test6434_Machine_aliasFallbackWithoutOpTag() {
 function test6436_Machine_duplicateOpTagsDisambiguated() {
   const g = new Machine([
     new MachineEdge(
-      [MediaUrn.fromString('media:ext=pdf')],
-      CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+      [MediaUrn.fromString('media:document;ext=pdf')],
+      CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
       MediaUrn.fromString('media:enc=utf-8;ext=txt'),
       false
     ),
     new MachineEdge(
-      [MediaUrn.fromString('media:ext=pdf')],
-      CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:fmt=json;record"'),
+      [MediaUrn.fromString('media:document;ext=pdf')],
+      CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:fmt=json;record"'),
       MediaUrn.fromString('media:fmt=json;record'),
       false
     ),
@@ -4264,8 +4279,8 @@ function test6436_Machine_duplicateOpTagsDisambiguated() {
 function test6437_Machine_builderSingleEdge() {
   const builder = new MachineBuilder();
   builder.addEdge(
-    ['media:ext=pdf'],
-    'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
+    ['media:document;ext=pdf'],
+    'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
     'media:enc=utf-8;ext=txt'
   );
   const g = builder.build();
@@ -4289,7 +4304,7 @@ function test6438_Machine_builderWithLoop() {
 // TEST6439: Machine builder chaining
 function test6439_Machine_builderChaining() {
   const g = new MachineBuilder()
-    .addEdge(['media:ext=pdf'], 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt')
+    .addEdge(['media:document;ext=pdf'], 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt')
     .addEdge(['media:enc=utf-8;ext=txt'], 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record')
     .build();
   assertEqual(g.edgeCount(), 2);
@@ -4298,11 +4313,11 @@ function test6439_Machine_builderChaining() {
 // TEST6440: Machine builder equivalent to parsed
 function test6440_Machine_builderEquivalentToParsed() {
   const parsed = Machine.fromString(
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
     '[doc -> extract -> text]'
   );
   const built = new MachineBuilder()
-    .addEdge(['media:ext=pdf'], 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt')
+    .addEdge(['media:document;ext=pdf'], 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt')
     .build();
   assert(parsed.isEquivalent(built),
     'Builder-constructed graph should be equivalent to parsed graph');
@@ -4311,7 +4326,7 @@ function test6440_Machine_builderEquivalentToParsed() {
 // TEST6442: Machine builder round trip
 function test6442_Machine_builderRoundTrip() {
   const built = new MachineBuilder()
-    .addEdge(['media:ext=pdf'], 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt')
+    .addEdge(['media:document;ext=pdf'], 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt')
     .addEdge(['media:enc=utf-8;ext=txt'], 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record')
     .build();
   const notation = built.toMachineNotation();
@@ -4322,32 +4337,32 @@ function test6442_Machine_builderRoundTrip() {
 // --- CapUrn.isEquivalent/isComparable tests ---
 
 function test6444_Machine_capUrnIsEquivalent() {
-  const a = CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
-  const b = CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+  const a = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+  const b = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
   assert(a.isEquivalent(b), 'Same cap URNs should be equivalent');
-  const c = CapUrn.fromString('cap:in="media:ext=pdf";summarize;out="media:enc=utf-8;ext=txt"');
+  const c = CapUrn.fromString('cap:in="media:document;ext=pdf";summarize;out="media:enc=utf-8;ext=txt"');
   assert(!a.isEquivalent(c), 'Different cap URNs should not be equivalent');
 }
 
 // TEST6446: Machine cap urn is comparable
 function test6446_Machine_capUrnIsComparable() {
-  const general = CapUrn.fromString('cap:in="media:ext=pdf";out="media:enc=utf-8;ext=txt"');
-  const specific = CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+  const general = CapUrn.fromString('cap:in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"');
+  const specific = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
   assert(general.isComparable(specific), 'General should be comparable to specific');
   assert(specific.isComparable(general), 'isComparable should be symmetric');
 }
 
 // TEST6448: Machine cap urn in media urn
 function test6448_Machine_capUrnInMediaUrn() {
-  const cap = CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+  const cap = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
   const inUrn = cap.inMediaUrn();
   assert(inUrn instanceof MediaUrn, 'inMediaUrn should return MediaUrn');
-  assert(inUrn.isEquivalent(MediaUrn.fromString('media:ext=pdf')), 'inMediaUrn should be media:ext=pdf');
+  assert(inUrn.isEquivalent(MediaUrn.fromString('media:document;ext=pdf')), 'inMediaUrn should be media:document;ext=pdf');
 }
 
 // TEST6449: Machine cap urn out media urn
 function test6449_Machine_capUrnOutMediaUrn() {
-  const cap = CapUrn.fromString('cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+  const cap = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
   const outUrn = cap.outMediaUrn();
   assert(outUrn instanceof MediaUrn, 'outMediaUrn should return MediaUrn');
   assert(outUrn.isEquivalent(MediaUrn.fromString('media:enc=utf-8;ext=txt')), 'outMediaUrn should be media:enc=utf-8;ext=txt');
@@ -4356,8 +4371,8 @@ function test6449_Machine_capUrnOutMediaUrn() {
 // --- MediaUrn.isEquivalent/isComparable tests ---
 
 function test6450_Machine_mediaUrnIsEquivalent() {
-  const a = MediaUrn.fromString('media:ext=pdf');
-  const b = MediaUrn.fromString('media:ext=pdf');
+  const a = MediaUrn.fromString('media:document;ext=pdf');
+  const b = MediaUrn.fromString('media:document;ext=pdf');
   assert(a.isEquivalent(b), 'Same media URNs should be equivalent');
   const c = MediaUrn.fromString('media:enc=utf-8;ext=txt');
   assert(!a.isEquivalent(c), 'Different media URNs should not be equivalent');
@@ -4369,7 +4384,7 @@ function test6451_Machine_mediaUrnIsComparable() {
   const specific = MediaUrn.fromString('media:enc=utf-8;ext=txt');
   assert(general.isComparable(specific), 'General should be comparable to specific');
   assert(specific.isComparable(general), 'isComparable should be symmetric');
-  const unrelated = MediaUrn.fromString('media:ext=pdf');
+  const unrelated = MediaUrn.fromString('media:document;ext=pdf');
   assert(!general.isComparable(unrelated), 'Unrelated should not be comparable');
 }
 
@@ -4378,7 +4393,7 @@ function test6451_Machine_mediaUrnIsComparable() {
 // ============================================================================
 
 function test6452_Machine_parseMachineWithAST_headerLocation() {
-  const input = '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"][doc -> extract -> text]';
+  const input = '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"][doc -> extract -> text]';
   const result = parseMachineWithAST(input);
   assert(result.statements.length === 2, 'Should have 2 statements');
   const stmt = result.statements[0];
@@ -4395,7 +4410,7 @@ function test6452_Machine_parseMachineWithAST_headerLocation() {
 
 // TEST6453: Machine parse machine with a s t wiring location
 function test6453_Machine_parseMachineWithAST_wiringLocation() {
-  const input = '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n[doc -> extract -> text]';
+  const input = '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n[doc -> extract -> text]';
   const result = parseMachineWithAST(input);
   assert(result.statements.length === 2, 'Should have 2 statements');
   const wiring = result.statements[1];
@@ -4410,7 +4425,7 @@ function test6453_Machine_parseMachineWithAST_wiringLocation() {
 
 // TEST6454: Machine parse machine with a s t multiline positions
 function test6454_Machine_parseMachineWithAST_multilinePositions() {
-  const input = '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n[doc -> extract -> text]';
+  const input = '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n[doc -> extract -> text]';
   const result = parseMachineWithAST(input);
   const headerLoc = result.statements[0].location;
   const wiringLoc = result.statements[1].location;
@@ -4433,7 +4448,7 @@ function test6455_Machine_parseMachineWithAST_fanInSourceLocations() {
 // TEST6456: Machine parse machine with a s t alias map
 function test6456_Machine_parseMachineWithAST_aliasMap() {
   const input = [
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]',
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]',
     '[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]',
     '[doc -> extract -> text]',
     '[text -> embed -> vectors]',
@@ -4452,13 +4467,13 @@ function test6456_Machine_parseMachineWithAST_aliasMap() {
 // TEST6457: Machine parse machine with a s t node media
 function test6457_Machine_parseMachineWithAST_nodeMedia() {
   const input = [
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]',
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]',
     '[doc -> extract -> text]',
   ].join('\n');
   const result = parseMachineWithAST(input);
   assert(result.nodeMedia.has('doc'), 'nodeMedia should have doc');
   assert(result.nodeMedia.has('text'), 'nodeMedia should have text');
-  assertEqual(result.nodeMedia.get('doc').toString(), 'media:ext=pdf', 'doc should be media:ext=pdf');
+  assertEqual(result.nodeMedia.get('doc').toString(), 'media:document;ext=pdf', 'doc should be media:document;ext=pdf');
   assertEqual(result.nodeMedia.get('text').toString(), 'media:enc=utf-8;ext=txt', 'text should be media:enc=utf-8;ext=txt');
 }
 
@@ -4477,8 +4492,8 @@ function test6458_Machine_errorLocation_parseError() {
 function test6459_Machine_errorLocation_duplicateAlias() {
   try {
     parseMachine(
-      '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-      '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+      '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+      '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
       '[doc -> extract -> text]'
     );
     throw new Error('Expected MachineSyntaxError');
@@ -4505,7 +4520,7 @@ function test6460_Machine_errorLocation_undefinedAlias() {
 
 function test6462_Machine_toMermaid_linearChain() {
   const machine = Machine.fromString(
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
     '[doc -> extract -> text]'
   );
   const mermaid = machine.toMermaid();
@@ -4514,7 +4529,7 @@ function test6462_Machine_toMermaid_linearChain() {
   // serializer (the input alias name is not preserved in the rendered
   // diagram — it's a serialization artefact, not part of the machine).
   assert(mermaid.includes('edge_0'), 'Should include edge_0 label');
-  assert(mermaid.includes('media:ext=pdf'), 'Should include media:ext=pdf node');
+  assert(mermaid.includes('media:document;ext=pdf'), 'Should include media:document;ext=pdf node');
   assert(mermaid.includes('media:enc=utf-8;ext=txt'), 'Should include media:enc=utf-8;ext=txt node');
   assert(mermaid.includes('-->'), 'Should include arrow');
   // Root source and leaf target should both be stadium shape
@@ -4560,8 +4575,8 @@ function test6465_Machine_toMermaid_fanIn() {
 // TEST6466: Machine to mermaid fan out
 function test6466_Machine_toMermaid_fanOut() {
   const input = [
-    '[meta cap:in="media:ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]',
-    '[thumb cap:in="media:ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]',
+    '[meta cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]',
+    '[thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]',
     '[doc -> meta -> metadata]',
     '[doc -> thumb -> thumbnail]'
   ].join('');
@@ -4570,8 +4585,8 @@ function test6466_Machine_toMermaid_fanOut() {
   // Should have 2 edges
   const arrowCount = (mermaid.match(/-->/g) || []).length;
   assertEqual(arrowCount, 2, 'Fan-out should produce 2 arrows');
-  // The root source (media:ext=pdf) should appear once as a node definition
-  assert(mermaid.includes('media:ext=pdf'), 'Should include media:ext=pdf');
+  // The root source (media:document;ext=pdf) should appear once as a node definition
+  assert(mermaid.includes('media:document;ext=pdf'), 'Should include media:document;ext=pdf');
 }
 
 // ============================================================================
@@ -4580,23 +4595,23 @@ function test6466_Machine_toMermaid_fanOut() {
 
 function test6467_Machine_capRegistryEntry_construction() {
   const entry = new FabricRegistryEntry({
-    urn: 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
+    urn: 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
     title: 'PDF Extractor',
     command: 'extract',
     cap_description: 'Extracts text from PDF',
-    args: [{ media_urn: 'media:ext=pdf', required: true }],
+    args: [{ media_urn: 'media:document;ext=pdf', required: true }],
     output: { media_urn: 'media:enc=utf-8;ext=txt', output_description: 'Digitized text' },
     media_defs: [],
     urn_tags: { op: 'extract' },
-    in_spec: 'media:ext=pdf',
+    in_spec: 'media:document;ext=pdf',
     out_spec: 'media:enc=utf-8;ext=txt',
     in_media_title: 'PDF Document',
     out_media_title: 'Text'
   });
-  assertEqual(entry.urn, 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'URN should match');
+  assertEqual(entry.urn, 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'URN should match');
   assertEqual(entry.title, 'PDF Extractor', 'Title should match');
   assertEqual(entry.description, 'Extracts text from PDF', 'Description should match');
-  assertEqual(entry.inSpec, 'media:ext=pdf', 'inSpec should match');
+  assertEqual(entry.inSpec, 'media:document;ext=pdf', 'inSpec should match');
   assertEqual(entry.outSpec, 'media:enc=utf-8;ext=txt', 'outSpec should match');
   assertEqual(entry.urnTags.op, 'extract', 'op tag should match');
 }
@@ -4604,12 +4619,12 @@ function test6467_Machine_capRegistryEntry_construction() {
 // TEST6468: Machine media registry entry construction
 function test6468_Machine_mediaRegistryEntry_construction() {
   const entry = new MediaRegistryEntry({
-    urn: 'media:ext=pdf',
+    urn: 'media:document;ext=pdf',
     title: 'PDF Document',
     media_type: 'application/pdf',
     description: 'Portable Document Format'
   });
-  assertEqual(entry.urn, 'media:ext=pdf', 'URN should match');
+  assertEqual(entry.urn, 'media:document;ext=pdf', 'URN should match');
   assertEqual(entry.title, 'PDF Document', 'Title should match');
   assertEqual(entry.mediaType, 'application/pdf', 'Media type should match');
   assertEqual(entry.description, 'Portable Document Format', 'Description should match');
@@ -4821,9 +4836,9 @@ function test6483_Renderer_buildBrowseGraphData_rejectsMissingMediaTitles() {
   try {
     rendererBuildBrowseGraphData([
       {
-        urn: 'cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
+        urn: 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
         title: 'Extract Text',
-        in_spec: 'media:ext=pdf',
+        in_spec: 'media:document;ext=pdf',
         out_spec: 'media:enc=utf-8;ext=txt',
         in_media_title: 'PDF',
         out_media_title: '',
@@ -4953,8 +4968,8 @@ function test6487_Renderer_classifyStrandCapSteps_capFlags() {
   // prevForEach=true; cap3 should have nextCollect=true; cap2 should
   // have neither.
   const steps = wireLinearStepInputs([
-    makeForEachStep('media:ext=pdf;list'),
-    makeCapStep('cap:in="media:ext=pdf";a;out="media:ext=png;image"', 'a', 'media:ext=pdf', 'media:ext=png;image', false, false),
+    makeForEachStep('media:document;ext=pdf;list'),
+    makeCapStep('cap:in="media:document;ext=pdf";a;out="media:ext=png;image"', 'a', 'media:document;ext=pdf', 'media:ext=png;image', false, false),
     makeCapStep('cap:in="media:ext=png;image";b;out="media:ext=jpg"', 'b', 'media:ext=png;image', 'media:ext=jpg', false, false),
     makeCapStep('cap:in="media:ext=jpg";c;out="media:ext=txt"', 'c', 'media:ext=jpg', 'media:ext=txt', false, false),
     makeCollectStep('media:ext=txt'),
@@ -5064,15 +5079,15 @@ function test6492_Renderer_buildStrandGraphData_foreachCollectSpan() {
   // labels on cap edges — they're distinct processing units in the
   // plan. This mirrors capdag's plan_builder.rs exactly.
   const payload = withMediaDisplayNames({
-    source_media_urn: 'media:ext=pdf;list',
+    source_media_urn: 'media:document;ext=pdf;list',
     target_media_urn: 'media:txt;list',
     steps: wireLinearStepInputs([
-      makeForEachStep('media:ext=pdf;list'),
-      makeCapStep('cap:in="media:ext=pdf";extract;out="media:ext=txt"', 'extract', 'media:ext=pdf', 'media:ext=txt', false, false),
+      makeForEachStep('media:document;ext=pdf;list'),
+      makeCapStep('cap:in="media:document;ext=pdf";extract;out="media:ext=txt"', 'extract', 'media:document;ext=pdf', 'media:ext=txt', false, false),
       makeCollectStep('media:ext=txt'),
     ]),
   }, {
-    'media:ext=pdf;list': 'PDF List',
+    'media:document;ext=pdf;list': 'PDF List',
     'media:ext=txt': 'Plain Text',
     'media:txt;list': 'Text List',
   });
@@ -5212,15 +5227,15 @@ function test6496_Renderer_collapseStrand_singleCapBodyKeepsCapOwnLabel() {
   // with the entry edge labeled "extract" and an unlabeled
   // connector bridge to the output.
   const payload = withMediaDisplayNames({
-    source_media_urn: 'media:ext=pdf;list',
+    source_media_urn: 'media:document;ext=pdf;list',
     target_media_urn: 'media:txt;list',
     steps: wireLinearStepInputs([
-      makeForEachStep('media:ext=pdf;list'),
-      makeCapStep('cap:in="media:ext=pdf";extract;out="media:ext=txt"', 'extract', 'media:ext=pdf', 'media:ext=txt', false, false),
+      makeForEachStep('media:document;ext=pdf;list'),
+      makeCapStep('cap:in="media:document;ext=pdf";extract;out="media:ext=txt"', 'extract', 'media:document;ext=pdf', 'media:ext=txt', false, false),
       makeCollectStep('media:ext=txt'),
     ]),
   }, {
-    'media:ext=pdf;list': 'PDF List',
+    'media:document;ext=pdf;list': 'PDF List',
     'media:ext=txt': 'Plain Text',
     'media:txt;list': 'Text List',
   });
@@ -5354,7 +5369,7 @@ function test6498_Renderer_collapseStrand_standaloneCollectCollapses() {
 function test6499_Renderer_collapseStrand_sequenceProducingCapBeforeForeach() {
   // Regression test mirroring the user's real strand:
   // [Cap_disbind (output_is_sequence=true), ForEach, Cap_make_decision],
-  // source = media:ext=pdf, target = media:decision (equivalent to
+  // source = media:document;ext=pdf, target = media:decision (equivalent to
   // the last cap's to_spec).
   //
   // Expected render shape after collapse:
@@ -5369,15 +5384,15 @@ function test6499_Renderer_collapseStrand_sequenceProducingCapBeforeForeach() {
   //   No separate output node because step_2's to_spec equals the
   //       strand target.
   const payload = withMediaDisplayNames({
-    source_media_urn: 'media:ext=pdf',
+    source_media_urn: 'media:document;ext=pdf',
     target_media_urn: 'media:decision',
     steps: wireLinearStepInputs([
-      makeCapStep('cap:in="media:ext=pdf";disbind;out="media:page"', 'Disbind', 'media:ext=pdf', 'media:page', false, true),
+      makeCapStep('cap:in="media:document;ext=pdf";disbind;out="media:page"', 'Disbind', 'media:document;ext=pdf', 'media:page', false, true),
       makeForEachStep('media:page'),
       makeCapStep('cap:in="media:page";decide;out="media:decision"', 'Make a Decision', 'media:page', 'media:decision', false, false),
     ]),
   }, {
-    'media:ext=pdf': 'PDF',
+    'media:document;ext=pdf': 'PDF',
     'media:page': 'Page',
     'media:decision': 'Decision',
   });
@@ -5667,11 +5682,11 @@ function test6504_Renderer_buildRunGraphData_pagesSuccessesAndFailures() {
   // Show-more nodes: one for 3 hidden successes, one for 2 hidden
   // failures.
   const strand = {
-    source_media_urn: 'media:ext=pdf;list',
+    source_media_urn: 'media:document;ext=pdf;list',
     target_media_urn: 'media:ext=txt',
     steps: wireLinearStepInputs([
-      makeForEachStep('media:ext=pdf;list'),
-      makeCapStep('cap:in="media:ext=pdf";a;out="media:ext=png;image"', 'a', 'media:ext=pdf', 'media:ext=png;image', false, false),
+      makeForEachStep('media:document;ext=pdf;list'),
+      makeCapStep('cap:in="media:document;ext=pdf";a;out="media:ext=png;image"', 'a', 'media:document;ext=pdf', 'media:ext=png;image', false, false),
       makeCapStep('cap:in="media:ext=png;image";b;out="media:ext=txt"', 'b', 'media:ext=png;image', 'media:ext=txt', false, false),
       makeCollectStep('media:ext=txt'),
     ]),
@@ -5697,8 +5712,8 @@ function test6504_Renderer_buildRunGraphData_pagesSuccessesAndFailures() {
   const payload = {
     resolved_strand: strand,
     media_display_names: {
-      'media:ext=pdf;list': 'PDF List',
-      'media:ext=pdf': 'PDF',
+      'media:document;ext=pdf;list': 'PDF List',
+      'media:document;ext=pdf': 'PDF',
       'media:ext=png;image': 'PNG',
       'media:ext=txt': 'Text',
     },
@@ -5735,19 +5750,19 @@ function test6505_Renderer_buildRunGraphData_unattributedFailureStopsAtEntry() {
   // Strand [ForEach, Cap, Collect] → body has 1 cap. Each body
   // replica emits 1 entry node + 1 body cap node = 2 nodes.
   const strand = {
-    source_media_urn: 'media:ext=pdf;list',
+    source_media_urn: 'media:document;ext=pdf;list',
     target_media_urn: 'media:ext=txt',
     steps: wireLinearStepInputs([
-      makeForEachStep('media:ext=pdf;list'),
-      makeCapStep('cap:in="media:ext=pdf";a;out="media:ext=txt"', 'a', 'media:ext=pdf', 'media:ext=txt', false, false),
+      makeForEachStep('media:document;ext=pdf;list'),
+      makeCapStep('cap:in="media:document;ext=pdf";a;out="media:ext=txt"', 'a', 'media:document;ext=pdf', 'media:ext=txt', false, false),
       makeCollectStep('media:ext=txt'),
     ]),
   };
   const payload = {
     resolved_strand: strand,
     media_display_names: {
-      'media:ext=pdf;list': 'PDF List',
-      'media:ext=pdf': 'PDF',
+      'media:document;ext=pdf;list': 'PDF List',
+      'media:document;ext=pdf': 'PDF',
       'media:ext=txt': 'Text',
     },
     body_outcomes: [
@@ -5846,10 +5861,10 @@ function test6507_Renderer_buildRunGraphData_backboneHasNoForeachNode() {
   // step_2 (Decision, merged target). No separate `for each` or
   // `collect` boxes.
   const strand = {
-    source_media_urn: 'media:ext=pdf',
+    source_media_urn: 'media:document;ext=pdf',
     target_media_urn: 'media:decision',
     steps: wireLinearStepInputs([
-      makeCapStep('cap:in="media:ext=pdf";disbind;out="media:page"', 'Disbind', 'media:ext=pdf', 'media:page', false, true),
+      makeCapStep('cap:in="media:document;ext=pdf";disbind;out="media:page"', 'Disbind', 'media:document;ext=pdf', 'media:page', false, true),
       makeForEachStep('media:page'),
       makeCapStep('cap:in="media:page";decide;out="media:decision"', 'Make a Decision', 'media:page', 'media:decision', false, false),
     ]),
@@ -5857,7 +5872,7 @@ function test6507_Renderer_buildRunGraphData_backboneHasNoForeachNode() {
   const payload = {
     resolved_strand: strand,
     media_display_names: {
-      'media:ext=pdf': 'PDF',
+      'media:document;ext=pdf': 'PDF',
       'media:page': 'Page',
       'media:decision': 'Decision',
     },
@@ -5895,10 +5910,10 @@ function test6508_Renderer_buildRunGraphData_allFailedDropsTargetPlaceholder() {
   // doesn't see a stale "Decision" placeholder alongside their
   // failed replicas.
   const strand = {
-    source_media_urn: 'media:ext=pdf',
+    source_media_urn: 'media:document;ext=pdf',
     target_media_urn: 'media:decision',
     steps: wireLinearStepInputs([
-      makeCapStep('cap:in="media:ext=pdf";disbind;out="media:page"', 'Disbind', 'media:ext=pdf', 'media:page', false, true),
+      makeCapStep('cap:in="media:document;ext=pdf";disbind;out="media:page"', 'Disbind', 'media:document;ext=pdf', 'media:page', false, true),
       makeForEachStep('media:page'),
       makeCapStep('cap:in="media:page";decide;out="media:decision"', 'Make a Decision', 'media:page', 'media:decision', false, false),
     ]),
@@ -5906,7 +5921,7 @@ function test6508_Renderer_buildRunGraphData_allFailedDropsTargetPlaceholder() {
   const payload = {
     resolved_strand: strand,
     media_display_names: {
-      'media:ext=pdf': 'PDF',
+      'media:document;ext=pdf': 'PDF',
       'media:page': 'Page',
       'media:decision': 'Decision',
     },
@@ -5965,10 +5980,10 @@ function test6509_Renderer_buildRunGraphData_unclosedForeachSuccessNoMerge() {
   //                                    → body_n_0 (per-body Decision)
   //   (no merge edge back into the backbone)
   const strand = {
-    source_media_urn: 'media:ext=pdf',
+    source_media_urn: 'media:document;ext=pdf',
     target_media_urn: 'media:decision',
     steps: wireLinearStepInputs([
-      makeCapStep('cap:in="media:ext=pdf";disbind;out="media:page"', 'Disbind', 'media:ext=pdf', 'media:page', false, true),
+      makeCapStep('cap:in="media:document;ext=pdf";disbind;out="media:page"', 'Disbind', 'media:document;ext=pdf', 'media:page', false, true),
       makeForEachStep('media:page'),
       makeCapStep('cap:in="media:page";decide;out="media:decision"', 'Make a Decision', 'media:page', 'media:decision', false, false),
     ]),
@@ -5976,7 +5991,7 @@ function test6509_Renderer_buildRunGraphData_unclosedForeachSuccessNoMerge() {
   const payload = {
     resolved_strand: strand,
     media_display_names: {
-      'media:ext=pdf': 'PDF',
+      'media:document;ext=pdf': 'PDF',
       'media:page': 'Page',
       'media:decision': 'Decision',
     },
@@ -6025,19 +6040,19 @@ function test6510_Renderer_buildRunGraphData_closedForeachSuccessMergesAtCollect
   // Actually simpler: [ForEach, Cap_a, Collect] with source=list
   // and target=list.
   const strand = {
-    source_media_urn: 'media:ext=pdf;list',
+    source_media_urn: 'media:document;ext=pdf;list',
     target_media_urn: 'media:txt;list',
     steps: wireLinearStepInputs([
-      makeForEachStep('media:ext=pdf;list'),
-      makeCapStep('cap:in="media:ext=pdf";extract;out="media:ext=txt"', 'extract', 'media:ext=pdf', 'media:ext=txt', false, false),
+      makeForEachStep('media:document;ext=pdf;list'),
+      makeCapStep('cap:in="media:document;ext=pdf";extract;out="media:ext=txt"', 'extract', 'media:document;ext=pdf', 'media:ext=txt', false, false),
       makeCollectStep('media:ext=txt'),
     ]),
   };
   const payload = {
     resolved_strand: strand,
     media_display_names: {
-      'media:ext=pdf;list': 'PDF List',
-      'media:ext=pdf': 'PDF',
+      'media:document;ext=pdf;list': 'PDF List',
+      'media:document;ext=pdf': 'PDF',
       'media:ext=txt': 'Text',
       'media:txt;list': 'Text List',
     },
@@ -6198,7 +6213,7 @@ function test6516_Renderer_buildEditorGraphData_rejectsEdgeWithMissingSource() {
 // ---------------- resolved-machine builder ----------------
 
 function test6517_Renderer_buildResolvedMachineGraphData_singleStrandLinearChain() {
-  // A single-strand machine: media:ext=pdf → extract → media:ext=txt
+  // A single-strand machine: media:document;ext=pdf → extract → media:ext=txt
   // → embed → media:embedding. Two edges, three nodes, no
   // loops, no fan-in. Tests the basic shape — nodes and
   // edges flow through verbatim from the resolved machine
@@ -6207,18 +6222,18 @@ function test6517_Renderer_buildResolvedMachineGraphData_singleStrandLinearChain
     strands: [
       {
         nodes: [
-          { id: 'n0', urn: 'media:ext=pdf', title: 'PDF' },
+          { id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' },
           { id: 'n1', urn: 'media:enc=utf-8;ext=txt', title: 'Plain Text' },
           { id: 'n2', urn: 'media:embedding;record', title: 'Embedding Record' },
         ],
         edges: [
           {
             alias: 'edge_0',
-            cap_urn: 'cap:in="media:ext=pdf";extract;out=media:enc=utf-8;ext=txt',
+            cap_urn: 'cap:in="media:document;ext=pdf";extract;out=media:enc=utf-8;ext=txt',
             title: 'Extract Text',
             is_loop: false,
             assignment: [
-              { cap_arg_media_urn: 'media:ext=pdf', source_node: 'n0' },
+              { cap_arg_media_urn: 'media:document;ext=pdf', source_node: 'n0' },
             ],
             target_node: 'n1',
           },
@@ -6342,17 +6357,17 @@ function test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrands
     strands: [
       {
         nodes: [
-          { id: 'n0', urn: 'media:ext=pdf', title: 'PDF' },
+          { id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' },
           { id: 'n1', urn: 'media:enc=utf-8;ext=txt', title: 'Plain Text' },
         ],
         edges: [
           {
             alias: 'edge_0',
-            cap_urn: 'cap:in="media:ext=pdf";extract;out=media:enc=utf-8;ext=txt',
+            cap_urn: 'cap:in="media:document;ext=pdf";extract;out=media:enc=utf-8;ext=txt',
             title: 'Extract Text',
             is_loop: false,
             assignment: [
-              { cap_arg_media_urn: 'media:ext=pdf', source_node: 'n0' },
+              { cap_arg_media_urn: 'media:document;ext=pdf', source_node: 'n0' },
             ],
             target_node: 'n1',
           },
@@ -6404,7 +6419,7 @@ function test6521_Renderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossSt
   const payload = {
     strands: [
       {
-        nodes: [{ id: 'n0', urn: 'media:ext=pdf', title: 'PDF' }],
+        nodes: [{ id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' }],
         edges: [],
         input_anchor_nodes: ['n0'],
         output_anchor_nodes: ['n0'],
@@ -6529,7 +6544,7 @@ function test1803_kindEffectWhenBothSidesVoid() {
 
 // TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps.
 function test1804_kindTransformForNormalDataProcessors() {
-  const extract = CapUrn.fromString('cap:extract;in="media:ext=pdf";out="media:enc=utf-8;record"');
+  const extract = CapUrn.fromString('cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8;record"');
   assertEqual(extract.kind(), CapKind.TRANSFORM, 'extract is a Transform');
 
   const labeled = CapUrn.fromString('cap:passthrough;in=media:;out=media:');
@@ -6575,8 +6590,8 @@ function test1805_kindInvariantUnderCanonicalSpellings() {
   const cases = [
     { a: 'cap:effect=none', b: 'cap:in=media:;out=media:;effect=none', expected: CapKind.IDENTITY },
     {
-      a: 'cap:extract;in="media:ext=pdf";out="media:enc=utf-8"',
-      b: 'cap:extract;in="media:ext=pdf";out="media:enc=utf-8"',
+      a: 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8"',
+      b: 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8"',
       expected: CapKind.TRANSFORM,
     },
     {
@@ -6781,7 +6796,7 @@ function test6734_rejectInvalidCombinations() {
 function test6735_axisWeightingOutDominates() {
   const bigOut = CapUrn.fromString('cap:in=media:;out="media:enc=utf-8;record"');
   const bigInAndY = CapUrn.fromString(
-    'cap:in="media:ext=pdf";out=media:record;!constrained;?target;extract;stage!=alpha;target2=metadata;ver?=draft'
+    'cap:in="media:document;ext=pdf";out=media:record;!constrained;?target;extract;stage!=alpha;target2=metadata;ver?=draft'
   );
   assert(bigOut.specificity() > bigInAndY.specificity(),
     'out-axis difference must dominate combined in+y differences');
@@ -6789,7 +6804,7 @@ function test6735_axisWeightingOutDominates() {
 
 // TEST1845: With equal out-axis, in-axis dominates over y-axis.
 function test1845_axisWeightingInDominatesY() {
-  const bigIn = CapUrn.fromString('cap:in="media:ext=pdf";out=media:record');
+  const bigIn = CapUrn.fromString('cap:in="media:document;ext=pdf";out=media:record');
   const bigY = CapUrn.fromString(
     'cap:in=media:;out=media:record;!constrained;?target;extract;stage!=alpha;target2=metadata;ver?=draft'
   );
@@ -6843,9 +6858,9 @@ function test7100_streamUrnReturnsStdinSourceUrnWhenItDiffersFromSlotUrn() {
   const arg = new CapArg(
     'media:enc=utf-8;file-path',
     true,
-    [new ArgSource({ stdin: 'media:ext=pdf;pdf-stream' })]
+    [new ArgSource({ stdin: 'media:document;ext=pdf;pdf-stream' })]
   );
-  assertEqual(arg.streamUrn(), 'media:ext=pdf;pdf-stream',
+  assertEqual(arg.streamUrn(), 'media:document;ext=pdf;pdf-stream',
     'streamUrn must return the stdin source URN');
   assert(arg.streamUrn() !== arg.media_urn,
     'stream URN must differ from the declared slot media_urn here');
@@ -6864,33 +6879,33 @@ function test7101_streamUrnFallsBackToDeclaredMediaUrnWithoutStdinSource() {
 
 // TEST7102: isMainInput() is true when the stdin URN is order-theoretically EQUIVALENT to the cap's in= spec even when the two strings list their tags in a different order — the comparison is the MediaUrn equivalence predicate, never a string comparison.
 function test7102_isMainInputTrueOnTagOrderInsensitiveEquivalenceToInSpec() {
-  const inSpec = MediaUrn.fromString('media:ext=pdf;pdf-stream');
+  const inSpec = MediaUrn.fromString('media:document;ext=pdf;pdf-stream');
   const arg = new CapArg(
     'media:enc=utf-8;file-path',
     true,
-    [new ArgSource({ stdin: 'media:pdf-stream;ext=pdf' })] // same tags, different order
+    [new ArgSource({ stdin: 'media:pdf-stream;document;ext=pdf' })] // same tags, different order
   );
   assert(arg.isMainInput(inSpec),
     'tag-order-insensitive equivalent stdin URN must be the main input');
   // The raw strings genuinely differ — proves the match is equivalence,
   // not string equality.
-  assert(inSpec.toString() !== 'media:pdf-stream;ext=pdf',
+  assert(inSpec.toString() !== 'media:pdf-stream;document;ext=pdf',
     'raw spec strings must differ for this test to be meaningful');
 }
 
 // TEST7103: isMainInput() is false for cli_flag-only and position-only args (no stdin source means never the main input, whatever the declared slot URN says), and false when the stdin URN is not equivalent to in=.
 function test7103_isMainInputFalseWithoutEquivalentStdinSource() {
-  const inSpec = MediaUrn.fromString('media:ext=pdf;pdf-stream');
+  const inSpec = MediaUrn.fromString('media:document;ext=pdf;pdf-stream');
 
   const cliFlagOnly = new CapArg(
-    'media:ext=pdf;pdf-stream', // slot URN even matches in= — irrelevant
+    'media:document;ext=pdf;pdf-stream', // slot URN even matches in= — irrelevant
     true,
     [new ArgSource({ cli_flag: '--input' })]
   );
   assert(!cliFlagOnly.isMainInput(inSpec), 'cli_flag-only arg is never the main input');
 
   const positionOnly = new CapArg(
-    'media:ext=pdf;pdf-stream',
+    'media:document;ext=pdf;pdf-stream',
     true,
     [new ArgSource({ position: 0 })]
   );
@@ -6907,7 +6922,7 @@ function test7103_isMainInputFalseWithoutEquivalentStdinSource() {
 
 // TEST7104: A realistic multi-arg cap (one stdin main input; one required, defaultless cli_flag arg; several defaulted cli_flag args): exactly one arg is the main input, and partitioning the remaining args by required-without-default vs has-default yields the expected sets.
 function test7104_multiArgCapExactlyOneMainInputAndPartitionOfRest() {
-  const inSpec = MediaUrn.fromString('media:ext=pdf;pdf-stream');
+  const inSpec = MediaUrn.fromString('media:document;ext=pdf;pdf-stream');
 
   const args = [
     new CapArg(
@@ -6915,7 +6930,7 @@ function test7104_multiArgCapExactlyOneMainInputAndPartitionOfRest() {
       true,
       // Main input may ALSO be delivered by cli-flag; stdin is the
       // defining route.
-      [new ArgSource({ stdin: 'media:pdf-stream;ext=pdf' }), new ArgSource({ cli_flag: '--input' })]
+      [new ArgSource({ stdin: 'media:pdf-stream;document;ext=pdf' }), new ArgSource({ cli_flag: '--input' })]
     ),
     new CapArg(
       'media:enc=utf-8;question',
@@ -6990,7 +7005,7 @@ function test1880_aliasNameNormalizationRules() {
 
 // TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact.
 function test1881_tokenUrnVsAliasDetection() {
-  assert(tokenIsUrn('cap:in="media:ext=pdf";extract;out="media:enc=utf-8"'), 'cap URN is a URN');
+  assert(tokenIsUrn('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8"'), 'cap URN is a URN');
   assert(tokenIsUrn('media:fmt=json;record'), 'media URN is a URN');
   assert(!tokenIsUrn('pdf2text'), 'bare name is not a URN');
   assert(isAliasToken('pdf2text'), 'bare name is an alias token');
@@ -7061,7 +7076,7 @@ function test1895_displayAliasForUrn() {
   assertEqual(registry.displayAliasForUrn('media:record;fmt=json'), 'json',
     'non-canonical media query canonicalises');
   // A real URN with no alias → null.
-  assertEqual(registry.displayAliasForUrn('media:enc=utf-8;ext=pdf'), null, 'no alias → null');
+  assertEqual(registry.displayAliasForUrn('media:document;enc=utf-8;ext=pdf'), null, 'no alias → null');
   // A non-URN (no cap:/media: prefix) → null, never a throw.
   assertEqual(registry.displayAliasForUrn('int2str'), null, 'non-URN → null');
 }
@@ -7086,7 +7101,7 @@ function test1896_cachedCapAliasesFiltersToCapTargets() {
 function test1196_aliasedSerializationUsesAliasAndDropsHeader() {
   const registry = new FabricRegistryClient();
   const m = Machine.fromString(
-    '[extract cap:in="media:ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
     '[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]' +
     '[doc -> extract -> text]' +
     '[text -> embed -> vectors]'
@@ -7182,7 +7197,7 @@ function test1514_installSourceVocabularyTolerance() {
 // and the proto JSON carries the documented wire shape.
 function test1450_planRequestDefaults() {
   const request = new plannerNS.PlanRequest({
-    sources: [{ mediaUrn: 'media:ext=pdf', isSequence: false }],
+    sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
     exactTargets: ['media:enc=utf-8;ext=txt'],
   });
   assertEqual(request.isConfigured, false, 'defaults are not configured');
@@ -7191,7 +7206,7 @@ function test1450_planRequestDefaults() {
   assertEqual(wire.ranking, 0, 'intent ranking');
   assertEqual(wire.convergence.presence, 0, 'auto presence');
   assertEqual(wire.convergence.mechanism, 0, 'any mechanism');
-  assertEqual(wire.sources[0].media_urn, 'media:ext=pdf', 'snake_case source field');
+  assertEqual(wire.sources[0].media_urn, 'media:document;ext=pdf', 'snake_case source field');
   assertEqual(wire.sources[0].is_sequence, false, 'snake_case sequence field');
   assertEqual(wire.max_depth, 0, '0 = engine default depth');
 }
@@ -7201,19 +7216,19 @@ function test1450_planRequestDefaults() {
 // space-constraining knob does (mode is forced to CONFIGURED on the wire).
 function test1451_planRequestKnobValidation() {
   assertThrowsPlanState(() => new plannerNS.PlanRequest({
-    sources: [{ mediaUrn: 'media:ext=pdf', isSequence: false }],
+    sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
     exactTargets: ['media:enc=utf-8;ext=txt'],
     convergenceLocation: 'at-depth',
   }), 'at-depth without a depth must throw');
 
   assertThrowsPlanState(() => new plannerNS.PlanRequest({
-    sources: [{ mediaUrn: 'media:ext=pdf', isSequence: false }],
+    sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
     exactTargets: ['media:enc=utf-8;ext=txt'],
     convergenceAtDepth: 2,
   }), 'a depth without at-depth must throw');
 
   const ranked = new plannerNS.PlanRequest({
-    sources: [{ mediaUrn: 'media:ext=pdf', isSequence: false }],
+    sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
     exactTargets: ['media:enc=utf-8;ext=txt'],
     ranking: 'shortest',
   });
@@ -7221,7 +7236,7 @@ function test1451_planRequestKnobValidation() {
   assertEqual(ranked.toProtoJSON().mode, 0, 'ranking alone stays AUTO');
 
   const constrained = new plannerNS.PlanRequest({
-    sources: [{ mediaUrn: 'media:ext=pdf', isSequence: false }],
+    sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
     exactTargets: ['media:enc=utf-8;ext=txt'],
     convergenceMechanism: 'collect',
   });
@@ -7233,7 +7248,7 @@ function test1451_planRequestKnobValidation() {
     exactTargets: ['media:enc=utf-8;ext=txt'],
   }), 'no sources must throw');
   assertThrowsPlanState(() => new plannerNS.PlanRequest({
-    sources: [{ mediaUrn: 'media:ext=pdf', isSequence: false }],
+    sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
     exactTargets: [],
   }), 'no targets must throw');
 }
@@ -7266,7 +7281,7 @@ function test1453_planResponseParsers() {
         notation: '[n0 -> edge_1 -> n1]',
         label: 'Convert each',
         rank: 1,
-        profile: { source_media: ['media:ext=pdf'], target_media: ['media:enc=utf-8;ext=txt'], apexes: [], converged: false, diverged: false },
+        profile: { source_media: ['media:document;ext=pdf'], target_media: ['media:enc=utf-8;ext=txt'], apexes: [], converged: false, diverged: false },
         cost: { cap_steps: 2, total_steps: 2, max_leg_depth: 0, intent_score: 0.5 },
       },
       {
@@ -7274,7 +7289,7 @@ function test1453_planResponseParsers() {
         label: 'Combine via text',
         rank: 0,
         profile: {
-          source_media: ['media:ext=pdf', 'media:ext=md'],
+          source_media: ['media:document;ext=pdf', 'media:ext=md'],
           target_media: ['media:enc=utf-8;ext=txt'],
           apexes: [{ media_urn: 'media:enc=utf-8;page', mechanism: 2, depth: 1 }],
           converged: true,

@@ -28,10 +28,10 @@ imported, so importing it waits for that (top-level `await`), and a CommonJS
 import { CapUrn, CapUrnBuilder } from "capdag";
 
 const parsed = CapUrn.fromString(
-  'cap:disbind;in="media:ext=pdf";out="media:enc=utf-8;page"'
+  'cap:disbind;in="media:document;ext=pdf";out="media:enc=utf-8;page"'
 );
 const built = new CapUrnBuilder()
-  .inSpec("media:ext=pdf")
+  .inSpec("media:document;ext=pdf")
   .outSpec("media:enc=utf-8;page")
   .marker("disbind")
   .build();

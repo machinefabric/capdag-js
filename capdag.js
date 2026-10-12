@@ -1350,7 +1350,7 @@ const MediaDefErrorCodes = {
  * - `record` marker: presence = has internal fields, absence = opaque (default)
  *
  * Examples:
- * - `media:ext=pdf` → scalar, opaque (no markers)
+ * - `media:document;ext=pdf` → scalar, opaque (no markers)
  * - `media:enc=utf-8;list` → list, opaque (has list marker)
  * - `media:fmt=json;record` → scalar, record (has record marker)
  * - `media:fmt=json;list;record` → list of records (has both markers)
@@ -1401,8 +1401,15 @@ const MEDIA_BMP = 'media:ext=bmp;image';
 const MEDIA_TIFF = 'media:ext=tiff;image';
 // Media URN for WebP image data
 const MEDIA_WEBP = 'media:ext=webp;image';
-// Media URN for audio data (wav, mp3, flac, etc.)
-const MEDIA_AUDIO = 'media:audio;ext=wav';
+// The mediums. Each is the type every format of that medium conforms to
+// (`media:ext=png;image` is a `media:image`), and what an abstract cap over
+// per-format caps declares.
+// Media URN for an image in any format (png, jpeg, webp, etc.)
+const MEDIA_IMAGE = 'media:image';
+// Media URN for audio in any format (wav, mp3, flac, raw frames, etc.)
+const MEDIA_AUDIO = 'media:audio';
+// Media URN for a document in any format (pdf, docx, epub, etc.)
+const MEDIA_DOCUMENT = 'media:document';
 // Media URN for MP3 audio data
 const MEDIA_MP3 = 'media:audio;ext=mp3';
 // Media URN for WAV audio data
@@ -1419,7 +1426,7 @@ const MEDIA_M4A = 'media:audio;ext=m4a';
 const MEDIA_AIFF = 'media:audio;ext=aiff';
 // Media URN for Opus audio data
 const MEDIA_OPUS = 'media:audio;ext=opus';
-// Media URN for video data (mp4, webm, mov, etc.)
+// Media URN for a video in any container (mp4, webm, mov, etc.)
 const MEDIA_VIDEO = 'media:video';
 // Media URN for MP4 video data
 const MEDIA_MP4 = 'media:ext=mp4;video';
@@ -1436,9 +1443,9 @@ const MEDIA_AUDIO_SPEECH = 'media:audio;ext=wav;speech';
 
 // Document types (PRIMARY naming - type IS the format)
 // Media URN for PDF documents
-const MEDIA_PDF = 'media:ext=pdf';
+const MEDIA_PDF = 'media:document;ext=pdf';
 // Media URN for EPUB documents
-const MEDIA_EPUB = 'media:ext=epub';
+const MEDIA_EPUB = 'media:document;ext=epub';
 
 // Text format types (PRIMARY naming - type IS the format)
 // Media URN for Markdown text
@@ -1614,7 +1621,7 @@ class MediaUrn {
 
   /**
    * Parse a media URN string. Validates the prefix is 'media'.
-   * @param {string} str - The media URN string (e.g., "media:ext=pdf")
+   * @param {string} str - The media URN string (e.g., "media:document;ext=pdf")
    * @returns {MediaUrn}
    * @throws {MediaUrnError} If prefix is not 'media'
    */
@@ -1766,7 +1773,7 @@ class MediaUrn {
   /**
    * Whether this media type and `other` COULD describe the same value: not a
    * guarantee (conformsTo), and not excluded. `media:ext` meets
-   * `media:ext=pdf`; `media:ext=pdf` does not meet `media:ext=png`.
+   * `media:document;ext=pdf`; `media:document;ext=pdf` does not meet `media:ext=png`.
    * @param {MediaUrn} other
    * @returns {boolean}
    */
@@ -2297,7 +2304,7 @@ function buildExtensionIndex(mediaDefs) {
  *
  * @example
  * const urns = mediaUrnsForExtension('pdf', mediaDefs);
- * // May return ['media:ext=pdf']
+ * // May return ['media:document;ext=pdf']
  */
 function mediaUrnsForExtension(extension, mediaDefs) {
   const index = buildExtensionIndex(mediaDefs);
@@ -8677,6 +8684,8 @@ export {
   MEDIA_TIFF,
   MEDIA_WEBP,
   MEDIA_AUDIO,
+  MEDIA_IMAGE,
+  MEDIA_DOCUMENT,
   MEDIA_MP3,
   MEDIA_WAV,
   MEDIA_FLAC,
