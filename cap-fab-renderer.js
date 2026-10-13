@@ -3036,6 +3036,7 @@ class CapFabRenderer {
       : () => 0;
     // How a capability's name is written (browse mode): the host may set it in its own case
     // (the website writes titles in sentence case); by default as the registry gives it
+    this.elkWorkerUrl = typeof options.elkWorkerUrl === 'string' ? options.elkWorkerUrl : null;
     this.formatCapTitle = typeof options.formatCapTitle === 'function'
       ? options.formatCapTitle
       : (title) => title;
@@ -3287,6 +3288,28 @@ class CapFabRenderer {
     return options;
   }
 
+  // ELK, in a worker where the host names ELK's worker script (`elkWorkerUrl`): laying out
+  // the registry takes a second or two, which on the page's own thread would freeze it. A
+  // cross-origin script cannot start a worker itself, so the worker is a small one of the
+  // page's origin that imports it. Without the option, or where a worker cannot start, ELK
+  // runs on the page's thread.
+  _createElk() {
+    const ELK = globalThis.ELK;
+    if (this.elkWorkerUrl && typeof Worker === 'function' && typeof Blob === 'function') {
+      try {
+        return new ELK({
+          workerUrl: this.elkWorkerUrl,
+          workerFactory: (url) => new Worker(URL.createObjectURL(
+            new Blob([`importScripts(${JSON.stringify(url)});`], { type: 'application/javascript' })
+          )),
+        });
+      } catch (error) {
+        console.error('CapFabRenderer: ELK worker could not start; laying out on the page', error);
+      }
+    }
+    return new ELK();
+  }
+
   async _routeWithElk() {
     const cy = this.cy;
     const graph = {
@@ -3306,7 +3329,7 @@ class CapFabRenderer {
     };
     let laid;
     try {
-      this._elk = this._elk || new globalThis.ELK();
+      this._elk = this._elk || this._createElk();
       laid = await this._elk.layout(graph);
     } catch (error) {
       console.error('CapFabRenderer: ELK routing failed; laying out without routes', error);
