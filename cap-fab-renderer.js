@@ -3078,6 +3078,7 @@ class CapFabRenderer {
     // How a capability's name is written (browse mode): the host may set it in its own case
     // (the website writes titles in sentence case); by default as the registry gives it
     this.elkWorkerUrl = typeof options.elkWorkerUrl === 'string' ? options.elkWorkerUrl : null;
+    this.onReady = typeof options.onReady === 'function' ? options.onReady : null;
     this.formatCapTitle = typeof options.formatCapTitle === 'function'
       ? options.formatCapTitle
       : (title) => title;
@@ -3301,7 +3302,20 @@ class CapFabRenderer {
     this._setupEventHandlers();
     this._installZoomBackstop();
     if (this.mode === 'browse') this.cy.edges().filter((edge) => edge.source().same(edge.target())).addClass('browse-loop');
-    if (routed) this._routeWithElk();
+    // until ELK returns, every node of a routed graph stands at the origin: the canvas is
+    // hidden meanwhile (the host's loading state shows), and shown laid out
+    // Until ELK returns, every node of a routed graph stands at the origin: cytoscape's own
+    // drawing layer is hidden meanwhile (the container, and any loading state the host draws
+    // on it, stay), and shown laid out
+    if (routed) {
+      // (laid over the whole container meanwhile, so it neither takes a host's loading
+      // layout from it nor is measured at another size than the one it is shown at)
+      const layer = this.container.firstElementChild;
+      if (layer) Object.assign(layer.style, { visibility: 'hidden', position: 'absolute', inset: '0' });
+      this._routeWithElk().finally(() => {
+        if (layer) Object.assign(layer.style, { visibility: '', position: '', inset: '' });
+      });
+    }
     return this;
   }
 
@@ -3430,6 +3444,12 @@ class CapFabRenderer {
   // the final box, a pending focus, the first fit, and the level of detail.
   _afterLayout({ stretch }) {
     if (!this.cy) return;
+    if (!this._readyReported) {
+      this._readyReported = true;
+      // the host learns the graph is laid out (`onReady`) before it is fitted: a loading
+      // state it ends there may change the container's size, which the fit then measures
+      if (typeof this.onReady === 'function') this.onReady();
+    }
     this.cy.resize();
     this._layoutReady = true;
     // Per-edge stretch FIRST (mutates node x-coordinates so
