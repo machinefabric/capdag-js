@@ -134,6 +134,76 @@ function graphFontFamily() {
   return getCssVar('--graph-font-family') || DEFAULT_GRAPH_FONT;
 }
 
+// An ELK edge section as cytoscape draws a 'segments' edge: its points as weights along, and
+// distances across, the line between the two node centres, and its two ends as offsets from
+// those centres. A spline's control points (start, then three per cubic) are sampled into a
+// polyline fine enough to read as the curve.
+function routeFromSection(section, source, target) {
+  const control = [section.startPoint, ...(section.bendPoints || []), section.endPoint];
+  let points = control;
+  if (control.length >= 4 && (control.length - 1) % 3 === 0) {
+    points = [control[0]];
+    for (let i = 0; i + 3 < control.length; i += 3) {
+      const [p0, p1, p2, p3] = control.slice(i, i + 4);
+      // a straight run needs no points between its ends; a bend, one every 12 units of the
+      // control polygon (its length bounds the curve's), so a curve reads smooth at any zoom
+      const hull = Math.hypot(p1.x - p0.x, p1.y - p0.y) + Math.hypot(p2.x - p1.x, p2.y - p1.y) + Math.hypot(p3.x - p2.x, p3.y - p2.y);
+      const chord = Math.hypot(p3.x - p0.x, p3.y - p0.y);
+      const steps = hull - chord < 0.5 ? 1 : Math.min(16, Math.max(4, Math.ceil((hull - chord) / 2)));
+      for (let k = 1; k <= steps; k++) {
+        const t = k / steps, u = 1 - t;
+        points.push({
+          x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+          y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
+        });
+      }
+    }
+  }
+  const dx = target.x - source.x, dy = target.y - source.y;
+  const lengthSquared = dx * dx + dy * dy || 1;
+  const length = Math.sqrt(lengthSquared);
+  const weightsOf = (pts) => pts.map((p) => ((p.x - source.x) * dx + (p.y - source.y) * dy) / lengthSquared);
+  const distancesOf = (pts) => pts.map((p) => ((p.y - source.y) * dx - (p.x - source.x) * dy) / length);
+  const inner = points.slice(1, -1);
+  const start = points[0], end = points[points.length - 1];
+
+  // In the overview a node is a dot at its box's centre: each end of the route is carried on
+  // from the box's side to the dot by a curve that leaves the route in its own direction and
+  // meets the dot level, rather than by a straight piece at another angle
+  const blend = (from, along, to, fromSide) => {
+    const reach = Math.hypot(to.x - from.x, to.y - from.y) / 3;
+    const norm = Math.hypot(along.x, along.y) || 1;
+    const c1 = { x: from.x + (along.x / norm) * reach, y: from.y + (along.y / norm) * reach };
+    const c2 = { x: to.x + (fromSide ? -reach : reach), y: to.y };
+    const out = [];
+    for (let k = 1; k < 8; k++) {
+      const t = k / 8, u = 1 - t;
+      out.push({
+        x: u * u * u * from.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * to.x,
+        y: u * u * u * from.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * to.y,
+      });
+    }
+    return out;
+  };
+  let overviewInner = inner;
+  if (points.length >= 2) {
+    const first = points[0], second = points[1];
+    const last = points[points.length - 1], before = points[points.length - 2];
+    // from the target's side back toward the target's centre, and from the source's centre out
+    const tail = blend(last, { x: last.x - before.x, y: last.y - before.y }, target, true);
+    const head = blend(first, { x: first.x - second.x, y: first.y - second.y }, source, false).reverse();
+    overviewInner = [...head, first, ...inner, last, ...tail];
+  }
+  return {
+    weights: weightsOf(inner),
+    distances: distancesOf(inner),
+    overviewWeights: weightsOf(overviewInner),
+    overviewDistances: distancesOf(overviewInner),
+    source: { dx: start.x - source.x, dy: start.y - source.y },
+    target: { dx: end.x - target.x, dy: end.y - target.y },
+  };
+}
+
 function cssVarNumber(name, fallback) {
   const raw = getCssVar(name);
   if (raw === '') return fallback;
@@ -638,6 +708,32 @@ function buildStylesheet() {
       style: {
         'width': 'data(lodWidthStrong)',
         'z-index': 998,
+      },
+    },
+    // ... and a chosen capability named along the middle of its route, level, where it has
+    // room (`_placeOverviewNames`)
+    // a name that would run past the view's edge is set to the side of its dot instead
+    {
+      selector: 'node.lod-overview.lod-named.lod-name-above',
+      style: { 'text-valign': 'top', 'text-margin-y': 'data(lodGapNeg)' },
+    },
+    {
+      selector: 'node.lod-overview.lod-named.lod-name-left',
+      style: { 'text-halign': 'left', 'text-margin-x': 'data(lodGap)' },
+    },
+    {
+      selector: 'node.lod-overview.lod-named.lod-name-right',
+      style: { 'text-halign': 'right', 'text-margin-x': 'data(lodGapNeg)' },
+    },
+    {
+      selector: 'edge.lod-overview.lod-named',
+      style: {
+        'label': 'data(label)',
+        'font-size': 'data(lodFontEdge)',
+        'text-rotation': 'none',
+        'text-margin-y': 'data(lodLift)',
+        'text-background-padding': 'data(lodGap)',
+        'z-index': 1000,
       },
     },
     {
@@ -3102,63 +3198,19 @@ class CapFabRenderer {
       this.cy = null;
     }
 
+    // Browse mode lays the graph out itself when the host has loaded ELK (`_routeWithElk`):
+    // ELK places the nodes AND routes the edges, leaving room for their names, and the routes
+    // are drawn as ELK gives them. Otherwise, and in every other mode, cytoscape-elk places the
+    // nodes and cytoscape draws its own curves between them.
+    const routed = this.mode === 'browse' && typeof globalThis.ELK === 'function';
     this.cy = this._cytoscape({
       container: this.container,
       elements,
-      layout: Object.assign(
+      layout: routed ? { name: 'null' } : Object.assign(
         { name: 'elk', elk: this._layoutOptions() },
         {
           stop: function () {
-            self.cy.resize();
-            self._layoutReady = true;
-            // Per-edge stretch FIRST (mutates node x-coordinates so
-            // each edge has the horizontal room its own label needs),
-            // THEN lock the cytoscape wheel-zoom limits to the
-            // dynamic per-graph values, THEN fit the (possibly
-            // stretched) bounding box to the viewport so the user
-            // always opens at a fully-visible padded fit. Order
-            // matters: `_recomputeZoomLimits` needs the final
-            // post-stretch bounding box; `fitToVisibleViewport` needs
-            // the relaxed minZoom (it sits above the tight-fit zoom)
-            // so its padding actually shows.
-            self._stretchLayersForEdgeLabels();
-            self._recomputeZoomLimits();
-            const hadPendingFocus = !!self._pendingFocusCap;
-            if (hadPendingFocus) {
-              const pending = self._pendingFocusCap;
-              self._pendingFocusCap = null;
-              self.highlightCapability(pending);
-            }
-            // First paint with no preselected focus: snap (no
-            // animation) to a centered fit of the full, post-stretch
-            // graph. Going through `_centerOnGraphInitial` rather
-            // than `refitCurrentSelection` guarantees three things
-            // on the bootstrap pass that the selection-aware refit
-            // can't:
-            //   - never animate, so the user never sees a transient
-            //     un-centered state on the way to the final fit;
-            //   - always operate on the entire element set, so
-            //     per-edge stretching can't push the centered focus
-            //     off-viewport;
-            //   - reapply on every post-paint resize tick (see
-            //     `resizeAndRefit` below) until the user first
-            //     interacts, absorbing late WebKit container-size
-            //     settling without surprising a user who's already
-            //     scrolled or zoomed.
-            //
-            // If a focus cap WAS pending (browse-mode deep link from
-            // capdag-dot-com), defer to the selection-aware refit so
-            // the linked element lands centered instead.
-            if (hadPendingFocus) {
-              self.refitCurrentSelection();
-              // Treat the deep-link landing as the user's chosen
-              // viewport — late resize ticks shouldn't yank them
-              // back to a fit-of-all.
-              self._markInitialFitDone();
-            } else {
-              self._centerOnGraphInitial();
-            }
-            self._applyLevelOfDetail();
+            self._afterLayout({ stretch: true });
           },
         }
       ),
@@ -3206,7 +3258,163 @@ class CapFabRenderer {
 
     this._setupEventHandlers();
     this._installZoomBackstop();
+    if (routed) this._routeWithElk();
     return this;
+  }
+
+  // ELK's layered layout with spline routing for the registry: names are given to ELK as edge
+  // labels, so each layer gap is as wide as the names that cross it and every name has a
+  // straight stretch of its edge to itself.
+  _routedLayoutOptions() {
+    const options = {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'RIGHT',
+      'elk.edgeRouting': 'SPLINES',
+      'elk.edgeLabels.placement': 'CENTER',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '100',
+      'elk.layered.spacing.edgeNodeBetweenLayers': '20',
+      'elk.layered.spacing.edgeEdgeBetweenLayers': '12',
+      'elk.spacing.nodeNode': '60',
+      'elk.spacing.edgeNode': '20',
+      'elk.spacing.edgeEdge': '10',
+      'elk.spacing.edgeLabel': '4',
+      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+      'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+    };
+    const aspect = this._layoutOptions()['elk.aspectRatio'];
+    if (aspect) options['elk.aspectRatio'] = String(aspect);
+    return options;
+  }
+
+  async _routeWithElk() {
+    const cy = this.cy;
+    const graph = {
+      id: 'registry',
+      layoutOptions: this._routedLayoutOptions(),
+      children: cy.nodes().map((node) => ({ id: node.id(), width: node.outerWidth(), height: node.outerHeight() })),
+      edges: cy.edges().map((edge) => {
+        const label = edge.data('label');
+        return {
+          id: edge.id(),
+          sources: [edge.source().id()],
+          targets: [edge.target().id()],
+          // the name's box as cytoscape draws it: its text and background padding (4px)
+          labels: label ? [{ id: `${edge.id()}:label`, text: label, width: (edge.data('_labelPx') || 0) + 8, height: 8 * 1.3 + 8 }] : [],
+        };
+      }),
+    };
+    let laid;
+    try {
+      this._elk = this._elk || new globalThis.ELK();
+      laid = await this._elk.layout(graph);
+    } catch (error) {
+      console.error('CapFabRenderer: ELK routing failed; laying out without routes', error);
+      if (this.cy !== cy) return;
+      cy.layout({ name: 'elk', elk: this._layoutOptions(), stop: () => this._afterLayout({ stretch: true }) }).run();
+      return;
+    }
+    // a newer render replaced this graph while ELK was working
+    if (this.cy !== cy) return;
+
+    const centres = new Map(laid.children.map((c) => [c.id, { x: c.x + c.width / 2, y: c.y + c.height / 2 }]));
+    cy.batch(() => {
+      cy.nodes().forEach((node) => node.position(centres.get(node.id())));
+      (laid.edges || []).forEach((laidEdge) => {
+        const section = laidEdge.sections && laidEdge.sections[0];
+        if (!section) return;
+        const edge = cy.getElementById(laidEdge.id);
+        edge.scratch('_route', routeFromSection(section, centres.get(edge.source().id()), centres.get(edge.target().id())));
+      });
+    });
+    this._applyEdgeRoutes();
+    this._afterLayout({ stretch: false });
+  }
+
+  // Draws each edge along its route: a polyline through the route's points, sampled finely
+  // from ELK's splines, from the point where it leaves its source's box to where it enters
+  // its target's. In the overview, where a node is a dot at the box's centre, the route is
+  // carried on smoothly from each box's side to the dot (`routeFromSection`).
+  _applyEdgeRoutes() {
+    if (!this.cy) return;
+    const overview = !!this._lodOverview;
+    this._placingNames = true;
+    this.cy.batch(() => {
+      this.cy.edges().forEach((edge) => {
+        const route = edge.scratch('_route');
+        if (!route) return;
+        const weights = overview ? route.overviewWeights : route.weights;
+        const distances = overview ? route.overviewDistances : route.distances;
+        // a self-loop's route is cytoscape's own loop: its points would all lie on one node
+        if (edge.source().id() === edge.target().id()) return;
+        edge.style({
+          'curve-style': weights.length ? 'segments' : 'straight',
+          'edge-distances': 'node-position',
+          'segment-weights': weights.length ? weights.join(' ') : '0.5',
+          'segment-distances': distances.length ? distances.join(' ') : '0',
+          'source-endpoint': overview ? '0px 0px' : `${route.source.dx}px ${route.source.dy}px`,
+          'target-endpoint': overview ? '0px 0px' : `${route.target.dx}px ${route.target.dy}px`,
+        });
+      });
+    });
+    this._placingNames = false;
+  }
+
+  // What follows a layout, however it was made: the per-edge stretch (cytoscape-elk's
+  // layout only: a routed layout has left room for the names already), the zoom limits for
+  // the final box, a pending focus, the first fit, and the level of detail.
+  _afterLayout({ stretch }) {
+    if (!this.cy) return;
+    this.cy.resize();
+    this._layoutReady = true;
+    // Per-edge stretch FIRST (mutates node x-coordinates so
+    // each edge has the horizontal room its own label needs),
+    // THEN lock the cytoscape wheel-zoom limits to the
+    // dynamic per-graph values, THEN fit the (possibly
+    // stretched) bounding box to the viewport so the user
+    // always opens at a fully-visible padded fit. Order
+    // matters: `_recomputeZoomLimits` needs the final
+    // post-stretch bounding box; `fitToVisibleViewport` needs
+    // the relaxed minZoom (it sits above the tight-fit zoom)
+    // so its padding actually shows.
+    if (stretch) this._stretchLayersForEdgeLabels();
+    this._recomputeZoomLimits();
+    const hadPendingFocus = !!this._pendingFocusCap;
+    if (hadPendingFocus) {
+      const pending = this._pendingFocusCap;
+      this._pendingFocusCap = null;
+      this.highlightCapability(pending);
+    }
+    // First paint with no preselected focus: snap (no
+    // animation) to a centered fit of the full, post-stretch
+    // graph. Going through `_centerOnGraphInitial` rather
+    // than `refitCurrentSelection` guarantees three things
+    // on the bootstrap pass that the selection-aware refit
+    // can't:
+    //   - never animate, so the user never sees a transient
+    //     un-centered state on the way to the final fit;
+    //   - always operate on the entire element set, so
+    //     per-edge stretching can't push the centered focus
+    //     off-viewport;
+    //   - reapply on every post-paint resize tick (see
+    //     `resizeAndRefit` below) until the user first
+    //     interacts, absorbing late WebKit container-size
+    //     settling without surprising a user who's already
+    //     scrolled or zoomed.
+    //
+    // If a focus cap WAS pending (browse-mode deep link from
+    // capdag-dot-com), defer to the selection-aware refit so
+    // the linked element lands centered instead.
+    if (hadPendingFocus) {
+      this.refitCurrentSelection();
+      // Treat the deep-link landing as the user's chosen
+      // viewport — late resize ticks shouldn't yank them
+      // back to a fit-of-all.
+      this._markInitialFitDone();
+    } else {
+      this._centerOnGraphInitial();
+    }
+    this._applyLevelOfDetail();
   }
 
   // ===========================================================================
@@ -3262,7 +3470,7 @@ class CapFabRenderer {
   _placeOverviewNames() {
     if (this.mode !== 'browse' || !this.cy) return;
     const cy = this.cy;
-    const named = cy.nodes('.lod-named');
+    const named = cy.elements('.lod-named');
     if (!this._lodOverview) {
       this._placingNames = true;
       named.removeClass('lod-named');
@@ -3289,24 +3497,54 @@ class CapFabRenderer {
     const view = { x1: 0, y1: 0, x2: cy.width(), y2: cy.height() - Math.max(0, this.bottomExcludedRegion() | 0) };
     const inside = (b) => b.x1 >= view.x1 && b.x2 <= view.x2 && b.y1 >= view.y1 && b.y2 <= view.y2;
     const keep = new Set();
+    const sides = new Map();
+    // the chosen capability's name first: centred on its route's middle, above the line
+    cy.edges('.active').forEach((edge) => {
+      const label = String(edge.data('label') || '');
+      if (!label) return;
+      const mid = edge.renderedMidpoint();
+      const width = measureTextWidth(label, font) + gap * 2;
+      const height = lineHeight + gap * 2;
+      const box = { x1: mid.x - width / 2, x2: mid.x + width / 2, y1: mid.y - 12 - height / 2, y2: mid.y - 12 + height / 2 };
+      if (!inside(box) || placed.some((other) => overlaps(box, other))) return;
+      placed.push(box);
+      keep.add(edge.id());
+    });
     order.forEach((node) => {
       const lines = String(node.data('label') || '').split('\n');
       const width = Math.max(...lines.map((line) => measureTextWidth(line, font))) + gap * 2;
       const height = lines.length * lineHeight + gap * 2;
       const p = node.renderedPosition();
-      const top = p.y + node.renderedHeight() / 2 + gap;
-      const box = { x1: p.x - width / 2, x2: p.x + width / 2, y1: top, y2: top + height };
-      if (!inside(box) || placed.some((other) => overlaps(box, other))) return;
-      placed.push(box);
+      const r = node.renderedWidth() / 2;
+      // under the dot, then over it; each centred, else ending at the dot (to its left), else
+      // starting at it
+      const options = [];
+      for (const above of [false, true]) {
+        const y1 = above ? p.y - r - gap - height : p.y + r + gap;
+        const y2 = y1 + height;
+        options.push(
+          { above, side: '', box: { x1: p.x - width / 2, x2: p.x + width / 2, y1, y2 } },
+          { above, side: 'left', box: { x1: p.x + r - width, x2: p.x + r, y1, y2 } },
+          { above, side: 'right', box: { x1: p.x - r, x2: p.x - r + width, y1, y2 } },
+        );
+      }
+      const fit = options.find((o) => inside(o.box) && !placed.some((other) => overlaps(o.box, other)));
+      if (!fit) return;
+      placed.push(fit.box);
       keep.add(node.id());
+      sides.set(node.id(), fit);
     });
     // its own class changes must not schedule it again
     this._placingNames = true;
     cy.batch(() => {
       named.forEach((node) => { if (!keep.has(node.id())) node.removeClass('lod-named'); });
       keep.forEach((id) => {
-        const node = cy.getElementById(id);
-        if (!node.hasClass('lod-named')) node.addClass('lod-named');
+        const element = cy.getElementById(id);
+        if (!element.hasClass('lod-named')) element.addClass('lod-named');
+        const fit = sides.get(id) || { side: '', above: false };
+        element.toggleClass('lod-name-left', fit.side === 'left');
+        element.toggleClass('lod-name-right', fit.side === 'right');
+        element.toggleClass('lod-name-above', !!fit.above);
       });
     });
     this._placingNames = false;
@@ -3438,18 +3676,24 @@ class CapFabRenderer {
             lodSize: scale * (6 + 2.2 * Math.sqrt(node.degree())) / zoom,
             lodFont: 11 / zoom,
             lodGap: 3 / zoom,
+            lodGapNeg: -3 / zoom,
           });
         });
         cy.edges().data({
           lodWidth: scale * 1.25 / zoom,
           lodWidthStrong: 2.5 / zoom,
+          lodFontEdge: 11 / zoom,
+          lodGap: 3 / zoom,
+          lodLift: -12 / zoom,
         });
         cy.elements().addClass('lod-overview');
       } else {
         cy.elements().removeClass('lod-overview');
       }
     });
+    const changed = this._lodOverview !== overview;
     this._lodOverview = overview;
+    if (changed) this._applyEdgeRoutes();
   }
 
   // Fit padding must scale down in very short viewports. The compact
