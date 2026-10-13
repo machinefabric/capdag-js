@@ -655,6 +655,38 @@ function buildStylesheet() {
         'control-point-weights': 'data(controlPointWeights)',
       },
     },
+    // A capability whose output is its input (a format conversion, a filter) is a loop. Its
+    // loops stand straight up from the node, nested, unnamed: a loop's name would lie across
+    // the loops around it. It is in the tooltip and the panel, and a chosen loop is named,
+    // level, on its background (browse mode; its routes do not draw loops)
+    {
+      selector: 'edge.browse-loop',
+      style: {
+        'curve-style': 'bezier',
+        'loop-direction': '0deg',
+        'loop-sweep': '-30deg',
+        // the first loop clears the node's box; each next one stands a little above it
+        'control-point-step-size': 26,
+        'text-opacity': 0,
+        'text-background-opacity': 0,
+      },
+    },
+    {
+      selector: 'edge.browse-loop.active',
+      style: {
+        'text-opacity': 1,
+        'text-background-opacity': 1,
+        'text-rotation': 'none',
+        'text-margin-y': -14,
+      },
+    },
+    {
+      selector: 'edge.browse-loop.lod-overview',
+      style: {
+        'control-point-step-size': 'data(lodLoopStep)',
+        'loop-sweep': '-30deg',
+      },
+    },
     // A capability's name that would overlap another's or a media type's is not written
     // (`_placeEdgeLabels`); it is in the tooltip, and the panel, and comes back when what
     // covered it is faded or the view moves
@@ -3259,6 +3291,7 @@ class CapFabRenderer {
 
     this._setupEventHandlers();
     this._installZoomBackstop();
+    if (this.mode === 'browse') this.cy.edges().filter((edge) => edge.source().same(edge.target())).addClass('browse-loop');
     if (routed) this._routeWithElk();
     return this;
   }
@@ -3637,6 +3670,8 @@ class CapFabRenderer {
     let measured = true;
     cy.edges().forEach((edge) => {
       if (edge.hasClass('faded') || !edge.data('label')) return;
+      // a loop is unnamed unless chosen (see the browse-loop styles)
+      if (edge.hasClass('browse-loop') && !edge.hasClass('active')) return;
       const b = boxOf(edge);
       if (!b) { measured = false; return; }
       candidates.push({ edge, b, rank: rank(edge), view: inView(b) ? 1 : 0, d: Math.hypot(b.x - centre.x, b.y - centre.y) });
@@ -3708,6 +3743,7 @@ class CapFabRenderer {
           lodFontEdge: 11 / zoom,
           lodGap: 3 / zoom,
           lodLift: -12 / zoom,
+          lodLoopStep: 3 / zoom,
         });
         cy.elements().addClass('lod-overview');
       } else {
