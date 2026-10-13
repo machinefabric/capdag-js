@@ -713,7 +713,7 @@ function buildStylesheet() {
     // itself is named by the host's panel, not along its edge, where a long name would not
     // fit a small view.
     {
-      selector: 'node.lod-overview.highlighted, node.lod-overview.active',
+      selector: 'node.lod-overview.highlighted, node.lod-overview.active, node.lod-overview.path-highlighted',
       style: {
         'background-color': nodeOverviewActive,
         'z-index': 999,
@@ -736,7 +736,7 @@ function buildStylesheet() {
       },
     },
     {
-      selector: 'edge.lod-overview.highlighted, edge.lod-overview.active',
+      selector: 'edge.lod-overview.highlighted, edge.lod-overview.active, edge.lod-overview.path-highlighted',
       style: {
         'width': 'data(lodWidthStrong)',
         'z-index': 998,
@@ -833,6 +833,15 @@ function buildStylesheet() {
     {
       selector: 'edge.path-highlighted',
       style: { 'width': 3, 'z-index': 999, 'line-style': 'solid' },
+    },
+    // in the overview a path is drawn as a chosen capability is: strong lines, filled dots
+    {
+      selector: 'edge.lod-overview.path-highlighted',
+      style: { 'width': 'data(lodWidthStrong)' },
+    },
+    {
+      selector: 'node.lod-overview.path-highlighted',
+      style: { 'border-width': 0 },
     },
 
     // -------- Machine / editor-graph mode ------------------------------
@@ -3533,7 +3542,7 @@ class CapFabRenderer {
       this._placingNames = false;
       return;
     }
-    const chosen = cy.nodes('.highlighted, .active');
+    const chosen = cy.nodes('.highlighted, .active, .path-highlighted');
     const font = `500 11px ${graphFontFamily()}`;
     const lineHeight = 11 * 1.3;
     const gap = 3;
