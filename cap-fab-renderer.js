@@ -3380,10 +3380,10 @@ class CapFabRenderer {
   static get ZOOM_OUT_FIT_SLACK() { return 0.15; }
 
   // Browse mode draws the labelled graph only where its labels can be read: the 9px node
-  // labels at no less than 7px on screen. Below that zoom it draws the overview (see the
+  // labels at no less than 10px on screen. Below that zoom it draws the overview (see the
   // `lod-overview` styles): a dot per media type, sized by its connections, and a line per
   // capability, at constant on-screen sizes.
-  static get LOD_LABEL_ZOOM() { return 7 / 9; }
+  static get LOD_LABEL_ZOOM() { return 10 / 9; }
 
   // The mode's layout, and in browse mode the shape of the part of the canvas that can be
   // seen: ELK packs the registry's separate pieces side by side to that aspect ratio, so a
