@@ -447,6 +447,11 @@ function buildStylesheet() {
   const nodeBorder = getCssVar('--graph-node-border');
   const nodeBorderHighlighted = getCssVar('--graph-node-border-highlighted');
   const nodeBorderActive = getCssVar('--graph-node-border-active');
+  // The solid fill of a node in the browse overview (see `_applyLevelOfDetail`); a host
+  // that does not set it gets its highlighted border colour.
+  const nodeOverview = getCssVar('--graph-node-overview') || nodeBorderHighlighted;
+  // and of a chosen one there (a filled dot, where the labelled graph draws a border)
+  const nodeOverviewActive = getCssVar('--graph-node-overview-active') || nodeBorderActive;
   const edgeTextBg = getCssVar('--graph-edge-text-bg');
   const edgeTextBgOpacity = cssVarNumber('--graph-edge-text-bg-opacity', 0.9);
   const fadedOpacity = cssVarNumber('--graph-faded-opacity', 0.15);
@@ -497,6 +502,22 @@ function buildStylesheet() {
         'transition-duration': '0.2s',
       },
     },
+    // Browse overview: below the zoom at which labels can be read, a node is a solid dot
+    // and an edge a plain line in its capability's colour, both of a constant size on
+    // screen (`lodSize`, `lodWidth`: screen pixels divided by the zoom, kept current by
+    // `_applyLevelOfDetail`). The graph reads as structure; labels return on zooming in.
+    {
+      selector: 'node.lod-overview',
+      style: {
+        'label': '',
+        'shape': 'ellipse',
+        'width': 'data(lodSize)',
+        'height': 'data(lodSize)',
+        'padding': 0,
+        'background-color': nodeOverview,
+        'border-width': 0,
+      },
+    },
     {
       selector: 'node.highlighted',
       style: { 'border-width': '3px', 'border-color': nodeBorderHighlighted },
@@ -505,9 +526,11 @@ function buildStylesheet() {
       selector: 'node.active',
       style: { 'border-width': '3px', 'border-color': nodeBorderActive, 'z-index': 999 },
     },
+    // A faded element says where the rest of the graph is; its words would only be noise
+    // behind the chosen one's
     {
       selector: 'node.faded',
-      style: { 'opacity': fadedOpacity },
+      style: { 'opacity': fadedOpacity, 'text-opacity': 0 },
     },
     {
       selector: 'node.body-success',
@@ -571,8 +594,45 @@ function buildStylesheet() {
       },
     },
     {
+      selector: 'edge.lod-overview',
+      style: {
+        'label': '',
+        'width': 'data(lodWidth)',
+        'target-arrow-shape': 'none',
+        'curve-style': 'bezier',
+      },
+    },
+    {
       selector: 'edge.highlighted',
       style: { 'width': 2.5, 'z-index': 999 },
+    },
+    // A chosen capability stands out in the overview too: its nodes in the active colour and
+    // named, at a constant size on screen, its edges twice as wide, so that where the view is
+    // too small for the labelled graph (a phone) the choice still reads. The capability
+    // itself is named by the host's panel, not along its edge, where a long name would not
+    // fit a small view.
+    {
+      selector: 'node.lod-overview.highlighted, node.lod-overview.active',
+      style: {
+        'background-color': nodeOverviewActive,
+        'label': 'data(label)',
+        'font-size': 'data(lodFont)',
+        'text-valign': 'bottom',
+        'text-margin-y': 'data(lodGap)',
+        'color': nodeText,
+        'text-background-color': edgeTextBg,
+        'text-background-opacity': edgeTextBgOpacity,
+        'text-background-padding': 'data(lodGap)',
+        'text-background-shape': 'roundrectangle',
+        'z-index': 999,
+      },
+    },
+    {
+      selector: 'edge.lod-overview.highlighted, edge.lod-overview.active',
+      style: {
+        'width': 'data(lodWidthStrong)',
+        'z-index': 998,
+      },
     },
     {
       selector: 'edge.active',
@@ -612,7 +672,7 @@ function buildStylesheet() {
     },
     {
       selector: 'edge.faded',
-      style: { 'opacity': fadedEdgeOpacity },
+      style: { 'opacity': fadedEdgeOpacity, 'text-opacity': 0, 'text-background-opacity': 0 },
     },
     {
       selector: 'edge.body-success',
@@ -3157,7 +3217,7 @@ class CapFabRenderer {
       container: this.container,
       elements,
       layout: Object.assign(
-        { name: 'elk', elk: layoutForMode(this.mode) },
+        { name: 'elk', elk: this._layoutOptions() },
         {
           stop: function () {
             self.cy.resize();
@@ -3209,6 +3269,7 @@ class CapFabRenderer {
             } else {
               self._centerOnGraphInitial();
             }
+            self._applyLevelOfDetail();
           },
         }
       ),
@@ -3287,6 +3348,63 @@ class CapFabRenderer {
   // viewport (≈15% slack at 800×600).
   static get ZOOM_OUT_FIT_SLACK() { return 0.15; }
 
+  // Browse mode draws the labelled graph only where its labels can be read: the 9px node
+  // labels at no less than 7px on screen. Below that zoom it draws the overview (see the
+  // `lod-overview` styles): a dot per media type, sized by its connections, and a line per
+  // capability, at constant on-screen sizes.
+  static get LOD_LABEL_ZOOM() { return 7 / 9; }
+
+  // The mode's layout, and in browse mode the shape of the part of the canvas that can be
+  // seen: ELK packs the registry's separate pieces side by side to that aspect ratio, so a
+  // wide, short view is filled across rather than with a tall column in its middle.
+  _layoutOptions() {
+    const options = layoutForMode(this.mode);
+    if (this.mode !== 'browse') return options;
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight - Math.max(0, this.bottomExcludedRegion() | 0);
+    if (w > 0 && h > 0) options['elk.aspectRatio'] = w / h;
+    return options;
+  }
+
+  // The box a fit measures: the elements with their labels, except in the overview, whose
+  // labels are a constant size on screen (larger in the graph the further out it is) and
+  // would make every fit zoom out further than the one before
+  _fitBox(eles) {
+    return eles.boundingBox({ includeLabels: !this._lodOverview, includeOverlays: false });
+  }
+
+  _applyLevelOfDetail() {
+    if (this.mode !== 'browse' || !this.cy) return;
+    const cy = this.cy;
+    const zoom = cy.zoom();
+    const overview = zoom < CapFabRenderer.LOD_LABEL_ZOOM;
+    if (!overview && !this._lodOverview) return;
+    // Drawn very small (the whole registry on a phone), the dots would run into each other:
+    // they shrink with the zoom below a tenth, to no less than half their size
+    const scale = Math.min(1, Math.max(0.5, zoom / 0.1));
+    cy.batch(() => {
+      if (overview) {
+        cy.nodes().forEach((node) => {
+          // 8px for a leaf, growing with the square root of its connections (UTF-8, the
+          // hub every text capability meets, about 20px)
+          node.data({
+            lodSize: scale * (6 + 2.2 * Math.sqrt(node.degree())) / zoom,
+            lodFont: 11 / zoom,
+            lodGap: 3 / zoom,
+          });
+        });
+        cy.edges().data({
+          lodWidth: scale * 1.25 / zoom,
+          lodWidthStrong: 2.5 / zoom,
+        });
+        cy.elements().addClass('lod-overview');
+      } else {
+        cy.elements().removeClass('lod-overview');
+      }
+    });
+    this._lodOverview = overview;
+  }
+
   // Fit padding must scale down in very short viewports. The compact
   // machine-select graph pane is only ~100px tall; a fixed 50px inset
   // leaves no vertical room, so the bootstrap fit degenerates and the
@@ -3325,7 +3443,7 @@ class CapFabRenderer {
     if (containerWidth <= 0 || containerHeight <= 0) return;
     const elements = cy.elements();
     if (elements.length === 0) return;
-    const bb = elements.boundingBox({ includeLabels: true, includeOverlays: false });
+    const bb = this._fitBox(elements);
     if (bb.w === 0 && bb.h === 0) return;
 
     const excluded = Math.max(0, this.bottomExcludedRegion() | 0);
@@ -3397,10 +3515,15 @@ class CapFabRenderer {
     // that sits comfortably above this relaxed minimum, so opening
     // the view shows the graph centred with margin rather than
     // bleeding to all four edges.
-    const bb = this.cy.elements().boundingBox({ includeLabels: true, includeOverlays: false });
+    const bb = this._fitBox(this.cy.elements());
+    // The graph has to fit what can be seen: the canvas less the region the host covers
+    // at its bottom (`bottomExcludedRegion`), as the fits measure it. Measured against the
+    // whole canvas, the floor sat above the zoom a fit needs, and a graph taller than the
+    // visible part could never be fitted into it.
+    const visibleH = Math.max(1, h - Math.max(0, this.bottomExcludedRegion() | 0));
     let zoomMin;
     if (bb.w > 0 && bb.h > 0) {
-      const strictFit = Math.min(w / bb.w, h / bb.h);
+      const strictFit = Math.min(w / bb.w, visibleH / bb.h);
       zoomMin = strictFit * (1 - CapFabRenderer.ZOOM_OUT_FIT_SLACK);
     } else {
       // Empty / degenerate graph — leave the min loose; there's
@@ -3628,6 +3751,7 @@ class CapFabRenderer {
     this.cy.on('zoom pan', function () {
       if (!self._internalPanZoom) self._markInitialFitDone();
     });
+    this.cy.on('zoom', function () { self._applyLevelOfDetail(); });
 
     this.cy.on('tap', 'node', function (evt) {
       evt.stopPropagation();
@@ -4099,15 +4223,19 @@ class CapFabRenderer {
     this.cy.stop(true);
     if (!eles || eles.length === 0) eles = this.cy.elements();
 
-    const bb = eles.boundingBox({ includeLabels: true, includeOverlays: false });
+    const bb = this._fitBox(eles);
     if (bb.w === 0 && bb.h === 0) return;
 
     const containerWidth = this.cy.width();
     const containerHeight = this.cy.height();
     const excluded = Math.max(0, this.bottomExcludedRegion() | 0);
     padding = this._resolvedFitPadding(padding, containerWidth, containerHeight, excluded);
+    // The overview's names are not in the measured box (see `_fitBox`) and sit centred under
+    // their dots: room is kept for half a typical name at either side, whatever the height
+    // allows the padding to be
+    const paddingX = this._lodOverview ? Math.max(padding, Math.min(containerWidth / 4, 90)) : padding;
 
-    const visibleWidth = containerWidth - padding * 2;
+    const visibleWidth = containerWidth - paddingX * 2;
     const visibleHeight = containerHeight - excluded - padding * 2;
     if (visibleWidth <= 0 || visibleHeight <= 0) return;
 
