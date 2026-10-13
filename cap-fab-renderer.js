@@ -3068,6 +3068,11 @@ class CapFabRenderer {
     this.bottomExcludedRegion = typeof options.bottomExcludedRegion === 'function'
       ? options.bottomExcludedRegion
       : () => 0;
+    // How a capability's name is written (browse mode): the host may set it in its own case
+    // (the website writes titles in sentence case); by default as the registry gives it
+    this.formatCapTitle = typeof options.formatCapTitle === 'function'
+      ? options.formatCapTitle
+      : (title) => title;
 
     // State — shared fields.
     this.cy = null;
@@ -3209,7 +3214,7 @@ class CapFabRenderer {
     // labels. Both the per-node label width and the per-graph edge
     // label width are recorded on the renderer so the zoom-backstop
     // logic can reason about them after layout-stop.
-    const labelMetrics = shapeLabelsInElements(rawElements);
+    const labelMetrics = shapeLabelsInElements(this.mode === 'browse' ? this._formatCapTitles(rawElements) : rawElements);
     const elements = labelMetrics.elements;
     this._labelMaxNodeWidthPx = labelMetrics.maxNodeLabelPx;
     this._labelMaxEdgeWidthPx = labelMetrics.maxEdgeLabelPx;
@@ -3524,6 +3529,18 @@ class CapFabRenderer {
       });
     });
     this._placingNames = false;
+  }
+
+  // The capabilities' names (the edges' labels and titles) in the host's case
+  _formatCapTitles(elements) {
+    return elements.map((element) => {
+      const data = element && element.data;
+      if (!data || !data.source || !data.target) return element;
+      const next = Object.assign({}, data);
+      if (typeof data.label === 'string') next.label = this.formatCapTitle(data.label);
+      if (typeof data.title === 'string') next.title = this.formatCapTitle(data.title);
+      return Object.assign({}, element, { data: next });
+    });
   }
 
   // The box a fit measures: the elements with their labels, except in the overview, whose
@@ -3989,13 +4006,20 @@ class CapFabRenderer {
       const bodyTitle = node.data('bodyTitle');
       if (bodyTitle) return `${bodyTitle}: ${node.data('fullUrn') || node.id()}`;
     }
-    return node.data('fullUrn') || node.id();
+    const urn = node.data('fullUrn') || node.id();
+    const title = node.data('mediaTitle');
+    if (this.mode === 'browse' && title && title !== urn) return { title, detail: urn };
+    return urn;
   }
 
   _tooltipTextForEdge(edge) {
     const full = edge.data('fullUrn');
-    if (typeof full === 'string' && full.length > 0) return full;
-    return edge.data('title') || '';
+    const title = edge.data('title');
+    if (typeof full === 'string' && full.length > 0) {
+      if (this.mode === 'browse' && title && title !== full) return { title, detail: full };
+      return full;
+    }
+    return title || '';
   }
 
   _handleNodeTap(node) {
@@ -4438,10 +4462,21 @@ class CapFabRenderer {
   // Tooltip helpers.
   // ===========================================================================
 
+  // `text` is a string, or { title, detail }: a name over the URN it stands for (browse mode,
+  // where a crowded name may not be drawn in the graph and the tooltip is where it is read)
   _showTooltip(text, mouseEvent) {
     if (!this.tooltip) return;
     if (!text) return;
-    this.tooltip.textContent = text;
+    if (typeof text === 'string') {
+      this.tooltip.textContent = text;
+    } else {
+      const title = document.createElement('div');
+      title.textContent = text.title;
+      title.style.cssText = 'color: var(--text-primary); font-family: var(--font-family, inherit); font-size: 12px; font-weight: 600; word-break: normal; margin-bottom: 2px;';
+      const detail = document.createElement('div');
+      detail.textContent = text.detail;
+      this.tooltip.replaceChildren(title, detail);
+    }
     this.tooltip.style.display = 'block';
     const x = mouseEvent ? mouseEvent.clientX : 0;
     const y = mouseEvent ? mouseEvent.clientY : 0;
