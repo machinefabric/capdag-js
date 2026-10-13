@@ -744,21 +744,23 @@ function buildStylesheet() {
 function createTooltipElement() {
   const el = document.createElement('div');
   el.className = 'graph-tooltip';
+  // Its look is the host's where the host gives one (--graph-tooltip-*), these otherwise
   el.style.cssText = [
     'position: fixed',
     'display: none',
-    'background: var(--bg-elevated)',
-    'border: 1px solid var(--border-primary)',
-    'border-radius: 6px',
-    'padding: 6px 10px',
+    'background: var(--graph-tooltip-bg, var(--bg-elevated))',
+    'border: 1px solid var(--graph-tooltip-border, var(--border-primary))',
+    'border-radius: var(--graph-tooltip-radius, 6px)',
+    'padding: var(--graph-tooltip-padding, 6px 10px)',
     'font-family: var(--font-mono, ui-monospace, monospace)',
-    'font-size: 11px',
+    'font-size: var(--graph-tooltip-font-size, 11px)',
+    'line-height: var(--graph-tooltip-line-height, normal)',
     'color: var(--text-secondary)',
     'max-width: 400px',
     'word-break: break-all',
     'z-index: 10000',
     'pointer-events: none',
-    'box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3)',
+    'box-shadow: var(--graph-tooltip-shadow, 0 4px 12px rgba(0, 0, 0, 0.3))',
   ].join('; ') + ';';
   document.body.appendChild(el);
   return el;
@@ -4330,7 +4332,7 @@ class CapFabRenderer {
     } else {
       const title = document.createElement('div');
       title.textContent = text.title;
-      title.style.cssText = 'color: var(--text-primary); font-family: var(--font-family, inherit); font-size: 12px; font-weight: 600; word-break: normal; margin-bottom: 2px;';
+      title.style.cssText = 'color: var(--text-primary); font-family: var(--font-family, inherit); font-size: var(--graph-tooltip-title-size, 12px); font-weight: 600; word-break: normal; margin-bottom: 2px;';
       const detail = document.createElement('div');
       detail.textContent = text.detail;
       this.tooltip.replaceChildren(title, detail);
