@@ -144,6 +144,14 @@ function getCssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+// The graph's typeface: the host's (--graph-font-family) where it gives one. Labels are
+// measured in it as they are drawn in it.
+const DEFAULT_GRAPH_FONT = '"JetBrains Mono", ui-monospace, monospace';
+function graphFontFamily() {
+  if (typeof document === 'undefined') return DEFAULT_GRAPH_FONT;
+  return getCssVar('--graph-font-family') || DEFAULT_GRAPH_FONT;
+}
+
 function cssVarNumber(name, fallback) {
   const raw = getCssVar(name);
   if (raw === '') return fallback;
@@ -319,8 +327,9 @@ function shapeLabelsInElements(elements) {
   // style at render time; we shape against the renderer's static node
   // font (defined in `buildStylesheet`). Kept in sync manually — bump
   // both together.
-  const nodeFont = '500 9px "JetBrains Mono", ui-monospace, monospace';
-  const edgeFont = '500 8px "JetBrains Mono", ui-monospace, monospace';
+  const family = graphFontFamily();
+  const nodeFont = `500 9px ${family}`;
+  const edgeFont = `500 8px ${family}`;
   let maxEdgeLabelPx = 0;
   let maxNodeLabelPx = 0;
   const reshaped = new Array(elements.length);
@@ -442,6 +451,7 @@ function layoutForMode(mode) {
 // =============================================================================
 
 function buildStylesheet() {
+  const fontFamily = graphFontFamily();
   const nodeText = getCssVar('--graph-node-text');
   const nodeBg = getCssVar('--graph-node-bg');
   const nodeBorder = getCssVar('--graph-node-border');
@@ -486,7 +496,7 @@ function buildStylesheet() {
         // node fit its actual shaped text.
         'text-wrap': 'wrap',
         'line-height': 1.3,
-        'font-family': '"JetBrains Mono", ui-monospace, monospace',
+        'font-family': fontFamily,
         'font-size': '9px',
         'font-weight': '500',
         'color': nodeText,
@@ -557,7 +567,7 @@ function buildStylesheet() {
       selector: 'edge',
       style: {
         'label': 'data(label)',
-        'font-family': '"JetBrains Mono", ui-monospace, monospace',
+        'font-family': fontFamily,
         // Slightly smaller than the node label font (9px) so edge
         // labels read as secondary metadata rather than primary
         // identity. Kept in sync with the `edgeFont` constant in
@@ -3402,7 +3412,7 @@ class CapFabRenderer {
       return;
     }
     const chosen = cy.nodes('.highlighted, .active');
-    const font = '500 11px "JetBrains Mono", ui-monospace, monospace';
+    const font = `500 11px ${graphFontFamily()}`;
     const lineHeight = 11 * 1.3;
     const gap = 3;
     const placed = [];
