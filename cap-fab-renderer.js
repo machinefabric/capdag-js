@@ -593,6 +593,13 @@ function buildStylesheet() {
         'control-point-weights': 'data(controlPointWeights)',
       },
     },
+    // A capability's name that would overlap another's or a media type's is not written
+    // (`_placeEdgeLabels`); it is in the tooltip, and the panel, and comes back when what
+    // covered it is faded or the view moves
+    {
+      selector: 'edge.label-crowded',
+      style: { 'text-opacity': 0, 'text-background-opacity': 0 },
+    },
     {
       selector: 'edge.lod-overview',
       style: {
@@ -615,6 +622,13 @@ function buildStylesheet() {
       selector: 'node.lod-overview.highlighted, node.lod-overview.active',
       style: {
         'background-color': nodeOverviewActive,
+        'z-index': 999,
+      },
+    },
+    // ... and named where its name has room (`_placeOverviewNames`)
+    {
+      selector: 'node.lod-overview.lod-named',
+      style: {
         'label': 'data(label)',
         'font-size': 'data(lodFont)',
         'text-valign': 'bottom',
@@ -624,7 +638,7 @@ function buildStylesheet() {
         'text-background-opacity': edgeTextBgOpacity,
         'text-background-padding': 'data(lodGap)',
         'text-background-shape': 'roundrectangle',
-        'z-index': 999,
+        'z-index': 1000,
       },
     },
     {
@@ -3366,6 +3380,152 @@ class CapFabRenderer {
     return options;
   }
 
+  // In the overview, the chosen elements' names are written where they have room: in order
+  // of importance (the chosen node, then the most connected), a name is placed under its dot
+  // unless it would overlap one already placed or another chosen dot. A name left out is one
+  // hover or a closer zoom away.
+  _placeOverviewNames() {
+    if (this.mode !== 'browse' || !this.cy) return;
+    const cy = this.cy;
+    const named = cy.nodes('.lod-named');
+    if (!this._lodOverview) {
+      this._placingNames = true;
+      named.removeClass('lod-named');
+      this._placingNames = false;
+      return;
+    }
+    const chosen = cy.nodes('.highlighted, .active');
+    const font = '500 11px "JetBrains Mono", ui-monospace, monospace';
+    const lineHeight = 11 * 1.3;
+    const gap = 3;
+    const placed = [];
+    const overlaps = (a, b) => a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
+    // every chosen dot is an obstacle a name must not cover
+    chosen.forEach((node) => {
+      const p = node.renderedPosition();
+      const r = node.renderedWidth() / 2 + 1;
+      placed.push({ x1: p.x - r, x2: p.x + r, y1: p.y - r, y2: p.y + r });
+    });
+    const order = chosen.sort((a, b) => {
+      const rank = (n) => (n.hasClass('active') ? 2 : 0) + (this.selectedElement && this.selectedElement.element && this.selectedElement.element.id && this.selectedElement.element.id() === n.id() ? 2 : 0);
+      return (rank(b) - rank(a)) || (b.degree() - a.degree());
+    });
+    // a name is written only where it can be read whole: inside the visible view
+    const view = { x1: 0, y1: 0, x2: cy.width(), y2: cy.height() - Math.max(0, this.bottomExcludedRegion() | 0) };
+    const inside = (b) => b.x1 >= view.x1 && b.x2 <= view.x2 && b.y1 >= view.y1 && b.y2 <= view.y2;
+    const keep = new Set();
+    order.forEach((node) => {
+      const lines = String(node.data('label') || '').split('\n');
+      const width = Math.max(...lines.map((line) => measureTextWidth(line, font))) + gap * 2;
+      const height = lines.length * lineHeight + gap * 2;
+      const p = node.renderedPosition();
+      const top = p.y + node.renderedHeight() / 2 + gap;
+      const box = { x1: p.x - width / 2, x2: p.x + width / 2, y1: top, y2: top + height };
+      if (!inside(box) || placed.some((other) => overlaps(box, other))) return;
+      placed.push(box);
+      keep.add(node.id());
+    });
+    // its own class changes must not schedule it again
+    this._placingNames = true;
+    cy.batch(() => {
+      named.forEach((node) => { if (!keep.has(node.id())) node.removeClass('lod-named'); });
+      keep.forEach((id) => {
+        const node = cy.getElementById(id);
+        if (!node.hasClass('lod-named')) node.addClass('lod-named');
+      });
+    });
+    this._placingNames = false;
+  }
+
+  _scheduleOverviewNames() {
+    if (this._namesQueued) return;
+    this._namesQueued = true;
+    requestAnimationFrame(() => {
+      this._namesQueued = false;
+      this._placeOverviewNames();
+      this._placeEdgeLabels();
+    });
+  }
+
+  // In the labelled graph, a capability's name is written where it has room: in order of
+  // importance (the chosen one, the highlighted, then the rest in the view, nearest its
+  // centre first), a name is drawn unless its rotated box would overlap a name already drawn
+  // or a media type. The geometry is cytoscape's own (the label's centre, angle and size,
+  // in graph units, so the choice holds at any zoom); without it every name is drawn.
+  _placeEdgeLabels() {
+    if (this.mode !== 'browse' || !this.cy) return;
+    const cy = this.cy;
+    const crowded = cy.edges('.label-crowded');
+    const clear = () => {
+      this._placingNames = true;
+      crowded.removeClass('label-crowded');
+      this._placingNames = false;
+    };
+    if (this._lodOverview) { clear(); return; }
+
+    const ext = cy.extent();
+    const centre = { x: (ext.x1 + ext.x2) / 2, y: (ext.y1 + ext.y2) / 2 };
+    const pad = 4;
+    const boxOf = (edge) => {
+      const r = edge._private && edge._private.rscratch;
+      if (!r || !Number.isFinite(r.labelX) || !Number.isFinite(r.labelWidth) || !r.labelWidth) return null;
+      return {
+        x: r.labelX, y: r.labelY, angle: r.labelAngle || 0,
+        hw: r.labelWidth / 2 + pad, hh: (r.labelHeight || 8) / 2 + pad,
+      };
+    };
+    const corners = (b) => {
+      const c = Math.cos(b.angle), s = Math.sin(b.angle);
+      return [[-b.hw, -b.hh], [b.hw, -b.hh], [b.hw, b.hh], [-b.hw, b.hh]]
+        .map(([x, y]) => [b.x + x * c - y * s, b.y + x * s + y * c]);
+    };
+    // two convex boxes overlap unless an edge of one separates them (separating axes)
+    const separated = (pa, pb) => [pa, pb].some((poly) => poly.some((p, i) => {
+      const q = poly[(i + 1) % poly.length];
+      const nx = q[1] - p[1], ny = p[0] - q[0];
+      const project = (pts) => pts.map(([x, y]) => x * nx + y * ny);
+      const a = project(pa), b = project(pb);
+      return Math.max(...a) < Math.min(...b) || Math.max(...b) < Math.min(...a);
+    }));
+
+    const placed = [];
+    cy.nodes().forEach((node) => {
+      if (node.hasClass('faded')) return;
+      const bb = node.boundingBox({ includeLabels: false });
+      placed.push([[bb.x1, bb.y1], [bb.x2, bb.y1], [bb.x2, bb.y2], [bb.x1, bb.y2]]);
+    });
+
+    const inView = (b) => b.x >= ext.x1 && b.x <= ext.x2 && b.y >= ext.y1 && b.y <= ext.y2;
+    const rank = (edge) => (edge.hasClass('active') ? 2 : 0) + (edge.hasClass('highlighted') ? 1 : 0);
+    const candidates = [];
+    let measured = true;
+    cy.edges().forEach((edge) => {
+      if (edge.hasClass('faded') || !edge.data('label')) return;
+      const b = boxOf(edge);
+      if (!b) { measured = false; return; }
+      candidates.push({ edge, b, rank: rank(edge), view: inView(b) ? 1 : 0, d: Math.hypot(b.x - centre.x, b.y - centre.y) });
+    });
+    if (!measured) { clear(); return; }
+    candidates.sort((a, b) => (b.rank - a.rank) || (b.view - a.view) || (a.d - b.d));
+
+    const hide = new Set();
+    candidates.forEach(({ edge, b }) => {
+      const poly = corners(b);
+      if (placed.some((other) => !separated(poly, other))) { hide.add(edge.id()); return; }
+      placed.push(poly);
+    });
+
+    this._placingNames = true;
+    cy.batch(() => {
+      crowded.forEach((edge) => { if (!hide.has(edge.id())) edge.removeClass('label-crowded'); });
+      hide.forEach((id) => {
+        const edge = cy.getElementById(id);
+        if (!edge.hasClass('label-crowded')) edge.addClass('label-crowded');
+      });
+    });
+    this._placingNames = false;
+  }
+
   // The box a fit measures: the elements with their labels, except in the overview, whose
   // labels are a constant size on screen (larger in the graph the further out it is) and
   // would make every fit zoom out further than the one before
@@ -3752,6 +3912,10 @@ class CapFabRenderer {
       if (!self._internalPanZoom) self._markInitialFitDone();
     });
     this.cy.on('zoom', function () { self._applyLevelOfDetail(); });
+    // names follow the view and the choice: every zoom or pan, and every change of what is
+    // highlighted, places them again (once a frame)
+    this.cy.on('viewport', function () { self._scheduleOverviewNames(); });
+    this.cy.on('class', function () { if (!self._placingNames) self._scheduleOverviewNames(); });
 
     this.cy.on('tap', 'node', function (evt) {
       evt.stopPropagation();
