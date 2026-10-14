@@ -3123,6 +3123,7 @@ class CapFabRenderer {
     this.capabilitiesByEdgeId = new Map();
     this._mediaTitles = new Map();
     this._pendingFocusCap = null;
+    this._pendingFocusCaps = null;
     this.pathMode = null;
 
     // Strand/run state.
@@ -3488,6 +3489,10 @@ class CapFabRenderer {
       const pending = this._pendingFocusCap;
       this._pendingFocusCap = null;
       this.highlightCapability(pending);
+    } else if (this._pendingFocusCaps) {
+      const pending = this._pendingFocusCaps;
+      this._pendingFocusCaps = null;
+      this.highlightCapabilities(pending);
     }
     // First paint with no preselected focus: snap (no
     // animation) to a centered fit of the full, post-stretch
@@ -4325,6 +4330,37 @@ class CapFabRenderer {
         return;
       }
     }
+  }
+
+  // A set of capabilities picked out of the registry (the host's choice of tags: coerce, its 22):
+  // their edges and the types they join stand out, the rest is faded. Nothing is selected and
+  // the view stays where it is: the choice is a filter, not a destination. An empty set clears
+  // the emphasis. Capabilities are matched by their canonical URN, as the registry writes it.
+  highlightCapabilities(caps) {
+    if (this.mode !== 'browse') {
+      throw new Error(`CapFabRenderer: highlightCapabilities is only valid in browse mode (current: ${this.mode})`);
+    }
+    if (!Array.isArray(caps)) {
+      throw new Error('CapFabRenderer: highlightCapabilities takes an array of capabilities');
+    }
+    if (!this.cy || !this._layoutReady) {
+      this._pendingFocusCaps = caps;
+      return;
+    }
+    const urns = new Set(caps.map((cap) => this._capUrnString(cap)));
+    const cy = this.cy;
+    cy.batch(() => {
+      cy.elements().removeClass('highlighted active faded');
+      if (urns.size === 0) return;
+      const chosen = cy.edges().filter((edge) => {
+        const edgeCap = this.capabilitiesByEdgeId.get(edge.id());
+        return !!edgeCap && urns.has(edgeCap.urn);
+      });
+      if (chosen.length === 0) return;
+      cy.elements().addClass('faded');
+      chosen.removeClass('faded').addClass('highlighted');
+      chosen.connectedNodes().removeClass('faded').addClass('highlighted');
+    });
   }
 
   _capUrnString(cap) {
