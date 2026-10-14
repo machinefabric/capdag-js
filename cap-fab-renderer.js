@@ -3495,10 +3495,12 @@ class CapFabRenderer {
     const ELK = globalThis.ELK;
     if (this.elkWorkerUrl && typeof Worker === 'function' && typeof Blob === 'function') {
       try {
+        // the factory alone, not the URL too: given a URL, elkjs's bundle warns that a worker was
+        // asked for but cannot be made, although it then uses this factory
+        const script = this.elkWorkerUrl;
         return new ELK({
-          workerUrl: this.elkWorkerUrl,
-          workerFactory: (url) => new Worker(URL.createObjectURL(
-            new Blob([`importScripts(${JSON.stringify(url)});`], { type: 'application/javascript' })
+          workerFactory: () => new Worker(URL.createObjectURL(
+            new Blob([`importScripts(${JSON.stringify(script)});`], { type: 'application/javascript' })
           )),
         });
       } catch (error) {
@@ -3915,6 +3917,12 @@ class CapFabRenderer {
           lodGap: 3 / zoom,
           lodLift: -12 / zoom,
           lodLoopStep: 3 / zoom,
+        });
+        // a loop stands clear of its dot: cytoscape cannot draw one whose step lies inside the
+        // node (most of the overview's loops went undrawn), so a loop's step is half its dot's
+        // size and a little more, the loops on a hub nested low under the dots above it
+        cy.edges('.browse-loop').forEach((edge) => {
+          edge.data('lodLoopStep', edge.source().data('lodSize') * 0.5 + 3 / zoom);
         });
         cy.elements().addClass('lod-overview');
       } else {
