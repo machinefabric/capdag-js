@@ -10530,11 +10530,12 @@ function includeMachines(wirings, aliasMap, machines, includedMedia, definitions
  * inside of, this one last when it has an id.
  */
 function parseProgram(input, definitions, source, id, including) {
-  const text = input.trim();
-  if (text.length === 0) throw syntaxError.empty();
+  if (input.trim().length === 0) throw syntaxError.empty();
 
-  // Phase 1: the text, read into statements.
-  const statements = parseSyntax(text);
+  // Phase 1: the text, read into statements. The text is read whole — the
+  // grammar takes whitespace around statements — so that every location is
+  // where it stands in what was given.
+  const statements = parseSyntax(input);
 
   // Phase 2: headers and wirings.
   const aliasMap = new Map();
@@ -11024,69 +11025,17 @@ Machine.prototype.toMermaid = function toMermaid(aliases = null) {
 };
 
 // ============================================================================
-// Cap & Media Registry Client
-// Fetches and caches capability and media registries from capdag.com
+// The fabric registry: versioned definitions of caps, media and aliases
 // ============================================================================
-
-/**
- * A capability entry from the registry.
- *
- * Wire shape mirrors the flattened entries published at
- *   <base>/api/capabilities                    (the flat array)
- *   <base>/views/capabilities                  (alias)
- *   <base>/views/capabilities-by-urn           (map keyed by canonical URN)
- *   <base>/caps/<sha256(canonical-urn)>        (per-URN object)
- *
- * Equality between an entry's URN and any caller-supplied URN MUST go
- * through the CapUrn parser's `isEquivalent()` predicate — never via
- * string comparison. The wire form is already canonical (the writer
- * canonicalises before publishing), but a caller's URN may not be, so
- * lookups parse both sides and compare via the parser's order-theoretic
- * relations.
- */
-class FabricRegistryEntry {
-  constructor(data) {
-    this.urn = data.urn;
-    this.title = data.title || '';
-    this.aliases = data.aliases || [];
-    this.isAbstract = data.abstract === true;
-    this.description = data.cap_description || '';
-    this.args = data.args || [];
-    this.outputs = data.outputs || [];
-    this.urnTags = data.urn_tags || {};
-    this.inSpec = data.in_spec || '';
-    this.outSpec = data.out_spec || '';
-    this.inMediaTitle = data.in_media_title || '';
-    this.outMediaTitle = data.out_media_title || '';
-  }
-}
-
-/**
- * A media def entry from the registry.
- *
- * Wire shape mirrors the per-URN objects published at
- *   <base>/media/<sha256(canonical-urn)>
- * and the values of `<base>/views/media-by-urn`.
- */
-class MediaRegistryEntry {
-  constructor(data) {
-    this.urn = data.urn;
-    this.title = data.title || '';
-    this.mediaType = data.media_type || '';
-    this.description = data.description || '';
-  }
-}
 
 /**
  * SHA-256 hex digest of `s` UTF-8 bytes.
  *
- * Used to derive registry object keys from canonical URN strings, so
- * the URL surface is colon/quote/semicolon-free. All capdag
- * implementations (capdag, capdag-js, capdag-py, capdag-go, capdag-objc)
- * use this same algorithm so a URN's key is identical across languages.
- *
- * `crypto.subtle` is on `globalThis` in browsers and in every Node this
- * package supports.
+ * Registry object keys are derived from canonical URN strings and alias names
+ * this way, so the URL surface is colon/quote/semicolon-free. Every capdag
+ * implementation uses this same algorithm, so a URN's key is identical across
+ * languages. `crypto.subtle` is on `globalThis` in browsers and in every Node
+ * this package supports.
  */
 async function sha256Hex(s) {
   const utf8 = new TextEncoder().encode(s);
@@ -11094,253 +11043,417 @@ async function sha256Hex(s) {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+const FabricRegistryErrorCodes = Object.freeze({
+  /** The registry holds no such object, or the manifest names no such definition. */
+  NOT_FOUND: 'NotFound',
+  /** The registry could not be reached, or answered with an error status. */
+  HTTP: 'Http',
+  /** What the registry served is not the object it was asked for. */
+  PARSE: 'Parse',
+  /** What the registry served breaks a definition rule. */
+  VALIDATION: 'Validation',
+});
+
+/** Why the fabric registry did not give a definition. */
+class FabricRegistryError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'FabricRegistryError';
+    this.code = code;
+  }
+}
+
+const isPositiveWhole = value => Number.isInteger(value) && value >= 1;
+
+/** How many definitions `loadAll` fetches at once. */
+const LOAD_ALL_AT_ONCE = 16;
+
 /**
- * Client for fetching and caching capabilities and media defs.
+ * Read a manifest as the registry serves it, refusing one that is not whole:
+ * `version` and `previous` are whole numbers, and `caps`, `media` and
+ * `aliases` map each name to a positive per-definition version.
+ */
+function manifestFromJSON(obj, expectedVersion) {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `manifest v${expectedVersion} is not an object`);
+  }
+  if (!isPositiveWhole(obj.version) || !Number.isInteger(obj.previous) || obj.previous < 0) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+      `manifest v${expectedVersion} does not say its version and the one before it`);
+  }
+  if (obj.version !== expectedVersion) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+      `manifest fetched as v${expectedVersion} reports version ${obj.version}`);
+  }
+  for (const section of ['caps', 'media', 'aliases']) {
+    const held = obj[section];
+    if (held === null || typeof held !== 'object' || Array.isArray(held)) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `manifest v${expectedVersion} has no '${section}' map`);
+    }
+    for (const [name, defver] of Object.entries(held)) {
+      if (!isPositiveWhole(defver)) {
+        throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+          `manifest v${expectedVersion} pins '${name}' at ${JSON.stringify(defver)}, which is no definition version`);
+      }
+    }
+  }
+  return new Manifest(obj.version, obj.previous, { ...obj.caps }, { ...obj.media }, { ...obj.aliases });
+}
+
+/**
+ * Read a media definition as the registry serves it: `urn`, `media_type` and
+ * `title` are strings, `version` the per-definition version the manifest pins.
+ */
+function mediaDefFromStored(obj, expectedUrn, expectedVersion) {
+  const refused = what => new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+    `the registry's media definition of '${expectedUrn}' ${what}`);
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) throw refused('is not an object');
+  for (const key of ['urn', 'media_type', 'title']) {
+    if (typeof obj[key] !== 'string' || obj[key].length === 0) throw refused(`has no '${key}'`);
+  }
+  if (MediaUrn.fromString(obj.urn).toString() !== expectedUrn) throw refused(`is of '${obj.urn}'`);
+  if (obj.version !== expectedVersion) {
+    throw refused(`reports version ${JSON.stringify(obj.version)} but the manifest pins ${expectedVersion}`);
+  }
+  if (obj.extensions !== undefined && !Array.isArray(obj.extensions)) throw refused("has 'extensions' that are not a list");
+  const def = new MediaDef(obj.media_type, obj.profile_uri || null, obj.schema === undefined ? null : obj.schema,
+    obj.title, obj.description || null, expectedUrn, obj.validation || null, obj.metadata || null,
+    obj.extensions || [], typeof obj.documentation === 'string' && obj.documentation.length > 0 ? obj.documentation : null);
+  def.version = obj.version;
+  return def;
+}
+
+/**
+ * Read a cap definition as the registry serves it and hold it to the
+ * definition rules before anything caches it: a definition is held to them by
+ * the side that receives it as well as the side that sends it.
+ */
+function capFromStored(obj, expectedUrn, expectedVersion) {
+  let cap;
+  try {
+    cap = Cap.fromJSON(obj);
+  } catch (error) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+      `the registry's definition of cap '${expectedUrn}' does not parse: ${error.message}`);
+  }
+  if (cap.urn.toString() !== expectedUrn) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+      `the registry served cap '${cap.urn}' for '${expectedUrn}'`);
+  }
+  if (cap.version !== expectedVersion) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+      `the registry's definition of cap '${expectedUrn}' reports version ${cap.version} but the manifest pins ${expectedVersion}`);
+  }
+  try {
+    validateCapDefinition(cap);
+  } catch (error) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.VALIDATION,
+      `the registry's definition of cap '${expectedUrn}' breaks a definition rule: ${error.message}`);
+  }
+  return cap;
+}
+
+/**
+ * A client of the fabric registry, pinned to one manifest version.
  *
- * Reads from `<baseUrl>/api/capabilities` (the flat catalogue) and
- * `<baseUrl>/{caps,media}/<sha256>` (per-URN).
+ * The manifest names every cap URN, media URN and alias of its snapshot with
+ * the version of each definition; each definition is one object at
+ * `<base>/{caps,media,aliases}/<sha256 of its canonical name>/<version>.json`.
+ * Nothing outside the pinned manifest is fetched: a URN it does not name is
+ * not found, never read from another snapshot.
  *
- * URL safety: per-URN lookups hash the canonical URN string with SHA-256
- * before constructing the URL, so the path contains only the literal
- * prefix and a 64-character hex digest — no colons, quotes, semicolons,
- * or equals signs to percent-encode.
- *
- * URN comparison: the cache lookup parses both sides through CapUrn /
- * MediaUrn and uses the parser's `isEquivalent()` predicate. Two
- * spellings of the same URN (different tag order, etc.) resolve to the
- * same entry.
+ * Fetches are asynchronous; what they bring is held in memory and read
+ * synchronously, which makes a client one of the definitions a machine is
+ * parsed against (`capDefinition`, `mediaDefinition`, `aliasTarget`) and the
+ * alias source a machine is written with (`displayAliasForUrn`). A cap is
+ * cached only once every media URN it names is: a cap whose media cannot be
+ * read is not held at all.
  */
 class FabricRegistryClient {
   /**
-   * @param {string} [baseUrl='https://fabric.capdag.com'] - Registry base URL
-   * @param {number} [cacheTtlSeconds=300] - Cache TTL in seconds
+   * @param {string} baseUrl - The registry's base URL
+   * @param {number} manifestVersion - The manifest this client reads
+   * @param {Object} [options]
+   * @param {function(string): Promise<Response>} [options.fetch] - How a URL
+   *   is fetched (the runtime's `fetch` when not given)
    */
-  constructor(baseUrl = 'https://fabric.capdag.com', cacheTtlSeconds = 300) {
+  constructor(baseUrl, manifestVersion, options = {}) {
+    if (typeof baseUrl !== 'string' || baseUrl.length === 0) {
+      throw new Error('a fabric registry client is given the registry URL');
+    }
+    if (!isPositiveWhole(manifestVersion)) {
+      throw new Error(`a fabric registry client reads a manifest version from 1 up, not ${JSON.stringify(manifestVersion)}`);
+    }
     this._baseUrl = baseUrl.replace(/\/$/, '');
-    this._cacheTtl = cacheTtlSeconds * 1000;
-    // The full-catalogue cache is keyed by no key — there's only one.
-    this._capCache = null;
-    // Per-URN media cache, keyed by the canonical URN string. The
-    // canonical key only needs to be unique per equivalence class; we
-    // store one entry per equivalence class.
-    this._mediaCache = new Map();
-    // Normalized alias name → StoredAlias. Mirrors Rust
-    // FabricRegistry::cached_aliases. The display/serialization surfaces
-    // read this synchronously; it is warmed by insertCachedAliasForTest (and,
-    // in the heavier mirrors, a background prefetch this lightweight client
-    // does not implement).
-    this._cachedAliases = new Map();
+    this._manifestVersion = manifestVersion;
+    this._fetch = options.fetch || ((url) => globalThis.fetch(url));
+    this._manifest = null;
+    this._caps = new Map();
+    this._media = new Map();
+    this._aliases = new Map();
+    // A fetch under way, by what it fetches: one asked for again while it
+    // runs is the same fetch.
+    this._pending = new Map();
   }
 
   /**
-   * Fetch the full flat capability catalogue (cached).
-   *
-   * @returns {Promise<FabricRegistryEntry[]>}
+   * A client pinned to the manifest the registry has promoted as its latest
+   * (`<base>/manifest/latest.json`): for a host that follows the fabric
+   * rather than one snapshot of it.
+   * @param {string} baseUrl
+   * @param {Object} [options] - As for the constructor
+   * @returns {Promise<FabricRegistryClient>}
    */
-  async fetchCapabilities() {
-    if (this._capCache && (Date.now() - this._capCache.fetchedAt) < this._cacheTtl) {
-      return this._capCache.entries;
+  static async latest(baseUrl, options = {}) {
+    const probe = new FabricRegistryClient(baseUrl, 1, options);
+    const url = `${probe._baseUrl}/manifest/latest.json`;
+    const latest = await probe._get(url, 'the latest manifest');
+    if (latest === null || typeof latest !== 'object' || !isPositiveWhole(latest.version)) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `${url} does not name a manifest version`);
     }
+    return new FabricRegistryClient(baseUrl, latest.version, options);
+  }
 
-    const url = `${this._baseUrl}/api/capabilities`;
-    const response = await fetch(url);
+  /** The manifest version this client reads. */
+  get manifestVersion() {
+    return this._manifestVersion;
+  }
+
+  async _get(url, what) {
+    let response;
+    try {
+      response = await this._fetch(url);
+    } catch (error) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.HTTP, `${what}: the registry could not be reached at ${url}: ${error.message}`);
+    }
+    if (response.status === 404) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.NOT_FOUND, `${what}: the registry holds nothing at ${url}`);
+    }
     if (!response.ok) {
-      throw new Error(`Cap registry request failed: HTTP ${response.status} from ${url}`);
+      throw new FabricRegistryError(FabricRegistryErrorCodes.HTTP, `${what}: the registry answered HTTP ${response.status} at ${url}`);
     }
-
-    const data = await response.json();
-    if (!Array.isArray(data)) {
-      throw new Error(`Invalid cap registry response: expected array, got ${typeof data}`);
+    try {
+      return await response.json();
+    } catch (error) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `${what}: the registry's answer at ${url} is not JSON: ${error.message}`);
     }
+  }
 
-    const entries = data.map(d => new FabricRegistryEntry(d));
-    this._capCache = { entries, fetchedAt: Date.now() };
-    return entries;
+  /** The pinned manifest, fetched once. */
+  async manifest() {
+    if (this._manifest !== null) return this._manifest;
+    return this._once('manifest', async () => {
+      const url = `${this._baseUrl}/manifest/${this._manifestVersion}.json`;
+      this._manifest = manifestFromJSON(await this._get(url, `manifest v${this._manifestVersion}`), this._manifestVersion);
+      return this._manifest;
+    });
+  }
+
+  /** Fetch `key` once, however many ask for it while it runs. */
+  _once(key, fetchIt) {
+    if (!this._pending.has(key)) {
+      const running = fetchIt().finally(() => this._pending.delete(key));
+      this._pending.set(key, running);
+    }
+    return this._pending.get(key);
+  }
+
+  async _defver(section, name, what) {
+    const manifest = await this.manifest();
+    const defver = manifest[section][name];
+    if (defver === undefined) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.NOT_FOUND, `${what} is not part of manifest v${this._manifestVersion}`);
+    }
+    return defver;
   }
 
   /**
-   * Lookup a single capability by URN.
-   *
-   * Canonicalises the input URN through CapUrn, then either:
-   *   - returns the cache entry whose URN `isEquivalent()` to the
-   *     canonical input, OR
-   *   - GETs `<base>/caps/<sha256(canonical)>` and returns its body.
-   *
-   * @param {string} capUrnStr — caller's cap URN (any valid form)
-   * @returns {Promise<FabricRegistryEntry|null>}
+   * The media definition a media URN names.
+   * @returns {Promise<MediaDef>}
    */
-  async lookupCap(capUrnStr) {
-    const requested = CapUrn.fromString(capUrnStr);
+  async getMediaDef(urn) {
+    const canonical = MediaUrn.fromString(urn).toString();
+    if (this._media.has(canonical)) return this._media.get(canonical);
+    return this._once(`media ${canonical}`, async () => {
+      const defver = await this._defver('media', canonical, `media definition '${canonical}'`);
+      const url = `${this._baseUrl}/media/${await sha256Hex(canonical)}/${defver}.json`;
+      const def = mediaDefFromStored(await this._get(url, `media definition '${canonical}'`), canonical, defver);
+      this._media.set(canonical, def);
+      return def;
+    });
+  }
 
-    if (this._capCache && (Date.now() - this._capCache.fetchedAt) < this._cacheTtl) {
-      for (const entry of this._capCache.entries) {
-        const entryUrn = CapUrn.fromString(entry.urn);
-        if (entryUrn.isEquivalent(requested)) return entry;
+  /**
+   * The cap a cap URN or a cap alias names, held to the definition rules,
+   * with every media definition it names.
+   * @returns {Promise<Cap>}
+   */
+  async getCap(urnOrAlias) {
+    const urn = isAliasToken(urnOrAlias) ? await this._aliasTargetOfKind(urnOrAlias, ALIAS_TARGET_CAP) : urnOrAlias;
+    const canonical = CapUrn.fromString(urn).toString();
+    if (this._caps.has(canonical)) return this._caps.get(canonical);
+    return this._once(`cap ${canonical}`, () => this._fetchCap(canonical));
+  }
+
+  async _fetchCap(canonical) {
+    const defver = await this._defver('caps', canonical, `cap '${canonical}'`);
+    const url = `${this._baseUrl}/caps/${await sha256Hex(canonical)}/${defver}.json`;
+    const cap = capFromStored(await this._get(url, `cap '${canonical}'`), canonical, defver);
+    // Every media URN the cap names, the bare `media:` aside (it is the
+    // universal type, not a definition).
+    const named = new Set();
+    const name = text => {
+      const media = MediaUrn.fromString(text);
+      if (!media.isTop()) named.add(media.toString());
+    };
+    name(cap.urn.getInSpec());
+    name(cap.urn.getOutSpec());
+    for (const arg of cap.args) {
+      name(arg.media_urn);
+      name(arg.acceptedUrn());
+    }
+    for (const output of cap.getOutputs()) name(output.media_urn);
+    for (const media of named) await this.getMediaDef(media);
+    this._caps.set(canonical, cap);
+    return cap;
+  }
+
+  /**
+   * The alias of that name, matched against what was asked: its name and
+   * the version the manifest pins, and a target that is a cap or a media URN.
+   * @returns {Promise<StoredAlias>}
+   */
+  async getAlias(name) {
+    const normalized = normalizeAliasName(name);
+    if (this._aliases.has(normalized)) return this._aliases.get(normalized);
+    return this._once(`alias ${normalized}`, () => this._fetchAlias(normalized));
+  }
+
+  async _fetchAlias(normalized) {
+    const defver = await this._defver('aliases', normalized, `alias '${normalized}'`);
+    const url = `${this._baseUrl}/aliases/${await sha256Hex(normalized)}/${defver}.json`;
+    const obj = await this._get(url, `alias '${normalized}'`);
+    if (obj === null || typeof obj !== 'object' || typeof obj.name !== 'string' || typeof obj.target !== 'string') {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `the registry's alias '${normalized}' is not an alias`);
+    }
+    if (obj.name !== normalized) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `alias object name '${obj.name}' does not match requested name '${normalized}'`);
+    }
+    if (obj.version !== defver) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+        `alias '${normalized}' object reports version ${JSON.stringify(obj.version)} but manifest pins defver ${defver}`);
+    }
+    const kind = classifyAliasTarget(obj.target);
+    if (kind === null) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.VALIDATION, `alias '${normalized}' target '${obj.target}' is neither a cap nor a media URN`);
+    }
+    const target = kind === ALIAS_TARGET_CAP ? CapUrn.fromString(obj.target).toString() : MediaUrn.fromString(obj.target).toString();
+    const alias = new StoredAlias(normalized, target, defver);
+    this._aliases.set(normalized, alias);
+    return alias;
+  }
+
+  async _aliasTargetOfKind(name, kind) {
+    const alias = await this.getAlias(name);
+    if (classifyAliasTarget(alias.target) !== kind) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.VALIDATION,
+        `alias '${alias.name}' names '${alias.target}', which is not a ${kind} URN`);
+    }
+    return alias.target;
+  }
+
+  /**
+   * Fetch every alias and every cap the pinned manifest names, each cap with
+   * the media definitions it names: what reading any machine of the fabric
+   * takes. Media no cap names are not fetched; `getMediaDef` reads one.
+   * Fetches run a few at a time, and the first failure is the answer.
+   */
+  async loadAll() {
+    const manifest = await this.manifest();
+    const inTurn = async (names, fetchOne) => {
+      for (let at = 0; at < names.length; at += LOAD_ALL_AT_ONCE) {
+        await Promise.all(names.slice(at, at + LOAD_ALL_AT_ONCE).map(fetchOne));
       }
-    }
+    };
+    await inTurn(Object.keys(manifest.aliases), name => this.getAlias(name));
+    await inTurn(Object.keys(manifest.caps), urn => this.getCap(urn));
+  }
 
-    const canonical = requested.toString();
-    const hash = await sha256Hex(canonical);
-    const url = `${this._baseUrl}/caps/${hash}`;
-    const response = await fetch(url);
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new Error(`Cap lookup failed: HTTP ${response.status} for ${canonical} (${url})`);
-    }
+  /** Every cap fetched so far. */
+  cachedCaps() {
+    return [...this._caps.values()];
+  }
 
-    const data = await response.json();
-    return new FabricRegistryEntry(data);
+  /** Every media definition fetched so far. */
+  cachedMediaDefs() {
+    return [...this._media.values()];
+  }
+
+  /** The fetched definition of the cap a URN names, or null. */
+  capDefinition(urn) {
+    return this._caps.get(CapUrn.fromString(urn).toString()) || null;
+  }
+
+  /** The fetched definition of the media a URN names, or null. */
+  mediaDefinition(urn) {
+    return this._media.get(MediaUrn.fromString(urn).toString()) || null;
+  }
+
+  /** The URN a fetched alias names, or null. */
+  aliasTarget(name) {
+    if (!isAliasToken(name)) return null;
+    const alias = this._aliases.get(normalizeAliasName(name));
+    return alias ? alias.target : null;
   }
 
   /**
-   * Lookup a single media def by URN.
-   *
-   * Canonicalises through MediaUrn and looks up by SHA-256 hash.
-   *
-   * @param {string} mediaUrnStr
-   * @returns {Promise<MediaRegistryEntry|null>}
-   */
-  async lookupMedia(mediaUrnStr) {
-    const requested = MediaUrn.fromString(mediaUrnStr);
-    const canonical = requested.toString();
-
-    const cached = this._mediaCache.get(canonical);
-    if (cached && (Date.now() - cached.fetchedAt) < this._cacheTtl) {
-      return cached.entry;
-    }
-
-    const hash = await sha256Hex(canonical);
-    const url = `${this._baseUrl}/media/${hash}`;
-    const response = await fetch(url);
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new Error(`Media lookup failed: HTTP ${response.status} for ${canonical} (${url})`);
-    }
-
-    const data = await response.json();
-    const entry = new MediaRegistryEntry(data);
-    this._mediaCache.set(canonical, { entry, fetchedAt: Date.now() });
-    return entry;
-  }
-
-  /**
-   * All canonical media URNs referenced as in/out specs by any cap in
-   * the cached catalogue.
-   *
-   * @returns {Promise<string[]>}
-   */
-  async getKnownMediaUrns() {
-    const caps = await this.fetchCapabilities();
-    const urns = new Set();
-    for (const cap of caps) {
-      if (cap.inSpec) urns.add(cap.inSpec);
-      if (cap.outSpec) urns.add(cap.outSpec);
-    }
-    return Array.from(urns).sort();
-  }
-
-  /**
-   * All distinct `op=` tag values present on any cap in the cached
-   * catalogue.
-   *
-   * `op` is just another arbitrary tag; this helper exists for the
-   * cap-navigator UI which surfaces operation labels. It is NOT part of
-   * dispatch — only the in/out tags carry functional meaning.
-   *
-   * @returns {Promise<string[]>}
-   */
-  async getKnownOps() {
-    const caps = await this.fetchCapabilities();
-    const ops = new Set();
-    for (const cap of caps) {
-      const op = cap.urnTags && cap.urnTags.op;
-      if (op) ops.add(op);
-    }
-    return Array.from(ops).sort();
-  }
-
-  /**
-   * Insert an alias directly into the in-memory cache, keyed by its
-   * normalized name. Mirrors Rust
-   * FabricRegistry::insert_cached_alias_for_test — it is the warm-cache seam
-   * the display/serialization primitives read from. The lightweight JS client
-   * has no background alias prefetch, so callers seed the cache through here.
-   *
+   * Insert an alias into the cache, keyed by its normalized name: the seam a
+   * host or a test seeds aliases through without a registry behind it.
    * @param {StoredAlias} alias
    */
   insertCachedAliasForTest(alias) {
-    const normalized = normalizeAliasName(alias.name);
-    this._cachedAliases.set(normalized, alias);
+    this._aliases.set(normalizeAliasName(alias.name), alias);
   }
 
   /**
-   * Reverse lookup: the display alias for a `cap:`/`media:` URN, or null if no
-   * cached alias points at it. This is the canonical primitive every UI surface
-   * and notation generator uses to render an aliased name in place of a raw URN.
-   *
-   * The query URN is canonicalised through its own parser (cap vs media by
-   * prefix) before matching, because alias targets are stored canonically — a
-   * non-canonical query (different tag order, redundant whitespace) would
-   * otherwise miss. A URN that is neither a cap nor a media URN, or that fails
-   * to parse, returns null (it cannot have an alias).
-   *
-   * When multiple aliases target the same URN, the winner is the SHORTEST name,
-   * ties broken alphabetically (see selectDisplayAlias). This is deterministic
-   * and stable across processes for a given alias set.
-   *
-   * Mirrors Rust FabricRegistry::display_alias_for_urn.
+   * The display alias for a `cap:`/`media:` URN among the fetched aliases:
+   * the SHORTEST name that names it, ties broken alphabetically. Null when
+   * none does, or when the text is neither kind of URN.
    * @param {string} urn
    * @returns {string|null}
    */
   displayAliasForUrn(urn) {
-    // Canonicalise by kind. classifyAliasTarget keys off the parser (cap vs
-    // media), the same classifier the alias publisher uses for targets, so a
-    // query and a stored target canonicalise identically.
     const kind = classifyAliasTarget(urn);
     let canonical;
-    if (kind === ALIAS_TARGET_CAP) {
-      canonical = CapUrn.fromString(urn).toString();
-    } else if (kind === ALIAS_TARGET_MEDIA) {
-      canonical = MediaUrn.fromString(urn).toString();
-    } else {
-      return null;
-    }
-
+    if (kind === ALIAS_TARGET_CAP) canonical = CapUrn.fromString(urn).toString();
+    else if (kind === ALIAS_TARGET_MEDIA) canonical = MediaUrn.fromString(urn).toString();
+    else return null;
     const names = [];
-    for (const alias of this._cachedAliases.values()) {
-      if (alias.target === canonical) {
-        names.push(alias.name);
-      }
+    for (const alias of this._aliases.values()) {
+      if (alias.target === canonical) names.push(alias.name);
     }
     return selectDisplayAlias(names);
   }
 
   /**
-   * All cached aliases whose target is a CAP URN, as [name, capUrn] pairs.
-   * Used by the notation editor to offer registered cap aliases as wiring
-   * completions. Order is unspecified (the caller sorts/filters). Synchronous,
-   * cache-only — relies on the alias cache having been warmed.
-   *
-   * Mirrors Rust FabricRegistry::cached_cap_aliases.
+   * Every fetched alias whose target is a cap URN, as [name, capUrn] pairs.
    * @returns {Array<[string, string]>}
    */
   cachedCapAliases() {
     const pairs = [];
-    for (const alias of this._cachedAliases.values()) {
-      if (classifyAliasTarget(alias.target) === ALIAS_TARGET_CAP) {
-        pairs.push([alias.name, alias.target]);
-      }
+    for (const alias of this._aliases.values()) {
+      if (classifyAliasTarget(alias.target) === ALIAS_TARGET_CAP) pairs.push([alias.name, alias.target]);
     }
     return pairs;
   }
 
-  /**
-   * Invalidate all caches. Next call to any method fetches fresh data.
-   */
+  /** Forget everything fetched: the next lookup reads the registry again. */
   invalidate() {
-    this._capCache = null;
-    this._mediaCache.clear();
-    this._cachedAliases.clear();
+    this._manifest = null;
+    this._caps.clear();
+    this._media.clear();
+    this._aliases.clear();
+    this._pending.clear();
   }
 }
 
@@ -11785,10 +11898,10 @@ export {
   parseMachineWithAST,
   NOTATION_FORMAT_BRACKETED,
   NOTATION_FORMAT_LINE_BASED,
-  // Cap & Media Registry
-  FabricRegistryEntry,
-  MediaRegistryEntry,
+  // The fabric registry
   FabricRegistryClient,
+  FabricRegistryError,
+  FabricRegistryErrorCodes,
 };
 
 // Unified configurable planner vocabulary (mirrors Rust plan_space.rs and the

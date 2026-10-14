@@ -2398,7 +2398,7 @@ function test1196_aliasedSerializationUsesAliasAndRoundTrips() {
   assert(aliased.includes('cap:embed'), `a cap with no alias keeps its URN: ${aliased}`);
   assert(first.isEquivalent(parseMachine(aliased, definitions)), 'the alias reads back as its cap');
   // A registry client that knows the same aliases names the caps the same way.
-  const registry = new FabricRegistryClient();
+  const registry = new FabricRegistryClient('https://fabric.example', 1);
   registry.insertCachedAliasForTest(new StoredAlias('extract-pdf', CapUrn.fromString(extractUrn).toString(), 1));
   registry.insertCachedAliasForTest(new StoredAlias('ex', CapUrn.fromString(extractUrn).toString(), 1));
   assertEqual(first.toMachineNotationAliased(registry), aliased, 'one alias interface');
@@ -2475,12 +2475,19 @@ function test6453_Machine_parseMachineWithAST_wiringLocation() {
   assertEqual(covered(input, wiring.targetsLocation), '(text, x=y)', 'the targets');
 }
 
-// TEST6454: locations count lines across a multi-line text.
+// TEST6454: locations count lines across a multi-line text, and are where
+// each part stands in the text as given: whitespace before the first
+// statement moves them.
 function test6454_Machine_parseMachineWithAST_multilinePositions() {
   const result = parseMachineWithAST(EXTRACT_HEADER + '\n[doc -> extract -> text]', extractDefinitions());
   assertEqual(result.statements[0].location.start.line, 1, 'the header on line 1');
   assertEqual(result.statements[1].location.start.line, 2, 'the wiring on line 2');
   assertEqual(result.statements[1].wiring.stepLocation.start.line, 2, 'its step on line 2');
+  const input = '\n\n  ' + EXTRACT_HEADER + '\n[doc -> extract -> text]\n';
+  const padded = parseMachineWithAST(input, extractDefinitions());
+  assertEqual(padded.statements[0].location.start.line, 3, 'after two blank lines, line 3');
+  assertEqual(padded.statements[0].location.start.column, 3, 'after two spaces, column 3');
+  assertEqual(covered(input, padded.statements[1].wiring.stepLocation), 'extract', 'offsets in the text as given');
 }
 
 // TEST6455: each member of a group, named or not, constant or node, has a location.

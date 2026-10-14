@@ -33,7 +33,7 @@ import {
   CapArgumentValue, CapArg, CapOutput, OUTPUT_CARRIES_INPUT, ArgSource, validateCapArgs, validateCapOutputs,
   validateCapDefinition, isValidDefinitionName, ManifestLoadError, advertisedCapGroups, identityCap, ValidationError,
   llmGenerateTextUrn, modelAvailabilityUrn, modelPathUrn,
-  FabricRegistryEntry, MediaRegistryEntry, FabricRegistryClient,
+  FabricRegistryClient, FabricRegistryError, FabricRegistryErrorCodes,
   MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
   MEDIA_OBJECT, MEDIA_STRING_LIST, MEDIA_INTEGER_LIST,
   MEDIA_NUMBER_LIST, MEDIA_BOOLEAN_LIST, MEDIA_OBJECT_LIST,
@@ -3950,64 +3950,201 @@ function test6451_Machine_mediaUrnIsComparable() {
 }
 
 // ============================================================================
-// Phase 0B: FabricRegistryClient tests
+// The fabric registry client: one manifest, definitions at their versioned
+// addresses, each checked where it is read.
 // ============================================================================
 
-function test6467_Machine_capRegistryEntry_construction() {
-  const entry = new FabricRegistryEntry({
-    urn: 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
-    title: 'PDF Extractor',
-    command: 'extract',
-    cap_description: 'Extracts text from PDF',
-    args: [{ media_urn: 'media:document;ext=pdf', required: true }],
-    outputs: [{ media_urn: 'media:enc=utf-8;ext=txt', name: 'text', output_description: 'Digitized text' }],
-    media_defs: [],
-    urn_tags: { op: 'extract' },
-    in_spec: 'media:document;ext=pdf',
-    out_spec: 'media:enc=utf-8;ext=txt',
-    in_media_title: 'PDF Document',
-    out_media_title: 'Text'
-  });
-  assertEqual(entry.urn, 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'URN should match');
-  assertEqual(entry.title, 'PDF Extractor', 'Title should match');
-  assertEqual(entry.description, 'Extracts text from PDF', 'Description should match');
-  assertEqual(entry.inSpec, 'media:document;ext=pdf', 'inSpec should match');
-  assertEqual(entry.outSpec, 'media:enc=utf-8;ext=txt', 'outSpec should match');
-  assertEqual(entry.urnTags.op, 'extract', 'op tag should match');
+const REGISTRY = 'https://fabric.example';
+const PDF = 'media:document;ext=pdf';
+const TEXT = 'media:enc=utf-8;ext=txt';
+const PAGES = 'media:integer;max-pages';
+const WHOLE = 'media:integer';
+const COUNT = 'media:integer;page-count';
+const EXTRACT_URN = CapUrn.fromString(`cap:in="${PDF}";extract;out="${TEXT}"`).toString();
+
+async function sha256OfText(text) {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// TEST6468: Machine media registry entry construction
-function test6468_Machine_mediaRegistryEntry_construction() {
-  const entry = new MediaRegistryEntry({
-    urn: 'media:document;ext=pdf',
-    title: 'PDF Document',
-    media_type: 'application/pdf',
-    description: 'Portable Document Format'
-  });
-  assertEqual(entry.urn, 'media:document;ext=pdf', 'URN should match');
-  assertEqual(entry.title, 'PDF Document', 'Title should match');
-  assertEqual(entry.mediaType, 'application/pdf', 'Media type should match');
-  assertEqual(entry.description, 'Portable Document Format', 'Description should match');
+/** The published JSON of the extract cap: a main input, a constant-able page limit, one output. */
+function extractDefinitionJSON(version = 3) {
+  return {
+    urn: EXTRACT_URN, title: 'Extract Text', aliases: ['extract'], version,
+    args: [
+      { media_urn: PDF, name: 'document', required: true, sources: [{ stdin: PDF }] },
+      { media_urn: PAGES, name: 'max_pages', required: false, sources: [{ cli_flag: '--max-pages' }], accepts: WHOLE },
+    ],
+    outputs: [
+      { media_urn: TEXT, name: 'text', output_description: 'The text' },
+      { media_urn: COUNT, name: 'pages', output_description: 'How many pages were read' },
+    ],
+  };
 }
 
-// TEST6469: Machine cap registry client construction
-function test6469_Machine_capRegistryClient_construction() {
-  const client = new FabricRegistryClient('https://example.com', 600);
-  assert(client !== null, 'Client should be constructed');
-  // Invalidate should not throw
-  client.invalidate();
+const mediaJSON = (urn, title, version, extra = {}) =>
+  Object.assign({ urn: MediaUrn.fromString(urn).toString(), media_type: 'application/json', title, version }, extra);
+
+/**
+ * A registry in memory, served by URL as the publisher lays it out, with
+ * every URL asked for recorded. `change` edits the objects before serving.
+ */
+async function fakeRegistry(change = () => {}) {
+  const objects = new Map();
+  const put = async (section, name, version, body) =>
+    objects.set(`${REGISTRY}/${section}/${await sha256OfText(name)}/${version}.json`, body);
+  const manifest = {
+    version: 8, previous: 7,
+    caps: { [EXTRACT_URN]: 3 },
+    media: { [MediaUrn.fromString(PDF).toString()]: 1, [MediaUrn.fromString(TEXT).toString()]: 2, [MediaUrn.fromString(PAGES).toString()]: 1, [WHOLE]: 1, [MediaUrn.fromString(COUNT).toString()]: 1 },
+    aliases: { extract: 1 },
+  };
+  const served = { manifest, cap: extractDefinitionJSON(), media: {
+    [PDF]: mediaJSON(PDF, 'PDF', 1),
+    [TEXT]: mediaJSON(TEXT, 'Plain Text', 2),
+    [PAGES]: mediaJSON(PAGES, 'Page Limit', 1, { validation: { min: 1 }, schema: { type: 'integer' } }),
+    [WHOLE]: mediaJSON(WHOLE, 'Whole Number', 1),
+    [COUNT]: mediaJSON(COUNT, 'Page Count', 1),
+  }, alias: { name: 'extract', target: EXTRACT_URN, version: 1 } };
+  change(served);
+  objects.set(`${REGISTRY}/manifest/8.json`, served.manifest);
+  await put('caps', EXTRACT_URN, 3, served.cap);
+  for (const [urn, body] of Object.entries(served.media)) {
+    await put('media', MediaUrn.fromString(urn).toString(), served.manifest.media[MediaUrn.fromString(urn).toString()] || 1, body);
+  }
+  await put('aliases', 'extract', 1, served.alias);
+  const asked = [];
+  const fetch = async url => {
+    asked.push(url);
+    if (!objects.has(url)) return { status: 404, ok: false, json: async () => ({}) };
+    const body = objects.get(url);
+    return { status: 200, ok: true, json: async () => JSON.parse(JSON.stringify(body)) };
+  };
+  return { client: new FabricRegistryClient(REGISTRY, 8, { fetch }), asked };
 }
 
-// TEST6470: Machine cap registry entry defaults
-function test6470_Machine_capRegistryEntry_defaults() {
-  // Verify that missing fields default gracefully
-  const entry = new FabricRegistryEntry({ urn: 'cap:in=media:;test;out=media:' });
-  assertEqual(entry.urn, 'cap:in=media:;test;out=media:', 'URN should match');
-  assertEqual(entry.title, '', 'Title should default to empty');
-  assertEqual(entry.description, '', 'Description should default to empty');
-  assert(Array.isArray(entry.aliases) && entry.aliases.length === 0, 'Aliases should default to an empty array');
-  assert(Array.isArray(entry.args), 'Args should default to array');
-  assertEqual(entry.args.length, 0, 'Args should be empty');
+async function refusedRegistry(promise, code, what) {
+  try {
+    await promise;
+  } catch (error) {
+    assert(error instanceof FabricRegistryError, `${what}: ${error.stack}`);
+    assertEqual(error.code, code, `${what}: ${error.message}`);
+    return error;
+  }
+  throw new Error(`Assertion failed: ${what}: expected a refusal`);
+}
+
+// TEST6467: a cap is read from its versioned address, held to the definition
+// rules, and cached together with every media definition it names; after
+// that the client answers synchronously, as the definitions a machine is
+// parsed against.
+async function test6467_registryReadsACapWithEveryMediaItNames() {
+  const { client, asked } = await fakeRegistry();
+  assertEqual(client.capDefinition(EXTRACT_URN), null, 'nothing before a fetch');
+  // Any spelling of the URN finds the one definition.
+  const cap = await client.getCap(`cap:extract;out="${TEXT}";in="${PDF}"`);
+  assertEqual(cap.title, 'Extract Text', 'the cap');
+  assertEqual(cap.argNamed('max_pages').media_urn, PAGES, 'its args, by name');
+  assert(client.capDefinition(EXTRACT_URN) === cap, 'held');
+  // Every media it names: an arg's own and what it accepts, and every output's.
+  for (const urn of [PDF, TEXT, PAGES, WHOLE, COUNT]) {
+    assert(client.mediaDefinition(urn) !== null, `the media it names: ${urn}`);
+  }
+  assertEqual(client.mediaDefinition(PAGES).validation.min, 1, 'with its rules');
+  assertEqual(asked.filter(url => url.endsWith('/manifest/8.json')).length, 1, 'the manifest once');
+  assert(asked.every(url => /\/(manifest\/8|caps\/[0-9a-f]{64}\/3|media\/[0-9a-f]{64}\/[12]|aliases\/[0-9a-f]{64}\/1)\.json$/.test(url)),
+    `only versioned addresses: ${asked.join(', ')}`);
+  await client.getCap(EXTRACT_URN);
+  assertEqual(asked.filter(url => url.includes('/caps/')).length, 1, 'a held cap is not fetched again');
+  // Asked for together, a definition is fetched once.
+  const together = await fakeRegistry();
+  await Promise.all([together.client.getCap(EXTRACT_URN), together.client.getCap(EXTRACT_URN), together.client.getMediaDef(PDF)]);
+  assertEqual(together.asked.filter(url => url.includes('/caps/')).length, 1, 'one cap fetch');
+  assertEqual(together.asked.length, new Set(together.asked).size, `no URL twice: ${together.asked.join(', ')}`);
+
+  // A cap whose definition breaks a rule is refused where it is read, and not held.
+  const broken = await fakeRegistry(served => { served.cap.args[1].name = 'max pages'; });
+  await refusedRegistry(broken.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.VALIDATION, 'a definition that breaks a rule');
+  assertEqual(broken.client.capDefinition(EXTRACT_URN), null, 'not held');
+  // A cap one of whose media cannot be read is not held either.
+  const lost = await fakeRegistry(served => { delete served.manifest.media[MediaUrn.fromString(PAGES).toString()]; });
+  await refusedRegistry(lost.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.NOT_FOUND, 'a media definition the manifest does not name');
+  assertEqual(lost.client.capDefinition(EXTRACT_URN), null, 'a cap without its media is not held');
+  // A definition that says another version than the manifest pins is not it.
+  const stale = await fakeRegistry(served => { served.cap.version = 2; });
+  await refusedRegistry(stale.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.PARSE, 'another version');
+}
+
+// TEST6468: a media definition is read strictly: one without a title, of
+// another URN, or of another version than the manifest pins is refused.
+async function test6468_registryReadsAMediaDefinitionStrictly() {
+  const { client } = await fakeRegistry();
+  const pages = await client.getMediaDef(PAGES);
+  assertEqual(pages.title, 'Page Limit', 'the title');
+  assertEqual(pages.mediaUrn, MediaUrn.fromString(PAGES).toString(), 'its URN, canonical');
+  assertEqual(JSON.stringify(pages.schema), '{"type":"integer"}', 'its schema');
+  for (const [what, change] of [
+    ['no title', served => { delete served.media[PAGES].title; }],
+    ['another URN', served => { served.media[PAGES].urn = 'media:integer'; }],
+    ['another version', served => { served.media[PAGES].version = 2; }],
+  ]) {
+    const { client: other } = await fakeRegistry(change);
+    await refusedRegistry(other.getMediaDef(PAGES), FabricRegistryErrorCodes.PARSE, what);
+  }
+}
+
+// TEST6469: a client is pinned to one manifest: what it does not name is not
+// found, never read from another snapshot; a manifest that is not whole, or
+// reports another version, is refused; and there is no client of no manifest.
+async function test6469_registryIsPinnedToOneManifest() {
+  const { client, asked } = await fakeRegistry();
+  await refusedRegistry(client.getCap('cap:in=media:x;nothing;out=media:y'), FabricRegistryErrorCodes.NOT_FOUND, 'a cap outside the manifest');
+  assert(!asked.some(url => url.includes('/caps/')), 'nothing outside the manifest is fetched');
+  const other = await fakeRegistry(served => { served.manifest.version = 7; });
+  await refusedRegistry(other.client.manifest(), FabricRegistryErrorCodes.PARSE, 'a manifest of another version');
+  const torn = await fakeRegistry(served => { served.manifest.caps[EXTRACT_URN] = 0; });
+  await refusedRegistry(torn.client.manifest(), FabricRegistryErrorCodes.PARSE, 'a pin that is no version');
+  const gone = await fakeRegistry(served => { delete served.manifest.aliases; });
+  await refusedRegistry(gone.client.manifest(), FabricRegistryErrorCodes.PARSE, 'a manifest without its aliases');
+  for (const version of [0, -1, 1.5, '8', undefined]) {
+    assertThrowsMessage(() => new FabricRegistryClient(REGISTRY, version), 'manifest version', `version ${version}`);
+  }
+  // A host that follows the fabric is pinned to the manifest promoted as the latest.
+  const promoted = async url => url === `${REGISTRY}/manifest/latest.json`
+    ? { status: 200, ok: true, json: async () => ({ version: 8, promoted_at: '2026-10-14T00:00:00Z' }) }
+    : { status: 404, ok: false, json: async () => ({}) };
+  assertEqual((await FabricRegistryClient.latest(REGISTRY, { fetch: promoted })).manifestVersion, 8, 'the latest');
+  const unnamed = async () => ({ status: 200, ok: true, json: async () => ({ promoted_at: 'never' }) });
+  await refusedRegistry(FabricRegistryClient.latest(REGISTRY, { fetch: unnamed }), FabricRegistryErrorCodes.PARSE, 'a latest that names no version');
+  const unreachable = new FabricRegistryClient(REGISTRY, 8, { fetch: async () => { throw new Error('offline'); } });
+  await refusedRegistry(unreachable.manifest(), FabricRegistryErrorCodes.HTTP, 'an unreachable registry');
+}
+
+// TEST6470: an alias is matched against what was asked; a cap can be got by
+// its alias; and a client that has loaded its manifest is the definitions a
+// machine is read against and the aliases it is written with.
+async function test6470_registryAliasesAndMachinesReadAgainstIt() {
+  const { client } = await fakeRegistry();
+  assertEqual((await client.getAlias('EXTRACT')).target, EXTRACT_URN, 'an alias, by any case');
+  const misnamed = await fakeRegistry(served => { served.alias.name = 'extractor'; });
+  await refusedRegistry(misnamed.client.getAlias('extract'), FabricRegistryErrorCodes.PARSE, 'an alias object of another name');
+  const nowhere = await fakeRegistry(served => { served.alias.target = 'not a urn'; });
+  await refusedRegistry(nowhere.client.getAlias('extract'), FabricRegistryErrorCodes.VALIDATION, 'an alias of nothing');
+
+  const { client: whole } = await fakeRegistry();
+  assertEqual((await whole.getCap('extract')).title, 'Extract Text', 'a cap by its alias');
+  await whole.loadAll();
+  assertEqual(whole.cachedCaps().length, 1, 'every cap');
+  assertEqual(whole.cachedMediaDefs().length, 5, 'every media definition');
+  // A machine read against the registry: the step by its fabric alias, a
+  // constant held to the page limit's rules.
+  const machine = parseMachine('[(document=doc, max_pages=20) -> extract -> text]', whole);
+  assert(machine.toMachineNotation().includes('max_pages=20'), machine.toMachineNotation());
+  assertEqual(machine.toMachineNotationAliased(whole), '[(document=n0, max_pages=20) -> extract -> (text=n1)]', 'written by its alias, bindings in arg-URN order');
+  assertThrowsMessage(() => parseMachine('[(document=doc, max_pages=0) -> extract -> text]', whole), 'minimum value 1', 'the rules hold');
+  assert(JSON.parse(machine.toRenderPayloadJson(whole)).strands[0].nodes.every(node => node.title.length > 0), 'titles from the registry');
+  whole.invalidate();
+  assertEqual(whole.capDefinition(EXTRACT_URN), null, 'forgotten');
 }
 
 // ============================================================================
@@ -6393,7 +6530,7 @@ function test1894_selectDisplayAliasOrdering() {
 // resolves because the query is canonicalised before matching, (3) a URN with
 // no alias returns null, (4) a non-URN string returns null.
 function test1895_displayAliasForUrn() {
-  const registry = new FabricRegistryClient();
+  const registry = new FabricRegistryClient('https://fabric.example', 1);
   const capTarget = CapUrn.fromString('cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"').toString();
   // Two aliases on the same cap target; "i2s" is shorter than "int2str".
   registry.insertCachedAliasForTest(new StoredAlias('int2str', capTarget, 1));
@@ -6420,7 +6557,7 @@ function test1895_displayAliasForUrn() {
 // target] pairs — media aliases are excluded. Drives the notation editor's
 // registered-alias completions.
 function test1896_cachedCapAliasesFiltersToCapTargets() {
-  const registry = new FabricRegistryClient();
+  const registry = new FabricRegistryClient('https://fabric.example', 1);
   const capTarget = CapUrn.fromString('cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"').toString();
   registry.insertCachedAliasForTest(new StoredAlias('int2str', capTarget, 1));
   registry.insertCachedAliasForTest(new StoredAlias('json', MediaUrn.fromString('media:fmt=json;record').toString(), 1));
@@ -6936,10 +7073,10 @@ async function runTests() {
 
   // Phase 0B: FabricRegistryClient
   console.log('\n--- registry/client ---');
-  runTest('REGISTRY: capRegistryEntry_construction', test6467_Machine_capRegistryEntry_construction);
-  runTest('REGISTRY: mediaRegistryEntry_construction', test6468_Machine_mediaRegistryEntry_construction);
-  runTest('REGISTRY: capRegistryClient_construction', test6469_Machine_capRegistryClient_construction);
-  runTest('REGISTRY: capRegistryEntry_defaults', test6470_Machine_capRegistryEntry_defaults);
+  await runTest('TEST6467: registry_reads_a_cap_with_every_media_it_names', test6467_registryReadsACapWithEveryMediaItNames);
+  await runTest('TEST6468: registry_reads_a_media_definition_strictly', test6468_registryReadsAMediaDefinitionStrictly);
+  await runTest('TEST6469: registry_is_pinned_to_one_manifest', test6469_registryIsPinnedToOneManifest);
+  await runTest('TEST6470: registry_aliases_and_machines_read_against_it', test6470_registryAliasesAndMachinesReadAgainstIt);
 
   // cap-fab-renderer pure helpers (no DOM dependency)
   console.log('\n--- cap-fab-renderer helpers ---');

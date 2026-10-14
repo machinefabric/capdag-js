@@ -68,6 +68,24 @@ const machine = parseMachine(
 console.log(machine.toMachineNotation());
 ```
 
+The definitions can come from the fabric registry instead. A client reads one
+manifest of it — a pinned version, or the one the registry has promoted as its
+latest — fetches each definition it needs, holds each cap to the definition
+rules as it reads it, and then serves as the definitions a machine is parsed
+against, fabric aliases included:
+
+```javascript
+import { FabricRegistryClient, parseMachine } from "capdag";
+
+const fabric = await FabricRegistryClient.latest("https://fabric.capdag.com");
+await fabric.getCap('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+const machine = parseMachine(
+  '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+  "[pdf -> extract -> text]",
+  fabric
+);
+```
+
 `parseMachineWithAST` also returns every statement with where each part of it
 stands in the text, and the name the text gave each node. A machine that names
 other machines in step position is read with a `MachineSource`
