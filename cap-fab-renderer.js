@@ -458,8 +458,8 @@ function buildStylesheet() {
 
   // Machine mode uses a dedicated palette exposed by the notation
   // editor's CSS (`--graph-node-color`, `--graph-loop-color`,
-  // `--graph-edge-color`, `--graph-text`, `--graph-muted`). Caps
-  // are collapsed into edges so there's no cap-node color.
+  // `--graph-edge-color`, `--graph-text`, `--graph-muted`). A step
+  // node of the resolved machine is outlined in the edge color.
   const machineNodeColor = getCssVar('--graph-node-color');
   const machineLoopColor = getCssVar('--graph-loop-color');
   const machineEdgeColor = getCssVar('--graph-edge-color');
@@ -644,11 +644,12 @@ function buildStylesheet() {
     // -------- Machine / editor-graph mode ------------------------------
     // Shared between the resolved-machine view (`mode: 'machine'`,
     // canonical `Machine::to_render_payload_json`) and the notation
-    // editor's live graph (`mode: 'editor-graph'`, ast-driven). Both
-    // collapse each cap application into a single labeled edge
-    // between its input and output data slots — caps do NOT appear
-    // as separate nodes. Only data slots are nodes; cap semantics
-    // are carried on edges.
+    // editor's live graph (`mode: 'editor-graph'`, ast-driven). Data
+    // slots are `machine-node`s. The editor graph collapses each cap
+    // application into labeled edges between its data slots; the
+    // resolved machine draws each step as a `machine-step` node, and a
+    // constant it is given as a `machine-constant` node, with an edge
+    // per binding and per output taken.
     //
     // Reads the editor's dedicated palette so nodes, edges and
     // loop markers match the text theme.
@@ -676,6 +677,34 @@ function buildStylesheet() {
         'target-arrow-color': machineLoopColor || nodeBorderActive,
         'color': machineLoopColor || nodeBorderActive,
         'line-style': 'dashed',
+      },
+    },
+    {
+      selector: 'node.machine-step',
+      style: {
+        'shape': 'rectangle',
+        'background-color': nodeBg,
+        'border-color': machineEdgeColor || 'data(color)',
+        'color': machineText || nodeText,
+        'border-opacity': 1,
+      },
+    },
+    {
+      selector: 'node.machine-step-loop',
+      style: {
+        'border-color': machineLoopColor || nodeBorderActive,
+        'border-style': 'dashed',
+      },
+    },
+    {
+      selector: 'node.machine-constant',
+      style: {
+        'shape': 'tag',
+        'padding': '6px',
+        'border-width': '1px',
+        'background-color': nodeBg,
+        'border-color': machineMuted || nodeBorder,
+        'color': machineMuted || nodeText,
       },
     },
   ];
@@ -992,73 +1021,115 @@ function validateEditorGraphPayload(data) {
   });
 }
 
-// `validateResolvedMachinePayload` checks the canonical machine
-// render payload produced by Rust `Machine::to_render_payload_json`.
+// `validateResolvedMachinePayload` checks the canonical machine render
+// payload every capdag library writes (`Machine.to_render_payload_json`).
 // Shape:
 //   {
 //     "strands": [
 //       {
-//         "nodes": [{"id": "n0", "urn": "media:document;ext=pdf"}, ...],
+//         "nodes": [{"id": "n0", "urn": "media:document;ext=pdf", "title": "PDF"}, ...],
 //         "edges": [{
 //           "alias": "edge_0",
 //           "cap_urn": "...",
+//           "title": "Extract Text",
 //           "is_loop": false,
-//           "assignment": [{"cap_arg_media_urn": "media:document;ext=pdf", "source_node": "n0"}, ...],
-//           "target_node": "n1"
+//           "retry": 0,
+//           "on_error": "fail",
+//           "included_as": [],
+//           "assignment": [
+//             {"cap_arg_media_urn": "media:document;ext=pdf", "arg_name": "input", "source_node": "n0"},
+//             {"cap_arg_media_urn": "media:integer;window", "arg_name": "window", "constant": 20}
+//           ],
+//           "outputs": [{"output_media_urn": "media:...", "output_name": "output", "node": "n1"}]
 //         }, ...],
 //         "input_anchor_nodes": ["n0"],
-//         "output_anchor_nodes": ["n2"]
+//         "output_anchor_nodes": ["n1"]
 //       },
 //       ...
 //     ]
 //   }
+//
+// A binding is fed by a node of its strand or by a constant, never both and
+// never neither. A step with no binding is a source, one with no output a
+// sink. Every node a binding, an output or an anchor names is a node of the
+// strand.
 function validateResolvedMachinePayload(data) {
   if (!data || typeof data !== 'object') {
     throw new Error('CapFabRenderer machine mode: data must be an object');
   }
   assertArray(data.strands, 'machine mode data.strands');
   data.strands.forEach((strand, sIdx) => {
+    const at = `machine mode data.strands[${sIdx}]`;
     if (!strand || typeof strand !== 'object') {
-      throw new Error(`CapFabRenderer machine mode: data.strands[${sIdx}] is not an object`);
+      throw new Error(`CapFabRenderer ${at} is not an object`);
     }
-    assertArray(strand.nodes, `machine mode data.strands[${sIdx}].nodes`);
+    assertArray(strand.nodes, `${at}.nodes`);
+    const nodeIds = new Set();
     strand.nodes.forEach((n, nIdx) => {
       if (!n || typeof n !== 'object') {
-        throw new Error(`CapFabRenderer machine mode: data.strands[${sIdx}].nodes[${nIdx}] is not an object`);
+        throw new Error(`CapFabRenderer ${at}.nodes[${nIdx}] is not an object`);
       }
-      assertString(n.id, `machine mode data.strands[${sIdx}].nodes[${nIdx}].id`);
-      assertString(n.urn, `machine mode data.strands[${sIdx}].nodes[${nIdx}].urn`);
-      assertString(n.title, `machine mode data.strands[${sIdx}].nodes[${nIdx}].title`);
+      assertString(n.id, `${at}.nodes[${nIdx}].id`);
+      assertString(n.urn, `${at}.nodes[${nIdx}].urn`);
+      assertString(n.title, `${at}.nodes[${nIdx}].title`);
+      nodeIds.add(n.id);
     });
-    assertArray(strand.edges, `machine mode data.strands[${sIdx}].edges`);
+    const assertNode = (id, path) => {
+      assertString(id, path);
+      if (!nodeIds.has(id)) {
+        throw new Error(`CapFabRenderer ${path} names "${id}", which is no node of the strand`);
+      }
+    };
+    assertArray(strand.edges, `${at}.edges`);
     strand.edges.forEach((e, eIdx) => {
+      const edgeAt = `${at}.edges[${eIdx}]`;
       if (!e || typeof e !== 'object') {
-        throw new Error(`CapFabRenderer machine mode: data.strands[${sIdx}].edges[${eIdx}] is not an object`);
+        throw new Error(`CapFabRenderer ${edgeAt} is not an object`);
       }
-      assertString(e.alias, `machine mode data.strands[${sIdx}].edges[${eIdx}].alias`);
-      assertString(e.cap_urn, `machine mode data.strands[${sIdx}].edges[${eIdx}].cap_urn`);
-      assertString(e.title, `machine mode data.strands[${sIdx}].edges[${eIdx}].title`);
+      assertString(e.alias, `${edgeAt}.alias`);
+      assertString(e.cap_urn, `${edgeAt}.cap_urn`);
+      assertString(e.title, `${edgeAt}.title`);
       if (typeof e.is_loop !== 'boolean') {
-        throw new Error(`CapFabRenderer machine mode: data.strands[${sIdx}].edges[${eIdx}].is_loop must be boolean`);
+        throw new Error(`CapFabRenderer ${edgeAt}.is_loop must be boolean`);
       }
-      assertArray(e.assignment, `machine mode data.strands[${sIdx}].edges[${eIdx}].assignment`);
+      if (!Number.isInteger(e.retry) || e.retry < 0) {
+        throw new Error(`CapFabRenderer ${edgeAt}.retry must be a whole number of further attempts`);
+      }
+      if (e.on_error !== 'fail' && e.on_error !== 'absent') {
+        throw new Error(`CapFabRenderer ${edgeAt}.on_error must be "fail" or "absent"`);
+      }
+      assertArray(e.included_as, `${edgeAt}.included_as`);
+      e.included_as.forEach((step, iIdx) => assertString(step, `${edgeAt}.included_as[${iIdx}]`));
+      assertArray(e.assignment, `${edgeAt}.assignment`);
       e.assignment.forEach((b, bIdx) => {
+        const bindingAt = `${edgeAt}.assignment[${bIdx}]`;
         if (!b || typeof b !== 'object') {
-          throw new Error(`CapFabRenderer machine mode: data.strands[${sIdx}].edges[${eIdx}].assignment[${bIdx}] is not an object`);
+          throw new Error(`CapFabRenderer ${bindingAt} is not an object`);
         }
-        assertString(b.cap_arg_media_urn, `machine mode data.strands[${sIdx}].edges[${eIdx}].assignment[${bIdx}].cap_arg_media_urn`);
-        assertString(b.source_node, `machine mode data.strands[${sIdx}].edges[${eIdx}].assignment[${bIdx}].source_node`);
+        assertString(b.cap_arg_media_urn, `${bindingAt}.cap_arg_media_urn`);
+        assertString(b.arg_name, `${bindingAt}.arg_name`);
+        const byNode = Object.prototype.hasOwnProperty.call(b, 'source_node');
+        const byConstant = Object.prototype.hasOwnProperty.call(b, 'constant');
+        if (byNode === byConstant) {
+          throw new Error(`CapFabRenderer ${bindingAt} must have exactly one of source_node and constant`);
+        }
+        if (byNode) assertNode(b.source_node, `${bindingAt}.source_node`);
       });
-      assertString(e.target_node, `machine mode data.strands[${sIdx}].edges[${eIdx}].target_node`);
+      assertArray(e.outputs, `${edgeAt}.outputs`);
+      e.outputs.forEach((o, oIdx) => {
+        const outputAt = `${edgeAt}.outputs[${oIdx}]`;
+        if (!o || typeof o !== 'object') {
+          throw new Error(`CapFabRenderer ${outputAt} is not an object`);
+        }
+        assertString(o.output_media_urn, `${outputAt}.output_media_urn`);
+        assertString(o.output_name, `${outputAt}.output_name`);
+        assertNode(o.node, `${outputAt}.node`);
+      });
     });
-    assertArray(strand.input_anchor_nodes, `machine mode data.strands[${sIdx}].input_anchor_nodes`);
-    strand.input_anchor_nodes.forEach((id, iIdx) => {
-      assertString(id, `machine mode data.strands[${sIdx}].input_anchor_nodes[${iIdx}]`);
-    });
-    assertArray(strand.output_anchor_nodes, `machine mode data.strands[${sIdx}].output_anchor_nodes`);
-    strand.output_anchor_nodes.forEach((id, oIdx) => {
-      assertString(id, `machine mode data.strands[${sIdx}].output_anchor_nodes[${oIdx}]`);
-    });
+    assertArray(strand.input_anchor_nodes, `${at}.input_anchor_nodes`);
+    strand.input_anchor_nodes.forEach((id, iIdx) => assertNode(id, `${at}.input_anchor_nodes[${iIdx}]`));
+    assertArray(strand.output_anchor_nodes, `${at}.output_anchor_nodes`);
+    strand.output_anchor_nodes.forEach((id, oIdx) => assertNode(id, `${at}.output_anchor_nodes[${oIdx}]`));
   });
 }
 
@@ -2725,17 +2796,21 @@ function editorGraphSignature(data) {
 // so we can pass them straight through to cytoscape without name
 // collisions.
 //
-// Each cap edge is rendered as one cytoscape edge per
-// (assignment.source_node, target_node) pair. The common
-// single-input cap produces exactly one rendered edge; multi-input
-// (fan-in) caps produce one edge per source-arg slot, all sharing
-// the cap title and color so they read as a single fan-in.
+// Each step is a node of its own, between the data it is given and the
+// data it makes: an edge into it per binding, labelled with the arg's name,
+// and an edge out of it per output it is taken from, labelled with the
+// output's name. A step may be given nothing (a source) or have nothing taken
+// (a sink), and a binding may be a constant, which is drawn as a small node of
+// its own: none of these has a single input-to-output edge to be drawn on. A
+// step that runs once per item draws its node and its edges in the loop style.
 function buildResolvedMachineGraphData(data) {
   validateResolvedMachinePayload(data);
 
   const nodes = [];
   const edges = [];
   const seenNodeIds = new Set();
+  let stepCounter = 0;
+  let constantCounter = 0;
   let edgeCounter = 0;
 
   data.strands.forEach((strand, strandIdx) => {
@@ -2743,10 +2818,8 @@ function buildResolvedMachineGraphData(data) {
     const outputAnchorSet = new Set(strand.output_anchor_nodes);
 
     for (const node of strand.nodes) {
-      // Each node id is unique across the whole machine; the
-      // Rust side guarantees this via its global counter. If a
-      // duplicate appears it indicates a malformed payload, so
-      // fail hard rather than silently dropping.
+      // Node ids are unique across the whole machine: every library names
+      // them from one counter. A duplicate is a malformed payload.
       if (seenNodeIds.has(node.id)) {
         throw new Error(
           `CapFabRenderer machine mode: duplicate node id "${node.id}" in strand ${strandIdx}`
@@ -2771,36 +2844,86 @@ function buildResolvedMachineGraphData(data) {
     }
 
     for (const edge of strand.edges) {
-      const cardinality = edge.is_loop ? 'n\u21921' : '1\u21921';
-      const capUrn = edge.cap_urn;
-      const capTitle = edge.title;
-      const label = cardinality === '1\u21921'
-        ? edge.alias
-        : `${edge.alias} (${cardinality})`;
-
+      const stepId = `machine-step-${stepCounter}`;
+      stepCounter++;
+      const policy = [];
+      if (edge.retry > 0) policy.push(`retry=${edge.retry}`);
+      if (edge.on_error === 'absent') policy.push('on_error=absent');
       const color = edge.is_loop
         ? 'var(--graph-loop-color)'
-        : edgeHueColor(edgeCounter);
-      const baseClasses = edge.is_loop
-        ? 'machine-edge machine-loop'
-        : 'machine-edge';
+        : edgeHueColor(stepCounter - 1);
+      const edgeClasses = edge.is_loop ? 'machine-edge machine-loop' : 'machine-edge';
+
+      nodes.push({
+        group: 'nodes',
+        data: {
+          id: stepId,
+          label: policy.length > 0 ? `${edge.title}\n{${policy.join(', ')}}` : edge.title,
+          fullUrn: edge.cap_urn,
+          alias: edge.alias,
+          strandIndex: strandIdx,
+          isLoop: edge.is_loop,
+          retry: edge.retry,
+          onError: edge.on_error,
+          includedAs: edge.included_as.slice(),
+          color,
+        },
+        classes: edge.is_loop ? 'machine-step machine-step-loop' : 'machine-step',
+      });
 
       for (const binding of edge.assignment) {
+        let source = binding.source_node;
+        if (source === undefined) {
+          source = `machine-constant-${constantCounter}`;
+          constantCounter++;
+          nodes.push({
+            group: 'nodes',
+            data: {
+              id: source,
+              label: JSON.stringify(binding.constant),
+              fullUrn: binding.cap_arg_media_urn,
+              strandIndex: strandIdx,
+            },
+            classes: 'machine-constant',
+          });
+        }
         edges.push({
           group: 'edges',
           data: {
             id: `machine-edge-${edgeCounter}`,
-            source: binding.source_node,
-            target: edge.target_node,
-            label,
-            title: `${capTitle} (${binding.cap_arg_media_urn})`,
-            fullUrn: capUrn,
+            source,
+            target: stepId,
+            label: binding.arg_name,
+            title: `${edge.title}: ${binding.arg_name} (${binding.cap_arg_media_urn})`,
+            fullUrn: binding.cap_arg_media_urn,
             color,
             strandIndex: strandIdx,
+            argName: binding.arg_name,
             capArgMediaUrn: binding.cap_arg_media_urn,
             isLoop: edge.is_loop,
           },
-          classes: baseClasses,
+          classes: edgeClasses,
+        });
+        edgeCounter++;
+      }
+
+      for (const output of edge.outputs) {
+        edges.push({
+          group: 'edges',
+          data: {
+            id: `machine-edge-${edgeCounter}`,
+            source: stepId,
+            target: output.node,
+            label: output.output_name,
+            title: `${edge.title}: ${output.output_name} (${output.output_media_urn})`,
+            fullUrn: output.output_media_urn,
+            color,
+            strandIndex: strandIdx,
+            outputName: output.output_name,
+            outputMediaUrn: output.output_media_urn,
+            isLoop: edge.is_loop,
+          },
+          classes: edgeClasses,
         });
         edgeCounter++;
       }

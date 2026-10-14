@@ -47,7 +47,7 @@
     "build:parser": "npx peggy --format es -o machine-parser.js machine.pegjs",
     "build:browser": "npm run build:parser && node build-browser.js",
     "pretest": "npm run build:parser",
-    "test": "node capdag.test.js"
+    "test": "node capdag.test.js && node machine.test.js"
   },
   "type": "module",
   "version": "{{ project.version }}"

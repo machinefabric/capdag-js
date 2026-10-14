@@ -33,7 +33,6 @@ import {
   CapArgumentValue, CapArg, CapOutput, OUTPUT_CARRIES_INPUT, ArgSource, validateCapArgs, validateCapOutputs,
   validateCapDefinition, isValidDefinitionName, ManifestLoadError, advertisedCapGroups, identityCap, ValidationError,
   llmGenerateTextUrn, modelAvailabilityUrn, modelPathUrn,
-  MachineSyntaxError, MachineSyntaxErrorCodes, MachineEdge, Machine, MachineBuilder, parseMachine, parseMachineWithAST,
   FabricRegistryEntry, MediaRegistryEntry, FabricRegistryClient,
   MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
   MEDIA_OBJECT, MEDIA_STRING_LIST, MEDIA_INTEGER_LIST,
@@ -52,7 +51,9 @@ import {
   ALIAS_TARGET_CAP, ALIAS_TARGET_MEDIA,
   tokenIsUrn, isAliasToken, normalizeAliasName, classifyAliasTarget,
   selectDisplayAlias,
-  StoredAlias, Manifest
+  StoredAlias, Manifest,
+  CapDefinitions,
+  parseMachine,
 } from './capdag.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -3890,832 +3891,9 @@ function test128_effectDispatchRequiresExplicitWildcard() {
 }
 
 // ============================================================================
-// Machine notation tests — mirrors Rust machine module tests exactly
+// The URN predicates machine notation is read with. The notation itself is
+// tested in machine.test.js.
 // ============================================================================
-
-// --- Machine parser tests (mirrors parser.rs tests) ---
-
-function test6275_Machine_emptyInput() {
-  assertThrowsWithCode(() => parseMachine(''), MachineSyntaxErrorCodes.EMPTY);
-}
-
-// TEST6277: Machine whitespace only
-function test6277_Machine_whitespaceOnly() {
-  assertThrowsWithCode(() => parseMachine('   \n  \t  '), MachineSyntaxErrorCodes.EMPTY);
-}
-
-// TEST6279: Machine header only no wirings
-function test6279_Machine_headerOnlyNoWirings() {
-  assertThrowsWithCode(
-    () => Machine.fromString('[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]'),
-    MachineSyntaxErrorCodes.NO_EDGES
-  );
-}
-
-// TEST6280: Machine duplicate alias
-function test6280_Machine_duplicateAlias() {
-  assertThrowsWithCode(
-    () => Machine.fromString(
-      '[ex cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-      '[ex cap:in="media:document;ext=pdf";summarize;out="media:enc=utf-8;ext=txt"]' +
-      '[a -> ex -> b]'
-    ),
-    MachineSyntaxErrorCodes.DUPLICATE_ALIAS
-  );
-}
-
-// TEST6286: Machine simple linear chain
-function test6286_Machine_simpleLinearChain() {
-  const g = Machine.fromString(
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-    '[doc -> extract -> text]'
-  );
-  assertEqual(g.edgeCount(), 1);
-  const edge = g.edges()[0];
-  assertEqual(edge.sources.length, 1);
-  assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
-    'Source should be media:document;ext=pdf');
-  assert(edge.target.isEquivalent(MediaUrn.fromString('media:enc=utf-8;ext=txt')),
-    'Target should be media:enc=utf-8;ext=txt');
-  assertEqual(edge.isLoop, false);
-}
-
-// TEST6288: Machine two step chain
-function test6288_Machine_twoStepChain() {
-  const g = Machine.fromString(
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-    '[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]' +
-    '[doc -> extract -> text]' +
-    '[text -> embed -> vectors]'
-  );
-  assertEqual(g.edgeCount(), 2);
-  assert(g.edges()[0].sources[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
-    'First edge source should be media:document;ext=pdf');
-  assert(g.edges()[1].target.isEquivalent(MediaUrn.fromString('media:embedding-vector;enc=utf-8;record')),
-    'Second edge target should be media:embedding-vector;enc=utf-8;record');
-}
-
-// TEST6290: Machine fan out
-function test6290_Machine_fanOut() {
-  const g = Machine.fromString(
-    '[meta cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]' +
-    '[outline cap:in="media:document;ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"]' +
-    '[thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]' +
-    '[doc -> meta -> metadata]' +
-    '[doc -> outline -> outline_data]' +
-    '[doc -> thumb -> thumbnail]'
-  );
-  assertEqual(g.edgeCount(), 3);
-  for (const edge of g.edges()) {
-    assertEqual(edge.sources.length, 1);
-    assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
-      'All fan-out sources should be media:document;ext=pdf');
-  }
-}
-
-// TEST6292: Machine fan in secondary assigned by prior wiring
-function test6292_Machine_fanInSecondaryAssignedByPriorWiring() {
-  const g = Machine.fromString(
-    '[thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]' +
-    '[model_dl cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"]' +
-    '[describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"]' +
-    '[doc -> thumb -> thumbnail]' +
-    '[spec_input -> model_dl -> model_spec]' +
-    '[(thumbnail, model_spec) -> describe -> description]'
-  );
-  assertEqual(g.edgeCount(), 3);
-  assertEqual(g.edges()[2].sources.length, 2);
-}
-
-// TEST6294: Machine fan in secondary unassigned gets wildcard
-function test6294_Machine_fanInSecondaryUnassignedGetsWildcard() {
-  const g = Machine.fromString(
-    '[describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"]\n' +
-    '[(thumbnail, model_spec) -> describe -> description]'
-  );
-  assertEqual(g.edges().length, 1);
-  assertEqual(g.edges()[0].sources.length, 2);
-  assertEqual(g.edges()[0].sources[0].toString(), 'media:ext=png;image');
-  assertEqual(g.edges()[0].sources[1].toString(), 'media:');
-}
-
-// TEST6306: The retired LOOP keyword is no longer grammar. A wiring that still
-// writes `LOOP <cap>` before the cap alias no longer parses — `LOOP` is now an
-// ordinary alias, so `pages -> LOOP p2t -> texts` is two aliases in the cap
-// position with no arrow between them, which is a syntax error.
-function test6306_Machine_loopKeywordIsNotGrammar() {
-  assertThrowsWithCode(
-    () => Machine.fromString(
-      '[p2t cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"]' +
-      '[pages -> LOOP p2t -> texts]'
-    ),
-    MachineSyntaxErrorCodes.PARSE_ERROR
-  );
-
-  // `LOOP` on its own in the cap position parses fine — it is just an alias —
-  // but resolves to nothing, proving it carries no special meaning.
-  assertThrowsWithCode(
-    () => Machine.fromString('[pages -> LOOP -> texts]'),
-    MachineSyntaxErrorCodes.UNDEFINED_ALIAS
-  );
-}
-
-// TEST6308: Machine undefined alias fails
-function test6308_Machine_undefinedAliasFails() {
-  assertThrowsWithCode(
-    () => Machine.fromString('[doc -> nonexistent -> text]'),
-    MachineSyntaxErrorCodes.UNDEFINED_ALIAS
-  );
-}
-
-// TEST6310: Machine node alias collision
-function test6310_Machine_nodeAliasCollision() {
-  assertThrowsWithCode(
-    () => Machine.fromString(
-      '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-      '[extract -> extract -> text]'
-    ),
-    MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION
-  );
-}
-
-// TEST6312: Machine conflicting media types fail
-function test6312_Machine_conflictingMediaTypesFail() {
-  assertThrowsWithCode(
-    () => Machine.fromString(
-      '[cap1 cap:in="media:enc=utf-8;ext=txt";a;out="media:document;ext=pdf"]' +
-      '[cap2 cap:in="media:audio;ext=wav";b;out="media:enc=utf-8;ext=txt"]' +
-      '[src -> cap1 -> mid]' +
-      '[mid -> cap2 -> dst]'
-    ),
-    MachineSyntaxErrorCodes.INVALID_WIRING
-  );
-}
-
-// TEST6315: Machine multiline format
-function test6315_Machine_multilineFormat() {
-  const g = Machine.fromString(
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n' +
-    '[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]\n' +
-    '[doc -> extract -> text]\n' +
-    '[text -> embed -> vectors]\n'
-  );
-  assertEqual(g.edgeCount(), 2);
-}
-
-// TEST6318: Machine different aliases same graph
-function test6318_Machine_differentAliasesSameGraph() {
-  const g1 = Machine.fromString(
-    '[ex cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-    '[a -> ex -> b]'
-  );
-  const g2 = Machine.fromString(
-    '[xt cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-    '[x -> xt -> y]'
-  );
-  assert(g1.isEquivalent(g2), 'Different aliases should produce equivalent graphs');
-}
-
-// TEST6321: Machine malformed input fails
-function test6321_Machine_malformedInputFails() {
-  assertThrowsWithCode(
-    () => parseMachine('not valid machine notation'),
-    MachineSyntaxErrorCodes.PARSE_ERROR
-  );
-}
-
-// TEST6323: Machine unterminated bracket fails
-function test6323_Machine_unterminatedBracketFails() {
-  assertThrowsWithCode(
-    () => parseMachine('[extract cap:in=media:document;ext=pdf'),
-    MachineSyntaxErrorCodes.PARSE_ERROR
-  );
-}
-
-// --- Machine parser line-based mode tests ---
-
-function test6327_Machine_lineBasedSimpleChain() {
-  const g = Machine.fromString(
-    'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"\n' +
-    'doc -> extract -> text'
-  );
-  assertEqual(g.edgeCount(), 1);
-  const edge = g.edges()[0];
-  assert(edge.sources[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
-    'Source should be media:document;ext=pdf');
-  assert(edge.target.isEquivalent(MediaUrn.fromString('media:enc=utf-8;ext=txt')),
-    'Target should be media:enc=utf-8;ext=txt');
-}
-
-// TEST6331: Machine line based two step chain
-function test6331_Machine_lineBasedTwoStepChain() {
-  const g = Machine.fromString(
-    'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"\n' +
-    'embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"\n' +
-    'doc -> extract -> text\n' +
-    'text -> embed -> vectors'
-  );
-  assertEqual(g.edgeCount(), 2);
-}
-
-// TEST6334: The retired LOOP keyword is not grammar in line-based mode either —
-// `pages -> LOOP p2t -> texts` is a syntax error, same as the bracketed form.
-function test6334_Machine_lineBasedLoopKeywordIsNotGrammar() {
-  assertThrowsWithCode(
-    () => Machine.fromString(
-      'p2t cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"\n' +
-      'pages -> LOOP p2t -> texts'
-    ),
-    MachineSyntaxErrorCodes.PARSE_ERROR
-  );
-}
-
-// TEST6337: Machine line based fan in
-function test6337_Machine_lineBasedFanIn() {
-  const g = Machine.fromString(
-    'thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"\n' +
-    'model_dl cap:in="media:enc=utf-8;model-spec";download;out="media:enc=utf-8;model-spec"\n' +
-    'describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"\n' +
-    'doc -> thumb -> thumbnail\n' +
-    'spec_input -> model_dl -> model_spec\n' +
-    '(thumbnail, model_spec) -> describe -> description'
-  );
-  assertEqual(g.edgeCount(), 3);
-  assertEqual(g.edges()[2].sources.length, 2);
-}
-
-// TEST6341: Machine mixed bracketed and line based
-function test6341_Machine_mixedBracketedAndLineBased() {
-  const g = Machine.fromString(
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n' +
-    'doc -> extract -> text'
-  );
-  assertEqual(g.edgeCount(), 1);
-}
-
-// TEST6345: Machine line based equivalent to bracketed
-function test6345_Machine_lineBasedEquivalentToBracketed() {
-  const g1 = Machine.fromString(
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-    '[doc -> extract -> text]'
-  );
-  const g2 = Machine.fromString(
-    'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"\n' +
-    'doc -> extract -> text'
-  );
-  assert(g1.isEquivalent(g2), 'Line-based and bracketed must produce equivalent graphs');
-}
-
-// TEST6349: Machine line based format serialization
-function test6349_Machine_lineBasedFormatSerialization() {
-  const g = new Machine([
-    new MachineEdge(
-      [MediaUrn.fromString('media:document;ext=pdf')],
-      CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-      MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-      false
-    ),
-  ]);
-  const lineBased = g.toMachineNotationFormatted('line-based');
-  assert(!lineBased.includes('['), 'Line-based format must not contain brackets');
-  assert(!lineBased.includes(']'), 'Line-based format must not contain brackets');
-  // Aliases are pure-index `edge_<N>` (no privileged tag to derive a friendlier name).
-  assert(lineBased.includes('edge_0 cap:'), 'Should contain header');
-  assert(lineBased.includes('-> edge_0 ->'), 'Should contain wiring');
-
-  // Round-trip
-  const reparsed = Machine.fromString(lineBased);
-  assert(g.isEquivalent(reparsed), 'Line-based round-trip must produce equivalent graph');
-}
-
-// TEST6353: Machine line based and bracketed parse same graph
-function test6353_Machine_lineBasedAndBracketedParseSameGraph() {
-  const g = new Machine([
-    new MachineEdge(
-      [MediaUrn.fromString('media:document;ext=pdf')],
-      CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-      MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-      false
-    ),
-    new MachineEdge(
-      [MediaUrn.fromString('media:enc=utf-8;ext=txt')],
-      CapUrn.fromString('cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"'),
-      MediaUrn.fromString('media:embedding-vector;enc=utf-8;record'),
-      false
-    ),
-  ]);
-  const bracketed = g.toMachineNotationFormatted('bracketed');
-  const lineBased = g.toMachineNotationFormatted('line-based');
-
-  const gBracketed = Machine.fromString(bracketed);
-  const gLineBased = Machine.fromString(lineBased);
-  assert(gBracketed.isEquivalent(gLineBased),
-    'Bracketed and line-based must parse to equivalent graphs');
-}
-
-// --- Machine graph tests (mirrors graph.rs tests) ---
-
-function test6357_Machine_edgeEquivalenceSameUrns() {
-  const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  );
-  const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  );
-  assert(e1.isEquivalent(e2), 'Same URNs should be equivalent');
-}
-
-// TEST6361: Machine edge equivalence different cap urns
-function test6361_Machine_edgeEquivalenceDifferentCapUrns() {
-  const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  );
-  const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";summarize;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  );
-  assert(!e1.isEquivalent(e2), 'Different cap URNs should not be equivalent');
-}
-
-// TEST6365: Machine edge equivalence different targets
-function test6365_Machine_edgeEquivalenceDifferentTargets() {
-  const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  );
-  const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:fmt=json;record'),
-    false
-  );
-  assert(!e1.isEquivalent(e2), 'Different targets should not be equivalent');
-}
-
-// TEST6369: Machine edge equivalence different loop flag
-function test6369_Machine_edgeEquivalenceDifferentLoopFlag() {
-  const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  );
-  const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    true
-  );
-  assert(!e1.isEquivalent(e2), 'Different loop flags should not be equivalent');
-}
-
-// TEST6372: Machine edge equivalence source order independent
-function test6372_Machine_edgeEquivalenceSourceOrderIndependent() {
-  const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:enc=utf-8;ext=txt'), MediaUrn.fromString('media:enc=utf-8;model-spec')],
-    CapUrn.fromString('cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"'),
-    MediaUrn.fromString('media:embedding-vector;enc=utf-8;record'),
-    false
-  );
-  const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:enc=utf-8;model-spec'), MediaUrn.fromString('media:enc=utf-8;ext=txt')],
-    CapUrn.fromString('cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"'),
-    MediaUrn.fromString('media:embedding-vector;enc=utf-8;record'),
-    false
-  );
-  assert(e1.isEquivalent(e2), 'Source order should not matter for equivalence');
-}
-
-// TEST6375: Machine edge equivalence different source count
-function test6375_Machine_edgeEquivalenceDifferentSourceCount() {
-  const e1 = new MachineEdge(
-    [MediaUrn.fromString('media:enc=utf-8;ext=txt')],
-    CapUrn.fromString('cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"'),
-    MediaUrn.fromString('media:embedding-vector;enc=utf-8;record'),
-    false
-  );
-  const e2 = new MachineEdge(
-    [MediaUrn.fromString('media:enc=utf-8;ext=txt'), MediaUrn.fromString('media:enc=utf-8;model-spec')],
-    CapUrn.fromString('cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"'),
-    MediaUrn.fromString('media:embedding-vector;enc=utf-8;record'),
-    false
-  );
-  assert(!e1.isEquivalent(e2), 'Different source counts should not be equivalent');
-}
-
-// TEST6377: Machine graph equivalence same edges
-function test6377_Machine_graphEquivalenceSameEdges() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const g1 = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  const g2 = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  assert(g1.isEquivalent(g2), 'Same edges should be equivalent');
-}
-
-// TEST6380: Machine graph equivalence reordered edges
-function test6380_Machine_graphEquivalenceReorderedEdges() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const g1 = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  const g2 = new Machine([
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-  ]);
-  assert(g1.isEquivalent(g2), 'Reordered edges should still be equivalent');
-}
-
-// TEST6383: Machine graph not equivalent different edge count
-function test6383_Machine_graphNotEquivalentDifferentEdgeCount() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const g1 = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-  ]);
-  const g2 = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  assert(!g1.isEquivalent(g2), 'Different edge counts should not be equivalent');
-}
-
-// TEST6386: Machine graph not equivalent different cap
-function test6386_Machine_graphNotEquivalentDifferentCap() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const g1 = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-  ]);
-  const g2 = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";summarize;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-  ]);
-  assert(!g1.isEquivalent(g2), 'Different caps should not be equivalent');
-}
-
-// TEST6389: Machine graph empty
-function test6389_Machine_graphEmpty() {
-  const g = Machine.empty();
-  assert(g.isEmpty(), 'Empty graph should be empty');
-  assertEqual(g.edgeCount(), 0);
-}
-
-// TEST6392: Machine graph empty equivalence
-function test6392_Machine_graphEmptyEquivalence() {
-  const g1 = Machine.empty();
-  const g2 = Machine.empty();
-  assert(g1.isEquivalent(g2), 'Two empty graphs should be equivalent');
-}
-
-// TEST6395: Machine root sources linear chain
-function test6395_Machine_rootSourcesLinearChain() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const g = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  const roots = g.rootSources();
-  assertEqual(roots.length, 1);
-  assert(roots[0].isEquivalent(MediaUrn.fromString('media:document;ext=pdf')),
-    'Root source should be media:document;ext=pdf');
-}
-
-// TEST6397: Machine leaf targets linear chain
-function test6397_Machine_leafTargetsLinearChain() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const g = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  const leaves = g.leafTargets();
-  assertEqual(leaves.length, 1);
-  assert(leaves[0].isEquivalent(MediaUrn.fromString('media:embedding-vector;enc=utf-8;record')),
-    'Leaf target should be media:embedding-vector;enc=utf-8;record');
-}
-
-// TEST6398: Machine root sources fan in
-function test6398_Machine_rootSourcesFanIn() {
-  const e = new MachineEdge(
-    [MediaUrn.fromString('media:enc=utf-8;ext=txt'), MediaUrn.fromString('media:enc=utf-8;model-spec')],
-    CapUrn.fromString('cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"'),
-    MediaUrn.fromString('media:embedding-vector;enc=utf-8;record'),
-    false
-  );
-  const g = new Machine([e]);
-  const roots = g.rootSources();
-  assertEqual(roots.length, 2);
-}
-
-// TEST6400: Machine display edge
-function test6400_Machine_displayEdge() {
-  const e = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  );
-  const display = e.toString();
-  assert(display.includes('media:document;ext=pdf'), 'Display should contain media:document;ext=pdf');
-}
-
-// TEST6402: Machine display graph
-function test6402_Machine_displayGraph() {
-  const e = new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  );
-  assertEqual(new Machine([e]).toString(), 'Machine(1 edges)');
-  assertEqual(Machine.empty().toString(), 'Machine(empty)');
-}
-
-// --- Machine serializer tests (mirrors serializer.rs tests) ---
-
-function test6404_Machine_serializeSingleEdge() {
-  const g = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  )]);
-  const notation = g.toMachineNotation();
-  // Aliases are pure-index `edge_<N>` (no privileged tag to derive a friendlier name).
-  assert(notation.includes('[edge_0 '), 'Should use edge_0 alias: ' + notation);
-  assert(notation.includes('-> edge_0 ->'), 'Should have edge_0 in wiring: ' + notation);
-  assert(notation.includes('[n0 ->'), 'Should use n0 for source: ' + notation);
-  assert(notation.includes('-> n1]'), 'Should use n1 for target: ' + notation);
-}
-
-// TEST6406: Machine serialize two edge chain
-function test6406_Machine_serializeTwoEdgeChain() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const g = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  const notation = g.toMachineNotation();
-  const bracketCount = (notation.match(/\[/g) || []).length;
-  assertEqual(bracketCount, 4, 'Should have 4 brackets (2 headers + 2 wirings)');
-}
-
-// TEST6408: Machine serialize empty graph
-function test6408_Machine_serializeEmptyGraph() {
-  assertEqual(Machine.empty().toMachineNotation(), '');
-}
-
-// TEST6410: Machine roundtrip single edge
-function test6410_Machine_roundtripSingleEdge() {
-  const original = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  )]);
-  const notation = original.toMachineNotation();
-  const reparsed = Machine.fromString(notation);
-  assert(original.isEquivalent(reparsed),
-    'Single edge round-trip failed: ' + notation);
-}
-
-// TEST6413: Machine roundtrip two edge chain
-function test6413_Machine_roundtripTwoEdgeChain() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const original = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  const notation = original.toMachineNotation();
-  const reparsed = Machine.fromString(notation);
-  assert(original.isEquivalent(reparsed),
-    'Two-edge chain round-trip failed: ' + notation);
-}
-
-// TEST6415: Machine roundtrip fan out
-function test6415_Machine_roundtripFanOut() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const original = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"', 'media:enc=utf-8;file-metadata;record'),
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract-outline;out="media:document-outline;enc=utf-8;record"', 'media:document-outline;enc=utf-8;record'),
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"', 'media:ext=png;image;thumbnail'),
-  ]);
-  const notation = original.toMachineNotation();
-  const reparsed = Machine.fromString(notation);
-  assert(original.isEquivalent(reparsed),
-    'Fan-out round-trip failed: ' + notation);
-}
-
-// TEST6417: A per-item map (`is_loop`) edge serializes WITHOUT any LOOP marker —
-// `is_loop` is a derived cardinality property, not authored notation text. The
-// pure-JS parse path has no cap definitions to re-derive cardinality, so the
-// reparsed edge has `isLoop === false`; editors get the derived value from the
-// engine, not from re-parsing.
-function test6417_Machine_loopEdgeSerializesWithoutLoopText() {
-  const original = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:disbound-page;enc=utf-8')],
-    CapUrn.fromString('cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    true
-  )]);
-  const notation = original.toMachineNotation();
-  assert(!notation.includes('LOOP'), 'serialized notation must not contain the retired LOOP keyword');
-
-  const reparsed = Machine.fromString(notation);
-  assertEqual(reparsed.edgeCount(), 1);
-  assertEqual(reparsed.edges()[0].isLoop, false,
-    'pure-JS parse path cannot derive cardinality — isLoop defaults to false');
-  // The structural payload (sources, cap, target) round-trips intact.
-  assert(reparsed.edges()[0].capUrn.isEquivalent(original.edges()[0].capUrn),
-    'cap URN must round-trip');
-  assert(reparsed.edges()[0].target.isEquivalent(original.edges()[0].target),
-    'target media must round-trip');
-}
-
-// TEST6419: Machine serialization is deterministic
-function test6419_Machine_serializationIsDeterministic() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const g = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  const n1 = g.toMachineNotation();
-  const n2 = g.toMachineNotation();
-  assertEqual(n1, n2, 'Serialization must be deterministic');
-}
-
-// TEST6421: Machine reordered edges produce same notation
-function test6421_Machine_reorderedEdgesProduceSameNotation() {
-  const mkEdge = (src, cap, tgt) => new MachineEdge(
-    [MediaUrn.fromString(src)], CapUrn.fromString(cap), MediaUrn.fromString(tgt), false
-  );
-  const g1 = new Machine([
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-  ]);
-  const g2 = new Machine([
-    mkEdge('media:enc=utf-8;ext=txt', 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record'),
-    mkEdge('media:document;ext=pdf', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt'),
-  ]);
-  assertEqual(g1.toMachineNotation(), g2.toMachineNotation(),
-    'Same graph with reordered edges must produce identical notation');
-}
-
-// TEST6429: Machine multiline serialize format
-function test6429_Machine_multilineSerializeFormat() {
-  const g = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  )]);
-  const multi = g.toMachineNotationMultiline();
-  assert(multi.includes('\n'), 'Multi-line format must contain newlines');
-  // Should round-trip
-  const reparsed = Machine.fromString(multi);
-  assert(g.isEquivalent(reparsed), 'Multi-line round-trip failed');
-}
-
-// Aliases are pure-index `edge_<N>` regardless of the cap's tags; there is
-// no privileged `op` tag to derive a friendlier name from.
-function test6432_Machine_aliasFromOpTag() {
-  const g = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  )]);
-  const notation = g.toMachineNotation();
-  assert(notation.includes('[edge_0 '), 'Expected edge_0 alias, got: ' + notation);
-}
-
-// TEST6434: Machine alias fallback without op tag
-function test6434_Machine_aliasFallbackWithoutOpTag() {
-  const g = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:document;ext=pdf')],
-    CapUrn.fromString('cap:in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    false
-  )]);
-  const notation = g.toMachineNotation();
-  assert(notation.includes('edge_'), 'Expected fallback alias, got: ' + notation);
-}
-
-// Pure-index aliases inherently disambiguate edges that share a marker tag.
-function test6436_Machine_duplicateOpTagsDisambiguated() {
-  const g = new Machine([
-    new MachineEdge(
-      [MediaUrn.fromString('media:document;ext=pdf')],
-      CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
-      MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-      false
-    ),
-    new MachineEdge(
-      [MediaUrn.fromString('media:document;ext=pdf')],
-      CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:fmt=json;record"'),
-      MediaUrn.fromString('media:fmt=json;record'),
-      false
-    ),
-  ]);
-  const notation = g.toMachineNotation();
-  assert(notation.includes('edge_0') && notation.includes('edge_1'),
-    'Two edges must serialize with two distinct aliases: ' + notation);
-}
-
-// --- Machine builder tests ---
-
-function test6437_Machine_builderSingleEdge() {
-  const builder = new MachineBuilder();
-  builder.addEdge(
-    ['media:document;ext=pdf'],
-    'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
-    'media:enc=utf-8;ext=txt'
-  );
-  const g = builder.build();
-  assertEqual(g.edgeCount(), 1);
-  assertEqual(g.edges()[0].isLoop, false);
-}
-
-// TEST6438: Machine builder with loop
-function test6438_Machine_builderWithLoop() {
-  const builder = new MachineBuilder();
-  builder.addEdge(
-    ['media:disbound-page;enc=utf-8'],
-    'cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"',
-    'media:enc=utf-8;ext=txt',
-    true
-  );
-  const g = builder.build();
-  assertEqual(g.edges()[0].isLoop, true);
-}
-
-// TEST6439: Machine builder chaining
-function test6439_Machine_builderChaining() {
-  const g = new MachineBuilder()
-    .addEdge(['media:document;ext=pdf'], 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt')
-    .addEdge(['media:enc=utf-8;ext=txt'], 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record')
-    .build();
-  assertEqual(g.edgeCount(), 2);
-}
-
-// TEST6440: Machine builder equivalent to parsed
-function test6440_Machine_builderEquivalentToParsed() {
-  const parsed = Machine.fromString(
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-    '[doc -> extract -> text]'
-  );
-  const built = new MachineBuilder()
-    .addEdge(['media:document;ext=pdf'], 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt')
-    .build();
-  assert(parsed.isEquivalent(built),
-    'Builder-constructed graph should be equivalent to parsed graph');
-}
-
-// TEST6442: Machine builder round trip
-function test6442_Machine_builderRoundTrip() {
-  const built = new MachineBuilder()
-    .addEdge(['media:document;ext=pdf'], 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'media:enc=utf-8;ext=txt')
-    .addEdge(['media:enc=utf-8;ext=txt'], 'cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"', 'media:embedding-vector;enc=utf-8;record')
-    .build();
-  const notation = built.toMachineNotation();
-  const reparsed = Machine.fromString(notation);
-  assert(built.isEquivalent(reparsed), 'Builder round-trip failed');
-}
 
 // --- CapUrn.isEquivalent/isComparable tests ---
 
@@ -4769,207 +3947,6 @@ function test6451_Machine_mediaUrnIsComparable() {
   assert(specific.isComparable(general), 'isComparable should be symmetric');
   const unrelated = MediaUrn.fromString('media:document;ext=pdf');
   assert(!general.isComparable(unrelated), 'Unrelated should not be comparable');
-}
-
-// ============================================================================
-// Phase 0A: Position tracking tests
-// ============================================================================
-
-function test6452_Machine_parseMachineWithAST_headerLocation() {
-  const input = '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"][doc -> extract -> text]';
-  const result = parseMachineWithAST(input);
-  assert(result.statements.length === 2, 'Should have 2 statements');
-  const stmt = result.statements[0];
-  assertEqual(stmt.type, 'header', 'First statement should be a header');
-  assert(stmt.location !== undefined, 'Header should have location');
-  assert(stmt.location.start !== undefined, 'Location should have start');
-  assert(stmt.location.end !== undefined, 'Location should have end');
-  assert(stmt.location.start.line !== undefined, 'Start should have line');
-  assert(stmt.location.start.column !== undefined, 'Start should have column');
-  assert(stmt.aliasLocation !== undefined, 'Header should have aliasLocation');
-  assert(stmt.capUrnLocation !== undefined, 'Header should have capUrnLocation');
-  assertEqual(stmt.alias, 'extract', 'Alias should be extract');
-}
-
-// TEST6453: Machine parse machine with a s t wiring location
-function test6453_Machine_parseMachineWithAST_wiringLocation() {
-  const input = '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n[doc -> extract -> text]';
-  const result = parseMachineWithAST(input);
-  assert(result.statements.length === 2, 'Should have 2 statements');
-  const wiring = result.statements[1];
-  assertEqual(wiring.type, 'wiring', 'Second statement should be a wiring');
-  assert(wiring.location !== undefined, 'Wiring should have location');
-  assert(wiring.sourceLocations !== undefined, 'Wiring should have sourceLocations');
-  assert(wiring.sourceLocations.length === 1, 'Should have 1 source location');
-  assert(wiring.capAliasLocation !== undefined, 'Wiring should have capAliasLocation');
-  assert(wiring.targetLocation !== undefined, 'Wiring should have targetLocation');
-  assertEqual(wiring.target, 'text', 'Target should be text');
-}
-
-// TEST6454: Machine parse machine with a s t multiline positions
-function test6454_Machine_parseMachineWithAST_multilinePositions() {
-  const input = '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]\n[doc -> extract -> text]';
-  const result = parseMachineWithAST(input);
-  const headerLoc = result.statements[0].location;
-  const wiringLoc = result.statements[1].location;
-  assertEqual(headerLoc.start.line, 1, 'Header should be on line 1');
-  assertEqual(wiringLoc.start.line, 2, 'Wiring should be on line 2');
-}
-
-// TEST6455: Machine parse machine with a s t fan in source locations
-function test6455_Machine_parseMachineWithAST_fanInSourceLocations() {
-  const input = [
-    '[describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"]',
-    '[(thumbnail, model_spec) -> describe -> description]'
-  ].join('\n');
-  const result = parseMachineWithAST(input);
-  const wiring = result.statements[1];
-  assertEqual(wiring.sources.length, 2, 'Fan-in should have 2 sources');
-  assert(wiring.sourceLocations.length === 2, 'Should have 2 source locations');
-}
-
-// TEST6456: Machine parse machine with a s t alias map
-function test6456_Machine_parseMachineWithAST_aliasMap() {
-  const input = [
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]',
-    '[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]',
-    '[doc -> extract -> text]',
-    '[text -> embed -> vectors]',
-  ].join('\n');
-  const result = parseMachineWithAST(input);
-  assert(result.aliasMap.has('extract'), 'aliasMap should have extract');
-  assert(result.aliasMap.has('embed'), 'aliasMap should have embed');
-  assertEqual(result.aliasMap.size, 2, 'aliasMap should have 2 entries');
-  const extractEntry = result.aliasMap.get('extract');
-  assert(extractEntry.capUrn !== undefined, 'Alias entry should have capUrn');
-  assert(extractEntry.location !== undefined, 'Alias entry should have location');
-  assert(extractEntry.aliasLocation !== undefined, 'Alias entry should have aliasLocation');
-  assert(extractEntry.capUrnLocation !== undefined, 'Alias entry should have capUrnLocation');
-}
-
-// TEST6457: Machine parse machine with a s t node media
-function test6457_Machine_parseMachineWithAST_nodeMedia() {
-  const input = [
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]',
-    '[doc -> extract -> text]',
-  ].join('\n');
-  const result = parseMachineWithAST(input);
-  assert(result.nodeMedia.has('doc'), 'nodeMedia should have doc');
-  assert(result.nodeMedia.has('text'), 'nodeMedia should have text');
-  assertEqual(result.nodeMedia.get('doc').toString(), 'media:document;ext=pdf', 'doc should be media:document;ext=pdf');
-  assertEqual(result.nodeMedia.get('text').toString(), 'media:enc=utf-8;ext=txt', 'text should be media:enc=utf-8;ext=txt');
-}
-
-// TEST6458: Machine error location parse error
-function test6458_Machine_errorLocation_parseError() {
-  try {
-    parseMachine('[this is not valid');
-    throw new Error('Expected MachineSyntaxError');
-  } catch (e) {
-    assertEqual(e.code, MachineSyntaxErrorCodes.PARSE_ERROR, 'Should be PARSE_ERROR');
-    assert(e.location !== null, 'Parse error should have location');
-  }
-}
-
-// TEST6459: Machine error location duplicate alias
-function test6459_Machine_errorLocation_duplicateAlias() {
-  try {
-    parseMachine(
-      '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-      '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-      '[doc -> extract -> text]'
-    );
-    throw new Error('Expected MachineSyntaxError');
-  } catch (e) {
-    assertEqual(e.code, MachineSyntaxErrorCodes.DUPLICATE_ALIAS, 'Should be DUPLICATE_ALIAS');
-    assert(e.location !== null, 'Duplicate alias error should have location');
-  }
-}
-
-// TEST6460: Machine error location undefined alias
-function test6460_Machine_errorLocation_undefinedAlias() {
-  try {
-    parseMachine('[doc -> nonexistent -> text]');
-    throw new Error('Expected MachineSyntaxError');
-  } catch (e) {
-    assertEqual(e.code, MachineSyntaxErrorCodes.UNDEFINED_ALIAS, 'Should be UNDEFINED_ALIAS');
-    assert(e.location !== null, 'Undefined alias error should have location');
-  }
-}
-
-// ============================================================================
-// Phase 0C: Machine.toMermaid() tests
-// ============================================================================
-
-function test6462_Machine_toMermaid_linearChain() {
-  const machine = Machine.fromString(
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-    '[doc -> extract -> text]'
-  );
-  const mermaid = machine.toMermaid();
-  assert(mermaid.startsWith('flowchart LR'), 'Should start with flowchart LR');
-  // Edge labels are pure-index `edge_<N>` aliases from the canonical
-  // serializer (the input alias name is not preserved in the rendered
-  // diagram — it's a serialization artefact, not part of the machine).
-  assert(mermaid.includes('edge_0'), 'Should include edge_0 label');
-  assert(mermaid.includes('media:document;ext=pdf'), 'Should include media:document;ext=pdf node');
-  assert(mermaid.includes('media:enc=utf-8;ext=txt'), 'Should include media:enc=utf-8;ext=txt node');
-  assert(mermaid.includes('-->'), 'Should include arrow');
-  // Root source and leaf target should both be stadium shape
-  assert(mermaid.includes('(['), 'Should have stadium shape nodes');
-}
-
-// TEST6463: Mermaid renders a per-item map (`is_loop`) edge with a dotted line
-// — `is_loop` is a kept render property — but emits NO "LOOP" text, since that
-// keyword is retired. The loop edge is built programmatically because the
-// grammar no longer has any way to author one.
-function test6463_Machine_toMermaid_loopEdge() {
-  const machine = new Machine([new MachineEdge(
-    [MediaUrn.fromString('media:disbound-page;enc=utf-8')],
-    CapUrn.fromString('cap:in="media:disbound-page;enc=utf-8";page-to-text;out="media:enc=utf-8;ext=txt"'),
-    MediaUrn.fromString('media:enc=utf-8;ext=txt'),
-    true
-  )]);
-  const mermaid = machine.toMermaid();
-  assert(!mermaid.includes('LOOP'), 'Must not emit the retired LOOP label');
-  assert(mermaid.includes('-.'), 'Should use dotted line for the per-item map edge');
-  assert(mermaid.includes('.->'), 'Should use dotted arrow for the per-item map edge');
-}
-
-// TEST6464: Machine to mermaid empty graph
-function test6464_Machine_toMermaid_emptyGraph() {
-  const machine = Machine.empty();
-  const mermaid = machine.toMermaid();
-  assert(mermaid.includes('empty graph'), 'Should indicate empty graph');
-}
-
-// TEST6465: Machine to mermaid fan in
-function test6465_Machine_toMermaid_fanIn() {
-  const machine = Machine.fromString(
-    '[describe cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"]' +
-    '[(thumbnail, model_spec) -> describe -> description]'
-  );
-  const mermaid = machine.toMermaid();
-  // Fan-in should produce two arrows pointing to the same target
-  const arrowCount = (mermaid.match(/-->/g) || []).length;
-  assertEqual(arrowCount, 2, 'Fan-in should produce 2 arrows');
-}
-
-// TEST6466: Machine to mermaid fan out
-function test6466_Machine_toMermaid_fanOut() {
-  const input = [
-    '[meta cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"]',
-    '[thumb cap:in="media:document;ext=pdf";generate-thumbnail;out="media:ext=png;image;thumbnail"]',
-    '[doc -> meta -> metadata]',
-    '[doc -> thumb -> thumbnail]'
-  ].join('');
-  const machine = Machine.fromString(input);
-  const mermaid = machine.toMermaid();
-  // Should have 2 edges
-  const arrowCount = (mermaid.match(/-->/g) || []).length;
-  assertEqual(arrowCount, 2, 'Fan-out should produce 2 arrows');
-  // The root source (media:document;ext=pdf) should appear once as a node definition
-  assert(mermaid.includes('media:document;ext=pdf'), 'Should include media:document;ext=pdf');
 }
 
 // ============================================================================
@@ -5031,18 +4008,6 @@ function test6470_Machine_capRegistryEntry_defaults() {
   assert(Array.isArray(entry.aliases) && entry.aliases.length === 0, 'Aliases should default to an empty array');
   assert(Array.isArray(entry.args), 'Args should default to array');
   assertEqual(entry.args.length, 0, 'Args should be empty');
-}
-
-// Helper for machine error tests
-function assertThrowsWithCode(fn, expectedCode) {
-  try {
-    fn();
-    throw new Error(`Expected ${expectedCode} error but no error was thrown`);
-  } catch (e) {
-    if (e.code !== expectedCode) {
-      throw new Error(`Expected error code '${expectedCode}' but got '${e.code}': ${e.message}`);
-    }
-  }
 }
 
 // ============================================================================
@@ -6607,147 +5572,134 @@ function test6516_Renderer_buildEditorGraphData_rejectsEdgeWithMissingSource() {
 
 // ---------------- resolved-machine builder ----------------
 
+/** A cap definition with these args and outputs, held to the definition rules. */
+function capOf(capUrn, title, args, outputs) {
+  const cap = new Cap(CapUrn.fromString(capUrn), title, [title]);
+  for (const arg of args) cap.addArg(arg);
+  cap.setOutputs(outputs);
+  validateCapDefinition(cap);
+  return cap;
+}
+
+/** One step of a render payload, with every field the payload carries. */
+function payloadEdge(alias, capUrn, title, assignment, outputs, extra = {}) {
+  return Object.assign({
+    alias, cap_urn: capUrn, title, is_loop: false, retry: 0, on_error: 'fail', included_as: [], assignment, outputs,
+  }, extra);
+}
+
+const EXTRACT_PAYLOAD_EDGE = payloadEdge('edge_0', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
+  'Extract Text',
+  [{ cap_arg_media_urn: 'media:document;ext=pdf', arg_name: 'input', source_node: 'n0' }],
+  [{ output_media_urn: 'media:enc=utf-8;ext=txt', output_name: 'output', node: 'n1' }]);
+
+/** The edges of a built machine graph as `source->target:label`. */
+const drawnEdges = built => built.edges.map(e => `${e.data.source}->${e.data.target}:${e.data.label}`);
+
+// TEST6517: a chain draws its data nodes and one node per step, with an edge
+// into each step per binding and out of it per output, labelled by name.
 function test6517_Renderer_buildResolvedMachineGraphData_singleStrandLinearChain() {
-  // A single-strand machine: media:document;ext=pdf → extract → media:ext=txt
-  // → embed → media:embedding. Two edges, three nodes, no
-  // loops, no fan-in. Tests the basic shape — nodes and
-  // edges flow through verbatim from the resolved machine
-  // payload.
   const payload = {
-    strands: [
-      {
-        nodes: [
-          { id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' },
-          { id: 'n1', urn: 'media:enc=utf-8;ext=txt', title: 'Plain Text' },
-          { id: 'n2', urn: 'media:embedding;record', title: 'Embedding Record' },
-        ],
-        edges: [
-          {
-            alias: 'edge_0',
-            cap_urn: 'cap:in="media:document;ext=pdf";extract;out=media:enc=utf-8;ext=txt',
-            title: 'Extract Text',
-            is_loop: false,
-            assignment: [
-              { cap_arg_media_urn: 'media:document;ext=pdf', source_node: 'n0' },
-            ],
-            target_node: 'n1',
-          },
-          {
-            alias: 'edge_1',
-            cap_urn: 'cap:in=media:enc=utf-8;embed;out=media:embedding;record',
-            title: 'Generate Embedding',
-            is_loop: false,
-            assignment: [
-              { cap_arg_media_urn: 'media:enc=utf-8', source_node: 'n1' },
-            ],
-            target_node: 'n2',
-          },
-        ],
-        input_anchor_nodes: ['n0'],
-        output_anchor_nodes: ['n2'],
-      },
-    ],
+    strands: [{
+      nodes: [
+        { id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' },
+        { id: 'n1', urn: 'media:enc=utf-8;ext=txt', title: 'Plain Text' },
+        { id: 'n2', urn: 'media:embedding;record', title: 'Embedding Record' },
+      ],
+      edges: [
+        EXTRACT_PAYLOAD_EDGE,
+        payloadEdge('edge_1', 'cap:in=media:enc=utf-8;embed;out="media:embedding;record"', 'Generate Embedding',
+          [{ cap_arg_media_urn: 'media:enc=utf-8', arg_name: 'text', source_node: 'n1' }],
+          [{ output_media_urn: 'media:embedding;record', output_name: 'embedding', node: 'n2' }]),
+      ],
+      input_anchor_nodes: ['n0'],
+      output_anchor_nodes: ['n2'],
+    }],
   };
   const built = rendererBuildResolvedMachineGraphData(payload);
-  assertEqual(built.nodes.length, 3, 'three data-slot nodes');
-  assertEqual(built.edges.length, 2, 'two cap edges (one assignment each)');
-  // First edge connects n0 → n1, second connects n1 → n2.
-  const edges = built.edges.map(e => `${e.data.source}->${e.data.target}`);
-  assertEqual(edges[0], 'n0->n1', 'first edge wires n0 to n1');
-  assertEqual(edges[1], 'n1->n2', 'second edge wires n1 to n2');
-  // Anchor nodes carry the strand-source / strand-target classes.
+  assertEqual(built.nodes.length, 5, 'three data nodes and two steps');
+  assertEqual(JSON.stringify(drawnEdges(built)), JSON.stringify([
+    'n0->machine-step-0:input', 'machine-step-0->n1:output', 'n1->machine-step-1:text', 'machine-step-1->n2:embedding',
+  ]), 'into and out of each step');
+  const step = built.nodes.find(n => n.data.id === 'machine-step-0');
+  assertEqual(step.data.label, 'Extract Text', "the step is labelled with its cap's title");
+  assertEqual(step.classes, 'machine-step', 'a step');
   const n0 = built.nodes.find(n => n.data.id === 'n0');
   const n2 = built.nodes.find(n => n.data.id === 'n2');
   assertEqual(n0.data.label, 'PDF', 'node label must come from explicit title');
-  assert(n0.classes.indexOf('strand-source') >= 0,
-    'input anchor node carries strand-source class');
-  assert(n2.classes.indexOf('strand-target') >= 0,
-    'output anchor node carries strand-target class');
+  assert(n0.classes.indexOf('strand-source') >= 0, 'input anchor node carries strand-source class');
+  assert(n2.classes.indexOf('strand-target') >= 0, 'output anchor node carries strand-target class');
 }
 
-// TEST6518: Renderer build resolved machine graph data loop edge gets loop class
+// TEST6518: a step that runs once per item draws its node and its edges in the
+// loop style, and a step's policy is drawn on it.
 function test6518_Renderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass() {
-  // An is_loop edge corresponds to a strand step inside a
-  // ForEach body. The renderer must mark it with the
-  // `machine-loop` class so the dashed amber rule applies.
   const payload = {
-    strands: [
-      {
-        nodes: [
-          { id: 'n0', urn: 'media:enc=utf-8;page', title: 'Page' },
-          { id: 'n1', urn: 'media:decision;fmt=json;record', title: 'Decision Record' },
-        ],
-        edges: [
-          {
-            alias: 'edge_0',
-            cap_urn: 'cap:in=media:enc=utf-8;make-decision;out=media:decision;fmt=json;record',
-            title: 'Make Decision',
-            is_loop: true,
-            assignment: [
-              { cap_arg_media_urn: 'media:enc=utf-8', source_node: 'n0' },
-            ],
-            target_node: 'n1',
-          },
-        ],
-        input_anchor_nodes: ['n0'],
-        output_anchor_nodes: ['n1'],
-      },
-    ],
+    strands: [{
+      nodes: [
+        { id: 'n0', urn: 'media:enc=utf-8;page', title: 'Page' },
+        { id: 'n1', urn: 'media:decision;fmt=json;record', title: 'Decision Record' },
+      ],
+      edges: [payloadEdge('edge_0', 'cap:in=media:enc=utf-8;make-decision;out="media:decision;fmt=json;record"', 'Make Decision',
+        [{ cap_arg_media_urn: 'media:enc=utf-8', arg_name: 'page', source_node: 'n0' }],
+        [{ output_media_urn: 'media:decision;fmt=json;record', output_name: 'decision', node: 'n1' }],
+        { is_loop: true, retry: 2, on_error: 'absent' })],
+      input_anchor_nodes: ['n0'],
+      output_anchor_nodes: ['n1'],
+    }],
   };
   const built = rendererBuildResolvedMachineGraphData(payload);
-  assertEqual(built.edges.length, 1, 'one cap edge');
-  assert(built.edges[0].classes.indexOf('machine-loop') >= 0,
-    'is_loop=true must produce a machine-loop class on the cap edge');
+  assertEqual(built.edges.length, 2, 'one edge in, one out');
+  for (const edge of built.edges) {
+    assert(edge.classes.indexOf('machine-loop') >= 0, 'is_loop=true must produce a machine-loop class on its edges');
+  }
+  const step = built.nodes.find(n => n.data.id === 'machine-step-0');
+  assert(step.classes.indexOf('machine-step-loop') >= 0, 'and on its node');
+  assertEqual(step.data.label, 'Make Decision\n{retry=2, on_error=absent}', 'the policy on the step');
 }
 
-// TEST6519: Renderer build resolved machine graph data fan in produces edge per assignment
+// TEST6519: a step given several members draws an edge per binding; a
+// constant is a node of its own; a source is given nothing and a sink has
+// nothing taken, and both are drawn.
 function test6519_Renderer_buildResolvedMachineGraphData_fanInProducesEdgePerAssignment() {
-  // A cap with two input args (a fan-in) gets one rendered
-  // edge per (source_node, target_node) pair so cytoscape can
-  // draw both incoming wires. Both edges share the cap title
-  // and color so they read as a single fan-in.
   const payload = {
-    strands: [
-      {
-        nodes: [
-          { id: 'n0', urn: 'media:ext=png;image', title: 'PNG Image' },
-          { id: 'n1', urn: 'media:enc=utf-8;model-spec', title: 'Model Spec' },
-          { id: 'n2', urn: 'media:enc=utf-8;image-description', title: 'Image Description' },
-        ],
-        edges: [
-          {
-            alias: 'edge_0',
-            cap_urn: 'cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"',
-            title: 'Describe Image',
-            is_loop: false,
-            assignment: [
-              { cap_arg_media_urn: 'media:ext=png;image', source_node: 'n0' },
-              { cap_arg_media_urn: 'media:enc=utf-8;model-spec', source_node: 'n1' },
-            ],
-            target_node: 'n2',
-          },
-        ],
-        input_anchor_nodes: ['n0', 'n1'],
-        output_anchor_nodes: ['n2'],
-      },
-    ],
+    strands: [{
+      nodes: [
+        { id: 'n0', urn: 'media:ext=png;image', title: 'PNG Image' },
+        { id: 'n1', urn: 'media:enc=utf-8;model-spec', title: 'Model Spec' },
+        { id: 'n2', urn: 'media:enc=utf-8;image-description', title: 'Image Description' },
+      ],
+      edges: [
+        payloadEdge('edge_0', 'cap:in=media:void;now;out="media:ext=png;image"', 'Capture', [],
+          [{ output_media_urn: 'media:ext=png;image', output_name: 'image', node: 'n0' }]),
+        payloadEdge('edge_1', 'cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"', 'Describe Image', [
+          { cap_arg_media_urn: 'media:ext=png;image', arg_name: 'image', source_node: 'n0' },
+          { cap_arg_media_urn: 'media:enc=utf-8;model-spec', arg_name: 'model', source_node: 'n1' },
+          { cap_arg_media_urn: 'media:integer;max-tokens', arg_name: 'max_tokens', constant: 200 },
+        ], [{ output_media_urn: 'media:enc=utf-8;image-description', output_name: 'description', node: 'n2' }]),
+        payloadEdge('edge_2', 'cap:in="media:enc=utf-8;image-description";publish;out=media:void', 'Publish',
+          [{ cap_arg_media_urn: 'media:enc=utf-8;image-description', arg_name: 'report', source_node: 'n2' }], []),
+      ],
+      input_anchor_nodes: ['n1'],
+      output_anchor_nodes: [],
+    }],
   };
   const built = rendererBuildResolvedMachineGraphData(payload);
-  assertEqual(built.edges.length, 2, 'two rendered edges, one per assignment binding');
-  const sources = built.edges.map(e => e.data.source).sort();
-  assertEqual(JSON.stringify(sources), JSON.stringify(['n0', 'n1']),
-    'each binding gets its own source-node edge into the same target');
-  assertEqual(built.edges[0].data.target, 'n2', 'first edge targets n2');
-  assertEqual(built.edges[1].data.target, 'n2', 'second edge targets n2');
+  assertEqual(JSON.stringify(drawnEdges(built)), JSON.stringify([
+    'machine-step-0->n0:image',
+    'n0->machine-step-1:image', 'n1->machine-step-1:model', 'machine-constant-0->machine-step-1:max_tokens',
+    'machine-step-1->n2:description',
+    'n2->machine-step-2:report',
+  ]), 'a source, a step of three members, a sink');
+  const constant = built.nodes.find(n => n.data.id === 'machine-constant-0');
+  assertEqual(constant.data.label, '200', 'the constant');
+  assertEqual(constant.classes, 'machine-constant', 'drawn as a constant');
 }
 
 // TEST6520: Renderer build resolved machine graph data multi strand keeps strands disjoint
 function test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint() {
-  // Two strands inside one machine. Each strand has its own
-  // nodes and edges. Node ids are globally unique across
-  // strands (Rust assigns them via a single counter), so no
-  // node id collision can happen. The renderer must emit
-  // every node and every edge from both strands.
+  // Node ids are unique across strands (every library names them from one
+  // counter), and every node and step of both strands is drawn.
   const payload = {
     strands: [
       {
@@ -6755,18 +5707,7 @@ function test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrands
           { id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' },
           { id: 'n1', urn: 'media:enc=utf-8;ext=txt', title: 'Plain Text' },
         ],
-        edges: [
-          {
-            alias: 'edge_0',
-            cap_urn: 'cap:in="media:document;ext=pdf";extract;out=media:enc=utf-8;ext=txt',
-            title: 'Extract Text',
-            is_loop: false,
-            assignment: [
-              { cap_arg_media_urn: 'media:document;ext=pdf', source_node: 'n0' },
-            ],
-            target_node: 'n1',
-          },
-        ],
+        edges: [EXTRACT_PAYLOAD_EDGE],
         input_anchor_nodes: ['n0'],
         output_anchor_nodes: ['n1'],
       },
@@ -6775,102 +5716,101 @@ function test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrands
           { id: 'n2', urn: 'media:fmt=json;record', title: 'JSON Record' },
           { id: 'n3', urn: 'media:fmt=csv;list;record', title: 'CSV Rows' },
         ],
-        edges: [
-          {
-            alias: 'edge_1',
-            cap_urn: 'cap:in=media:fmt=json;record;convert-format;out=media:fmt=csv;list;record',
-            title: 'Convert Format',
-            is_loop: false,
-            assignment: [
-              { cap_arg_media_urn: 'media:fmt=json;record', source_node: 'n2' },
-            ],
-            target_node: 'n3',
-          },
-        ],
+        edges: [payloadEdge('edge_1', 'cap:in="media:fmt=json;record";convert-format;out="media:fmt=csv;list;record"', 'Convert Format',
+          [{ cap_arg_media_urn: 'media:fmt=json;record', arg_name: 'input', source_node: 'n2' }],
+          [{ output_media_urn: 'media:fmt=csv;list;record', output_name: 'output', node: 'n3' }])],
         input_anchor_nodes: ['n2'],
         output_anchor_nodes: ['n3'],
       },
     ],
   };
   const built = rendererBuildResolvedMachineGraphData(payload);
-  assertEqual(built.nodes.length, 4, 'all four nodes from both strands present');
-  assertEqual(built.edges.length, 2, 'one edge per strand');
-  // Each node carries a strandIndex matching which strand it came from.
+  assertEqual(built.nodes.length, 6, 'four data nodes and two steps');
+  assertEqual(built.edges.length, 4, 'two edges per strand');
   const idToStrand = {};
   for (const n of built.nodes) idToStrand[n.data.id] = n.data.strandIndex;
-  assertEqual(idToStrand['n0'], 0, 'n0 belongs to strand 0');
-  assertEqual(idToStrand['n1'], 0, 'n1 belongs to strand 0');
-  assertEqual(idToStrand['n2'], 1, 'n2 belongs to strand 1');
-  assertEqual(idToStrand['n3'], 1, 'n3 belongs to strand 1');
+  assertEqual(JSON.stringify([idToStrand.n0, idToStrand.n1, idToStrand['machine-step-0']]), '[0,0,0]', 'strand 0');
+  assertEqual(JSON.stringify([idToStrand.n2, idToStrand.n3, idToStrand['machine-step-1']]), '[1,1,1]', 'strand 1');
 }
 
 // TEST6521: Renderer build resolved machine graph data duplicate node id across strands fails hard
 function test6521_Renderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard() {
-  // Node ids must be globally unique across strands. The
-  // Rust serializer guarantees this via a single global
-  // counter. If the host ever feeds a payload that violates
-  // it, the renderer must fail hard so the bug surfaces
-  // instead of silently overwriting one node with another.
   const payload = {
     strands: [
-      {
-        nodes: [{ id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' }],
-        edges: [],
-        input_anchor_nodes: ['n0'],
-        output_anchor_nodes: ['n0'],
-      },
-      {
-        nodes: [{ id: 'n0', urn: 'media:ext=html', title: 'HTML' }],
-        edges: [],
-        input_anchor_nodes: ['n0'],
-        output_anchor_nodes: ['n0'],
-      },
+      { nodes: [{ id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' }], edges: [], input_anchor_nodes: ['n0'], output_anchor_nodes: ['n0'] },
+      { nodes: [{ id: 'n0', urn: 'media:ext=html', title: 'HTML' }], edges: [], input_anchor_nodes: ['n0'], output_anchor_nodes: ['n0'] },
     ],
   };
-  let threw = false;
-  let message = '';
-  try {
-    rendererBuildResolvedMachineGraphData(payload);
-  } catch (e) {
-    threw = true;
-    message = e.message || '';
-  }
-  assert(threw, 'duplicate node id across strands must throw');
-  assert(message.includes('duplicate node id') && message.includes('n0'),
-    'error must name the colliding node id');
+  assertRefuses(() => rendererBuildResolvedMachineGraphData(payload), /duplicate node id "n0"/, 'one id in two strands');
 }
 
-// TEST6522: Renderer validate resolved machine payload rejects missing fields
+// TEST6522: the validator refuses a payload missing a field, a binding fed by
+// both a node and a constant or by neither, a node reference that is no node
+// of the strand, a policy outside its range — and accepts what a library
+// writes.
 function test6522_Renderer_validateResolvedMachinePayload_rejectsMissingFields() {
-  // The validator must reject any payload missing a required
-  // field on a strand, edge, node, or assignment binding.
-  // We exercise the most-likely-to-be-missed field on each
-  // sub-shape.
+  const strandWith = (edge, nodes = [{ id: 'n0', urn: 'media:x', title: 'X' }, { id: 'n1', urn: 'media:y', title: 'Y' }]) =>
+    ({ strands: [{ nodes, edges: [edge], input_anchor_nodes: ['n0'], output_anchor_nodes: ['n1'] }] });
+  const binding = { cap_arg_media_urn: 'media:x', arg_name: 'input', source_node: 'n0' };
+  const output = { output_media_urn: 'media:y', output_name: 'output', node: 'n1' };
+  const edge = extra => payloadEdge('edge_0', 'cap:in=media:x;op;out=media:y', 'Op', [binding], [output], extra);
+  rendererValidateResolvedMachinePayload(strandWith(edge({})));
   const cases = [
-    { strands: 'not-an-array' },
-    { strands: [{ nodes: [], edges: [], input_anchor_nodes: [] /* missing output_anchor_nodes */ }] },
-    { strands: [{ nodes: [{ id: 'n0' /* missing urn/title */ }], edges: [], input_anchor_nodes: [], output_anchor_nodes: [] }] },
-    {
-      strands: [{
-        nodes: [{ id: 'n0', urn: 'media:x', title: 'X' }],
-        edges: [{
-          alias: 'edge_0',
-          cap_urn: 'cap:in=...;out=...',
-          title: 'Edge 0',
-          is_loop: false,
-          assignment: [{ cap_arg_media_urn: 'media:x' /* missing source_node */ }],
-          target_node: 'n0',
-        }],
-        input_anchor_nodes: ['n0'],
-        output_anchor_nodes: ['n0'],
-      }],
-    },
+    [{ strands: 'not-an-array' }, /strands must be an array/],
+    [{ strands: [{ nodes: [], edges: [], input_anchor_nodes: [] }] }, /output_anchor_nodes must be an array/],
+    [{ strands: [{ nodes: [{ id: 'n0' }], edges: [], input_anchor_nodes: [], output_anchor_nodes: [] }] }, /urn must be a non-empty string/],
+    [strandWith(edge({ assignment: [{ cap_arg_media_urn: 'media:x', arg_name: 'input' }] })), /exactly one of source_node and constant/],
+    [strandWith(edge({ assignment: [{ ...binding, constant: 1 }] })), /exactly one of source_node and constant/],
+    [strandWith(edge({ assignment: [{ cap_arg_media_urn: 'media:x', source_node: 'n0' }] })), /arg_name/],
+    [strandWith(edge({ assignment: [{ ...binding, source_node: 'n9' }] })), /"n9", which is no node of the strand/],
+    [strandWith(edge({ outputs: [{ ...output, node: 'n9' }] })), /"n9", which is no node of the strand/],
+    [strandWith(edge({ outputs: [{ output_media_urn: 'media:y', node: 'n1' }] })), /output_name/],
+    [strandWith(edge({ target_node: 'n1', outputs: undefined })), /outputs must be an array/],
+    [strandWith(edge({ retry: -1 })), /retry must be a whole number/],
+    [strandWith(edge({ retry: 1.5 })), /retry must be a whole number/],
+    [strandWith(edge({ on_error: 'ignore' })), /on_error must be "fail" or "absent"/],
+    [strandWith(edge({ included_as: undefined })), /included_as must be an array/],
+    [strandWith(edge({ title: '' })), /title must be a non-empty string/],
   ];
-  for (const c of cases) {
-    let threw = false;
-    try { rendererValidateResolvedMachinePayload(c); } catch (e) { threw = true; }
-    assert(threw, `validator must reject payload: ${JSON.stringify(c).slice(0, 80)}`);
+  for (const [payload, pattern] of cases) {
+    assertRefuses(() => rendererValidateResolvedMachinePayload(payload), pattern, JSON.stringify(payload).slice(0, 120));
   }
+}
+
+// TEST12839: what the library writes, the renderer draws: a machine with a
+// constant, two outputs, a step that maps and a policy, written as a render
+// payload and built into a graph.
+function test12839_rendererDrawsTheLibrarysMachinePayload() {
+  const series = 'media:fmt=json;list;record;time-series';
+  const residuals = 'media:fmt=json;list;record;residual';
+  const comparison = 'media:comparison;fmt=json;record';
+  const definitions = new CapDefinitions().addCaps([
+    capOf(`cap:in="${series}";compare;out="${comparison}"`, 'Compare', [
+      new CapArg(series, 'series', true, [new ArgSource({ stdin: series })]),
+      new CapArg('media:integer;window', 'window', false, [new ArgSource({ cli_flag: '--window' })]),
+    ], [new CapOutput(residuals, 'residuals', '', { is_sequence: true }), new CapOutput(comparison, 'comparison', '')]),
+    capOf(`cap:in="${residuals}";score;out="media:numeric;score"`, 'Score',
+      [new CapArg(residuals, 'row', true, [new ArgSource({ stdin: residuals })])],
+      [new CapOutput('media:numeric;score', 'score', '')]),
+  ]).addMediaDefs([series, residuals, comparison, 'media:numeric;score', 'media:integer;window'].map(urn =>
+    new MediaDef('application/json', null, null, `title of ${urn}`, null, urn)));
+  const machine = parseMachine(`[compare cap:in="${series}";compare;out="${comparison}"]` +
+    `[score cap:in="${residuals}";score;out="media:numeric;score"]` +
+    '[(path, window=20) -> compare{retry=1} -> (c, residuals=res)][res -> score -> s]', definitions);
+  const built = rendererBuildResolvedMachineGraphData(JSON.parse(machine.toRenderPayloadJson(definitions)));
+  assertEqual(built.nodes.filter(n => n.classes.startsWith('machine-step')).length, 2, 'two steps');
+  assertEqual(built.nodes.filter(n => n.classes === 'machine-constant').length, 1, 'one constant');
+  assertEqual(JSON.stringify(drawnEdges(built).sort()), JSON.stringify([
+    'machine-constant-0->machine-step-0:window',
+    'machine-step-0->n1:comparison',
+    'machine-step-0->n2:residuals',
+    'machine-step-1->n3:score',
+    'n0->machine-step-0:series',
+    'n2->machine-step-1:row',
+  ]), 'every binding and output, nodes named as the canonical walk meets them');
+  const score = built.nodes.find(n => n.data.label === 'Score');
+  assert(score.classes.indexOf('machine-step-loop') >= 0, 'the step that maps is drawn as one');
+  assert(built.nodes.find(n => n.data.label === 'Compare\n{retry=1}'), 'the policy is drawn');
 }
 
 // ============================================================================
@@ -7490,49 +6430,6 @@ function test1896_cachedCapAliasesFiltersToCapTargets() {
   assertEqual(capAliases[0][1], capTarget, 'pair target');
 }
 
-// TEST1196: toMachineNotationAliased references an aliased cap DIRECTLY in the
-// wiring by its display alias (shortest, then alphabetical) with NO header, and
-// keeps the synthetic `edge_N` token + header for a cap that has no alias.
-function test1196_aliasedSerializationUsesAliasAndDropsHeader() {
-  const registry = new FabricRegistryClient();
-  const m = Machine.fromString(
-    '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
-    '[embed cap:in="media:enc=utf-8;ext=txt";embed;out="media:embedding-vector;enc=utf-8;record"]' +
-    '[doc -> extract -> text]' +
-    '[text -> embed -> vectors]'
-  );
-  // Canonical target strings for the two caps, exactly as the serializer keys.
-  const extractTarget = m.edges().find(e => e.capUrn.toString().includes('extract')).capUrn.toString();
-  // Two aliases on the extract cap; "ex" is shorter than "extract-pdf".
-  registry.insertCachedAliasForTest(new StoredAlias('extract-pdf', extractTarget, 1));
-  registry.insertCachedAliasForTest(new StoredAlias('ex', extractTarget, 1));
-  // No alias for the embed cap → it must stay a raw URN with a header.
-
-  const aliased = m.toMachineNotationAliased(registry, 'bracketed');
-
-  // The extract cap is aliased: referenced directly in the wiring by its
-  // SHORTER alias `ex`, with NO header, and its URN must not appear.
-  assert(aliased.includes('-> ex ->'),
-    `extract cap must be referenced by shortest alias 'ex', got: ${aliased}`);
-  assert(!aliased.includes('extract;out'),
-    `the aliased extract cap URN must not appear, got: ${aliased}`);
-  // The longer alias must not be chosen.
-  assert(!aliased.includes('extract-pdf'),
-    `the longer alias must not be used, got: ${aliased}`);
-  // The un-aliased embed cap keeps its synthetic header binding `edge_N` to the
-  // canonical embed URN.
-  assert(/\[edge_\d+ cap:.*embed/.test(aliased),
-    `the un-aliased embed cap must keep its header URN, got: ${aliased}`);
-
-  // An un-aliased machine (empty registry) is byte-identical to the canonical
-  // formatted form — the aliased path adds nothing when no alias exists.
-  const empty = new FabricRegistryClient();
-  assertEqual(
-    m.toMachineNotationAliased(empty, 'bracketed'),
-    m.toMachineNotationFormatted('bracketed'),
-    'no aliases → identical to canonical bracketed form');
-}
-
 // ============================================================================
 // Test runner
 // ============================================================================
@@ -8015,78 +6912,18 @@ async function runTests() {
 
   // machine module: parser tests (mirrors parser.rs)
   console.log('\n--- machine/parser.rs ---');
-  runTest('MACHINE:empty_input', test6275_Machine_emptyInput);
-  runTest('MACHINE:whitespace_only', test6277_Machine_whitespaceOnly);
-  runTest('MACHINE:header_only_no_wirings', test6279_Machine_headerOnlyNoWirings);
-  runTest('MACHINE:duplicate_alias', test6280_Machine_duplicateAlias);
-  runTest('MACHINE:simple_linear_chain', test6286_Machine_simpleLinearChain);
-  runTest('MACHINE:two_step_chain', test6288_Machine_twoStepChain);
-  runTest('MACHINE:fan_out', test6290_Machine_fanOut);
-  runTest('MACHINE:fan_in_secondary_assigned_by_prior_wiring', test6292_Machine_fanInSecondaryAssignedByPriorWiring);
-  runTest('MACHINE:fan_in_secondary_unassigned_gets_wildcard', test6294_Machine_fanInSecondaryUnassignedGetsWildcard);
-  runTest('MACHINE:loop_keyword_is_not_grammar', test6306_Machine_loopKeywordIsNotGrammar);
-  runTest('MACHINE:undefined_alias_fails', test6308_Machine_undefinedAliasFails);
-  runTest('MACHINE:node_alias_collision', test6310_Machine_nodeAliasCollision);
-  runTest('MACHINE:conflicting_media_types_fail', test6312_Machine_conflictingMediaTypesFail);
-  runTest('MACHINE:multiline_format', test6315_Machine_multilineFormat);
-  runTest('MACHINE:different_aliases_same_graph', test6318_Machine_differentAliasesSameGraph);
-  runTest('MACHINE:malformed_input_fails', test6321_Machine_malformedInputFails);
-  runTest('MACHINE:unterminated_bracket_fails', test6323_Machine_unterminatedBracketFails);
 
   // machine module: line-based mode tests
   console.log('\n--- machine/parser.rs (line-based) ---');
-  runTest('MACHINE:line_based_simple_chain', test6327_Machine_lineBasedSimpleChain);
-  runTest('MACHINE:line_based_two_step_chain', test6331_Machine_lineBasedTwoStepChain);
-  runTest('MACHINE:line_based_loop_keyword_is_not_grammar', test6334_Machine_lineBasedLoopKeywordIsNotGrammar);
-  runTest('MACHINE:line_based_fan_in', test6337_Machine_lineBasedFanIn);
-  runTest('MACHINE:mixed_bracketed_and_line_based', test6341_Machine_mixedBracketedAndLineBased);
-  runTest('MACHINE:line_based_equivalent_to_bracketed', test6345_Machine_lineBasedEquivalentToBracketed);
-  runTest('MACHINE:line_based_format_serialization', test6349_Machine_lineBasedFormatSerialization);
-  runTest('MACHINE:line_based_and_bracketed_parse_same_graph', test6353_Machine_lineBasedAndBracketedParseSameGraph);
 
   // machine module: graph tests (mirrors graph.rs)
   console.log('\n--- machine/graph.rs ---');
-  runTest('MACHINE:edge_equivalence_same_urns', test6357_Machine_edgeEquivalenceSameUrns);
-  runTest('MACHINE:edge_equivalence_different_cap_urns', test6361_Machine_edgeEquivalenceDifferentCapUrns);
-  runTest('MACHINE:edge_equivalence_different_targets', test6365_Machine_edgeEquivalenceDifferentTargets);
-  runTest('MACHINE:edge_equivalence_different_loop_flag', test6369_Machine_edgeEquivalenceDifferentLoopFlag);
-  runTest('MACHINE:edge_equivalence_source_order_independent', test6372_Machine_edgeEquivalenceSourceOrderIndependent);
-  runTest('MACHINE:edge_equivalence_different_source_count', test6375_Machine_edgeEquivalenceDifferentSourceCount);
-  runTest('MACHINE:graph_equivalence_same_edges', test6377_Machine_graphEquivalenceSameEdges);
-  runTest('MACHINE:graph_equivalence_reordered_edges', test6380_Machine_graphEquivalenceReorderedEdges);
-  runTest('MACHINE:graph_not_equivalent_different_edge_count', test6383_Machine_graphNotEquivalentDifferentEdgeCount);
-  runTest('MACHINE:graph_not_equivalent_different_cap', test6386_Machine_graphNotEquivalentDifferentCap);
-  runTest('MACHINE:graph_empty', test6389_Machine_graphEmpty);
-  runTest('MACHINE:graph_empty_equivalence', test6392_Machine_graphEmptyEquivalence);
-  runTest('MACHINE:root_sources_linear_chain', test6395_Machine_rootSourcesLinearChain);
-  runTest('MACHINE:leaf_targets_linear_chain', test6397_Machine_leafTargetsLinearChain);
-  runTest('MACHINE:root_sources_fan_in', test6398_Machine_rootSourcesFanIn);
-  runTest('MACHINE:display_edge', test6400_Machine_displayEdge);
-  runTest('MACHINE:display_graph', test6402_Machine_displayGraph);
 
   // machine module: serializer tests (mirrors serializer.rs)
   console.log('\n--- machine/serializer.rs ---');
-  runTest('MACHINE:serialize_single_edge', test6404_Machine_serializeSingleEdge);
-  runTest('MACHINE:serialize_two_edge_chain', test6406_Machine_serializeTwoEdgeChain);
-  runTest('MACHINE:serialize_empty_graph', test6408_Machine_serializeEmptyGraph);
-  runTest('MACHINE:roundtrip_single_edge', test6410_Machine_roundtripSingleEdge);
-  runTest('MACHINE:roundtrip_two_edge_chain', test6413_Machine_roundtripTwoEdgeChain);
-  runTest('MACHINE:roundtrip_fan_out', test6415_Machine_roundtripFanOut);
-  runTest('MACHINE:loop_edge_serializes_without_loop_text', test6417_Machine_loopEdgeSerializesWithoutLoopText);
-  runTest('MACHINE:serialization_is_deterministic', test6419_Machine_serializationIsDeterministic);
-  runTest('MACHINE:reordered_edges_produce_same_notation', test6421_Machine_reorderedEdgesProduceSameNotation);
-  runTest('MACHINE:multiline_serialize_format', test6429_Machine_multilineSerializeFormat);
-  runTest('MACHINE:alias_from_op_tag', test6432_Machine_aliasFromOpTag);
-  runTest('MACHINE:alias_fallback_without_op_tag', test6434_Machine_aliasFallbackWithoutOpTag);
-  runTest('MACHINE:duplicate_op_tags_disambiguated', test6436_Machine_duplicateOpTagsDisambiguated);
 
   // machine module: builder tests
   console.log('\n--- machine/builder ---');
-  runTest('MACHINE:builder_single_edge', test6437_Machine_builderSingleEdge);
-  runTest('MACHINE:builder_with_loop', test6438_Machine_builderWithLoop);
-  runTest('MACHINE:builder_chaining', test6439_Machine_builderChaining);
-  runTest('MACHINE:builder_equivalent_to_parsed', test6440_Machine_builderEquivalentToParsed);
-  runTest('MACHINE:builder_round_trip', test6442_Machine_builderRoundTrip);
 
   // machine module: CapUrn.isEquivalent/isComparable
   console.log('\n--- machine/urn_predicates ---');
@@ -8096,26 +6933,6 @@ async function runTests() {
   runTest('MACHINE:cap_urn_out_media_urn', test6449_Machine_capUrnOutMediaUrn);
   runTest('MACHINE:media_urn_is_equivalent', test6450_Machine_mediaUrnIsEquivalent);
   runTest('MACHINE:media_urn_is_comparable', test6451_Machine_mediaUrnIsComparable);
-
-  // Phase 0A: Position tracking
-  console.log('\n--- machine/position_tracking ---');
-  runTest('MACHINE:parseMachineWithAST_headerLocation', test6452_Machine_parseMachineWithAST_headerLocation);
-  runTest('MACHINE:parseMachineWithAST_wiringLocation', test6453_Machine_parseMachineWithAST_wiringLocation);
-  runTest('MACHINE:parseMachineWithAST_multilinePositions', test6454_Machine_parseMachineWithAST_multilinePositions);
-  runTest('MACHINE:parseMachineWithAST_fanInSourceLocations', test6455_Machine_parseMachineWithAST_fanInSourceLocations);
-  runTest('MACHINE:parseMachineWithAST_aliasMap', test6456_Machine_parseMachineWithAST_aliasMap);
-  runTest('MACHINE:parseMachineWithAST_nodeMedia', test6457_Machine_parseMachineWithAST_nodeMedia);
-  runTest('MACHINE:errorLocation_parseError', test6458_Machine_errorLocation_parseError);
-  runTest('MACHINE:errorLocation_duplicateAlias', test6459_Machine_errorLocation_duplicateAlias);
-  runTest('MACHINE:errorLocation_undefinedAlias', test6460_Machine_errorLocation_undefinedAlias);
-
-  // Phase 0C: Machine.toMermaid()
-  console.log('\n--- machine/mermaid ---');
-  runTest('MACHINE:toMermaid_linearChain', test6462_Machine_toMermaid_linearChain);
-  runTest('MACHINE:toMermaid_loopEdge', test6463_Machine_toMermaid_loopEdge);
-  runTest('MACHINE:toMermaid_emptyGraph', test6464_Machine_toMermaid_emptyGraph);
-  runTest('MACHINE:toMermaid_fanIn', test6465_Machine_toMermaid_fanIn);
-  runTest('MACHINE:toMermaid_fanOut', test6466_Machine_toMermaid_fanOut);
 
   // Phase 0B: FabricRegistryClient
   console.log('\n--- registry/client ---');
@@ -8185,6 +7002,7 @@ async function runTests() {
   runTest('RENDERER: buildResolvedMachine_multiStrandDisjoint',    test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrandsDisjoint);
   runTest('RENDERER: buildResolvedMachine_dupNodeIdFails',         test6521_Renderer_buildResolvedMachineGraphData_duplicateNodeIdAcrossStrandsFailsHard);
   runTest('RENDERER: validateResolvedMachine_rejectsMissingFields', test6522_Renderer_validateResolvedMachinePayload_rejectsMissingFields);
+  runTest('TEST12839: renderer_draws_the_librarys_machine_payload', test12839_rendererDrawsTheLibrarysMachinePayload);
 
   console.log('\n--- CapKind classifier (test1800–test1805) ---');
   runTest('TEST1800: kind_identity_requires_effect_none',   test1800_kindIdentityOnlyForBareCap);
@@ -8239,7 +7057,6 @@ async function runTests() {
   runTest('TEST1894: select_display_alias_ordering',         test1894_selectDisplayAliasOrdering);
   runTest('TEST1895: display_alias_for_urn',                 test1895_displayAliasForUrn);
   runTest('TEST1896: cached_cap_aliases_filters_to_cap',     test1896_cachedCapAliasesFiltersToCapTargets);
-  runTest('TEST1196: aliased_serialization_uses_alias',      test1196_aliasedSerializationUsesAliasAndDropsHeader);
 
   // planner.js: unified plan-space vocabulary
   console.log('--- planner.js ---');

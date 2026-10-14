@@ -7627,1023 +7627,3401 @@ async function scanChannelRoot(scanRoot, expectedSlug, identity, discovered) {
 }
 
 // ============================================================================
-// Machine Notation — compact, round-trippable DAG path identifiers
+// Constants of machine notation.
 //
-// Machine notation describes capability transformation paths using bracket-
-// delimited statements:
-//   [alias cap:in="...";op=...;out="..."]   — header (defines a cap with alias)
-//   [src -> alias -> dst]                   — wiring (connects nodes via cap)
-//   [(a, b) -> alias -> dst]               — fan-in wiring
+// A constant is a JSON value. Here it is one of
 //
-// Per-item map (`is_loop`) is a derived cardinality property, never authored
-// syntax — there is no LOOP marker in the grammar.
+//     null, boolean, string, bigint, number, Array, plain object
+//
+// A number written without a fraction or an exponent is a whole number (a
+// `bigint`) while it fits sixty-four bits, signed or unsigned; any other
+// number is a float (a `number`). `1` and `1.0` are therefore two different
+// constants, as they are in the reference, whose JSON value keeps whole
+// numbers and floats apart. JavaScript's own JSON reader cannot say so — it
+// reads both as the same number — which is why constants have a reader of
+// their own.
+// ============================================================================
+
+const WHOLE_MIN = -(2n ** 63n);
+const WHOLE_MAX = 2n ** 64n - 1n;
+
+/** Half of a surrogate pair without its other half. */
+const HALF_CHARACTER = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function floatOf(text) {
+  const value = Number(text);
+  if (!Number.isFinite(value)) {
+    throw new Error(`${JSON.stringify(text)} is not a number a constant can hold`);
+  }
+  return value;
+}
+
+function wholeOf(text) {
+  const value = BigInt(text);
+  if (value === 0n && text.startsWith('-')) {
+    // A whole number has no sign to keep at zero: `-0` is the float, as the
+    // reference reads it.
+    return -0;
+  }
+  if (value >= WHOLE_MIN && value <= WHOLE_MAX) return value;
+  // Beyond sixty-four bits a number is the nearest float.
+  return floatOf(text);
+}
+
+/**
+ * Read one JSON value from its text. Throws on text that is not one JSON
+ * value, on a number no float holds, and on a string with an escape for half
+ * of a surrogate pair.
+ * @param {string} text
+ * @returns {null|boolean|string|bigint|number|Array|Object}
+ */
+function decodeConstant(text) {
+  if (typeof text !== 'string') {
+    throw new Error('a constant is read from its text');
+  }
+  let at = 0;
+  const fail = what => new Error(`${text} is not a JSON value: ${what} at ${at}`);
+  const skip = () => {
+    while (at < text.length && ' \t\r\n'.includes(text[at])) at += 1;
+  };
+  const string = () => {
+    const start = at;
+    at += 1;
+    while (true) {
+      if (at >= text.length) throw fail('an unterminated string');
+      const c = text[at];
+      if (c === '"') break;
+      if (c < ' ') throw fail('a control character in a string');
+      at += c === '\\' ? 2 : 1;
+    }
+    at += 1;
+    let value;
+    try {
+      value = JSON.parse(text.slice(start, at));
+    } catch (e) {
+      throw fail(e.message);
+    }
+    const half = HALF_CHARACTER.exec(value);
+    if (half !== null) {
+      throw new Error(
+        `the escape \\u${half[0].charCodeAt(0).toString(16).padStart(4, '0')} names half a character`
+      );
+    }
+    return value;
+  };
+  const value = () => {
+    skip();
+    if (at >= text.length) throw fail('the end of the text');
+    const c = text[at];
+    if (c === '"') return string();
+    if (c === '{') {
+      at += 1;
+      const object = {};
+      skip();
+      if (text[at] === '}') { at += 1; return object; }
+      while (true) {
+        skip();
+        if (text[at] !== '"') throw fail('an object key that is not a string');
+        const key = string();
+        skip();
+        if (text[at] !== ':') throw fail('a key without its value');
+        at += 1;
+        // Defined as an own property whatever the key says (`__proto__` is a
+        // key like any other).
+        Object.defineProperty(object, key, { value: value(), enumerable: true, writable: true, configurable: true });
+        skip();
+        if (text[at] === ',') { at += 1; continue; }
+        if (text[at] === '}') { at += 1; return object; }
+        throw fail('an object that does not end');
+      }
+    }
+    if (c === '[') {
+      at += 1;
+      const items = [];
+      skip();
+      if (text[at] === ']') { at += 1; return items; }
+      while (true) {
+        items.push(value());
+        skip();
+        if (text[at] === ',') { at += 1; continue; }
+        if (text[at] === ']') { at += 1; return items; }
+        throw fail('an array that does not end');
+      }
+    }
+    for (const [word, read] of [['true', true], ['false', false], ['null', null]]) {
+      if (text.startsWith(word, at)) { at += word.length; return read; }
+    }
+    const number = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(text.slice(at));
+    if (number === null) throw fail('what is no value');
+    at += number[0].length;
+    return /[.eE]/.test(number[0]) ? floatOf(number[0]) : wholeOf(number[0]);
+  };
+  const read = value();
+  skip();
+  if (at !== text.length) throw fail('more than one value');
+  return read;
+}
+
+/**
+ * Whether a value is a JSON object as a constant holds one: a plain object,
+ * not an array and not an instance of anything else (a Date, a Map).
+ */
+function isConstantObject(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Compare two constants as JSON values: a whole number and a float are never
+ * equal, nor a boolean and a number; an object's keys carry no order.
+ * @returns {boolean}
+ */
+function constantsEqual(a, b) {
+  if (a === null || b === null) return a === null && b === null;
+  if (typeof a !== typeof b) return false;
+  // Floats compare as floats: -0.0 and 0.0 are one value.
+  if (typeof a === 'number') return a === b;
+  if (typeof a !== 'object') return a === b;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length &&
+      a.every((item, index) => constantsEqual(item, b[index]));
+  }
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length &&
+    keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && constantsEqual(a[key], b[key]));
+}
+
+/** Order two strings by their code points: the order of their UTF-8 bytes. */
+function compareCodePoints(a, b) {
+  const left = Array.from(a);
+  const right = Array.from(b);
+  const shared = Math.min(left.length, right.length);
+  for (let i = 0; i < shared; i += 1) {
+    const difference = left[i].codePointAt(0) - right[i].codePointAt(0);
+    if (difference !== 0) return difference;
+  }
+  return left.length - right.length;
+}
+
+const STRING_ESCAPES = { '"': '\\"', '\\': '\\\\', '\b': '\\b', '\f': '\\f', '\n': '\\n', '\r': '\\r', '\t': '\\t' };
+
+/**
+ * A JSON string with exactly the escapes the reference writes: the quote, the
+ * backslash and the control characters. Everything else — `<`, `&`, any
+ * character outside ASCII — is written as it is.
+ */
+function stringText(text) {
+  let out = '"';
+  for (const char of text) {
+    const escaped = STRING_ESCAPES[char];
+    if (escaped !== undefined) out += escaped;
+    else if (char < ' ') out += `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`;
+    else out += char;
+  }
+  return out + '"';
+}
+
+/**
+ * Write a float as the shortest decimal that reads back as the same float,
+ * laid out as the reference lays it out: plain digits with a decimal point
+ * while the number has at most sixteen digits before the point and fewer
+ * than five zeros after it, an exponent (with its sign, `e+16` and `e-7`)
+ * otherwise. A float that is a whole number keeps its `.0`, so it reads back
+ * as a float.
+ * @param {number} value
+ * @returns {string}
+ */
+function floatText(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${value} is not a number a constant can hold`);
+  }
+  if (value === 0) return Object.is(value, -0) ? '-0.0' : '0.0';
+  const sign = value < 0 ? '-' : '';
+  // `toExponential()` with no digit count is the shortest text that reads
+  // back as this float: `d.ddd…e±x`.
+  const [mantissa, exponent] = Math.abs(value).toExponential().split('e');
+  const digits = mantissa.replace('.', '').replace(/0+$/, '');
+  const count = digits.length;
+  // The value is 0.DIGITS × 10^point.
+  const point = Number(exponent) + 1;
+  if (count <= point && point <= 16) return sign + digits + '0'.repeat(point - count) + '.0';
+  if (point > 0 && point <= 16) return sign + digits.slice(0, point) + '.' + digits.slice(point);
+  if (point > -5 && point <= 0) return sign + '0.' + '0'.repeat(-point) + digits;
+  // An exponent carries its sign, `+` included.
+  const power = (point > 0 ? '+' : '') + String(point - 1);
+  if (count === 1) return sign + digits + 'e' + power;
+  return sign + digits.slice(0, 1) + '.' + digits.slice(1) + 'e' + power;
+}
+
+/**
+ * Write a constant as notation writes it: compact JSON, an object's keys in
+ * order, numbers and strings spelled as the reference spells them. The same
+ * value has one text in every implementation, so canonical notation is the
+ * same text everywhere.
+ * @returns {string}
+ */
+function constantText(value) {
+  if (value === null) return 'null';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'string') return stringText(value);
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'number') return floatText(value);
+  if (Array.isArray(value)) return '[' + value.map(constantText).join(',') + ']';
+  if (isConstantObject(value)) {
+    return '{' + Object.keys(value).sort(compareCodePoints)
+      .map(key => stringText(key) + ':' + constantText(value[key])).join(',') + '}';
+  }
+  throw new TypeError(`${Object.prototype.toString.call(value)} is not a constant of machine notation`);
+}
+
+/**
+ * A constant as plain JSON: what a host is handed in a render payload or
+ * sends as an argument's value. A whole number is a JSON number where a
+ * double holds it exactly, and a float otherwise is the float it is.
+ * @returns {*} A value `JSON.stringify` writes
+ */
+function constantToJSON(value) {
+  if (typeof value === 'bigint') {
+    if (value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER)) return Number(value);
+    throw new Error(`the whole number ${value} is beyond what a JSON number of this runtime holds exactly`);
+  }
+  if (Array.isArray(value)) return value.map(constantToJSON);
+  if (isConstantObject(value)) {
+    const out = {};
+    for (const key of Object.keys(value)) {
+      Object.defineProperty(out, key, { value: constantToJSON(value[key]), enumerable: true, writable: true, configurable: true });
+    }
+    return out;
+  }
+  return value;
+}
+
+// ============================================================================
+// Errors of machine notation.
+//
+// Notation is read in two phases, each with its own error family: what the
+// text alone decides (`MachineSyntaxError`), and what takes the cap
+// definitions to decide (`MachineAbstractionError`). `parseMachine` throws one
+// or the other.
 // ============================================================================
 
 /**
- * Error types for machine notation parsing.
- * Mirrors Rust MachineSyntaxError exactly.
+ * What the text alone decides.
  */
 class MachineSyntaxError extends Error {
   /**
    * @param {string} code - Error code from MachineSyntaxErrorCodes
    * @param {string} message - Human-readable error message
    * @param {Object|null} [location] - Source location { start: {offset,line,column}, end: {offset,line,column} }
+   * @param {Object} [fields] - What the error is about, by name
    */
-  constructor(code, message, location) {
+  constructor(code, message, location, fields = {}) {
     super(message);
     this.name = 'MachineSyntaxError';
     this.code = code;
     this.location = location || null;
+    Object.assign(this, fields);
   }
 }
 
-const MachineSyntaxErrorCodes = {
+const MachineSyntaxErrorCodes = Object.freeze({
   EMPTY: 'Empty',
-  UNTERMINATED_STATEMENT: 'UnterminatedStatement',
   INVALID_CAP_URN: 'InvalidCapUrn',
   UNDEFINED_ALIAS: 'UndefinedAlias',
+  ALIAS_NOT_A_CAP: 'AliasNotACap',
   DUPLICATE_ALIAS: 'DuplicateAlias',
-  INVALID_WIRING: 'InvalidWiring',
   INVALID_MEDIA_URN: 'InvalidMediaUrn',
-  INVALID_HEADER: 'InvalidHeader',
   NO_EDGES: 'NoEdges',
   NODE_ALIAS_COLLISION: 'NodeAliasCollision',
   PARSE_ERROR: 'ParseError',
-};
+  MACHINE_REFERENCE_WITHOUT_SOURCE: 'MachineReferenceWithoutSource',
+  UNNAMED_CONSTANT: 'UnnamedConstant',
+  RESERVED_NODE_NAME: 'ReservedNodeName',
+  SEVERAL_UNNAMED_TARGETS: 'SeveralUnnamedTargets',
+  INVALID_POLICY: 'InvalidPolicy',
+});
+
+const syntaxError = Object.freeze({
+  empty: () => new MachineSyntaxError(MachineSyntaxErrorCodes.EMPTY, 'machine notation is empty'),
+  invalidCapUrn: (alias, details, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.INVALID_CAP_URN,
+    `invalid cap URN in header '${alias}': ${details}`, location, { alias, details }),
+  undefinedAlias: (alias, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.UNDEFINED_ALIAS,
+    `wiring references undefined alias '${alias}' (not a local header and not a registered cap alias)`,
+    location, { alias }),
+  aliasNotACap: (alias, target, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.ALIAS_NOT_A_CAP,
+    `alias '${alias}' in cap position resolves to a media URN ('${target}'), but a cap is required there`,
+    location, { alias, target }),
+  duplicateAlias: (alias, firstPosition, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.DUPLICATE_ALIAS,
+    `duplicate alias '${alias}' (first defined at statement ${firstPosition})`,
+    location, { alias, firstPosition }),
+  invalidMediaUrn: (alias, details, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.INVALID_MEDIA_URN,
+    `invalid media URN in cap '${alias}': ${details}`, location, { alias, details }),
+  noEdges: location => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.NO_EDGES,
+    'machine has headers but no wirings — define at least one edge', location),
+  nodeAliasCollision: (name, alias, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION,
+    `node name '${name}' collides with cap alias '${alias}'`, location, { nodeName: name, alias }),
+  parse: (details, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.PARSE_ERROR, `parse error: ${details}`, location, { details }),
+  machineReferenceWithoutSource: (alias, reference, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.MACHINE_REFERENCE_WITHOUT_SOURCE,
+    `machine header '${alias}' refers to "${reference}", and no machine source was given to resolve it`,
+    location, { alias, reference }),
+  unnamedConstant: (constant, position, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.UNNAMED_CONSTANT,
+    `constant ${constant} in statement ${position} names no arg — write it as name=${constant}`,
+    location, { constant, position }),
+  reservedNodeName: (name, position, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.RESERVED_NODE_NAME,
+    `'${name}' in statement ${position} is a constant, not a node name`,
+    location, { nodeName: name, position }),
+  severalUnnamedTargets: (position, targets, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.SEVERAL_UNNAMED_TARGETS,
+    `statement ${position} has several unnamed targets (${targets.join(', ')}) — only the main output is taken without a name`,
+    location, { position, targets: [...targets] }),
+  invalidPolicy: (step, position, details, location) => new MachineSyntaxError(
+    MachineSyntaxErrorCodes.INVALID_POLICY,
+    `invalid policy on step '${step}' in statement ${position}: ${details}`,
+    location, { step, position, details }),
+});
 
 /**
- * A single edge in the machine graph.
- *
- * Each edge represents a capability that transforms one or more source
- * media types into a target media type. The isLoop flag indicates
- * ForEach semantics (the capability is applied to each item in a list).
- *
- * Mirrors Rust MachineEdge.
+ * What takes the cap definitions to decide.
  */
-class MachineEdge {
+class MachineAbstractionError extends Error {
   /**
-   * @param {MediaUrn[]} sources - Input media URN(s)
-   * @param {CapUrn} capUrn - The capability URN (edge label)
-   * @param {MediaUrn} target - Output media URN
-   * @param {boolean} isLoop - Whether this edge has ForEach semantics
+   * @param {string} code - Error code from MachineAbstractionErrorCodes
+   * @param {string} message - Human-readable error message
+   * @param {Object} [fields] - What the error is about, by name
    */
-  constructor(sources, capUrn, target, isLoop) {
-    this.sources = sources;
-    this.capUrn = capUrn;
-    this.target = target;
-    this.isLoop = isLoop;
+  constructor(code, message, fields = {}) {
+    super(message);
+    this.name = 'MachineAbstractionError';
+    this.code = code;
+    Object.assign(this, fields);
+  }
+}
+
+const MachineAbstractionErrorCodes = Object.freeze({
+  NO_CAPABILITY_STEPS: 'NoCapabilitySteps',
+  UNKNOWN_CAP: 'UnknownCap',
+  UNMATCHED_SOURCE_IN_CAP_ARGS: 'UnmatchedSourceInCapArgs',
+  AMBIGUOUS_MACHINE_NOTATION: 'AmbiguousMachineNotation',
+  CYCLIC_MACHINE_STRAND: 'CyclicMachineStrand',
+  CAP_DOES_NOT_DECLARE_INPUT: 'CapDoesNotDeclareInput',
+  UNKNOWN_ARG_NAME: 'UnknownArgName',
+  UNKNOWN_OUTPUT_NAME: 'UnknownOutputName',
+  SOURCE_DOES_NOT_CONFORM_TO_ARG: 'SourceDoesNotConformToArg',
+  CONSTANT_FAILS_VALIDATION: 'ConstantFailsValidation',
+  ARG_BOUND_TWICE: 'ArgBoundTwice',
+  MAIN_INPUT_UNBOUND: 'MainInputUnbound',
+  OUTPUT_TAKEN_TWICE: 'OutputTakenTwice',
+  NO_MAIN_OUTPUT: 'NoMainOutput',
+  UNTYPED_MACHINE_INPUT: 'UntypedMachineInput',
+  UNKNOWN_MACHINE_REFERENCE: 'UnknownMachineReference',
+  CYCLIC_MACHINE_REFERENCE: 'CyclicMachineReference',
+  INVALID_INCLUDED_MACHINE: 'InvalidIncludedMachine',
+  POLICY_ON_MACHINE: 'PolicyOnMachine',
+  UNKNOWN_MACHINE_INPUT: 'UnknownMachineInput',
+  UNKNOWN_MACHINE_OUTPUT: 'UnknownMachineOutput',
+  MACHINE_INPUT_BINDING: 'MachineInputBinding',
+  MACHINE_OUTPUT_TAKEN_TWICE: 'MachineOutputTakenTwice',
+  UNNAMED_MACHINE_TARGET: 'UnnamedMachineTarget',
+  UNTYPED_MACHINE_MEMBER: 'UntypedMachineMember',
+  UNMATCHED_MACHINE_MEMBER: 'UnmatchedMachineMember',
+  AMBIGUOUS_MACHINE_MEMBERS: 'AmbiguousMachineMembers',
+  SOURCE_DOES_NOT_CONFORM_TO_MACHINE_INPUT: 'SourceDoesNotConformToMachineInput',
+  NODE_MEDIA_CONFLICT: 'NodeMediaConflict',
+  UNCACHED_MEDIA_DEF: 'UncachedMediaDef',
+  UNCACHED_CAP: 'UncachedCap',
+});
+
+/**
+ * A member of a wiring whose arg the types alone do not decide.
+ */
+class UndecidedMember {
+  /**
+   * @param {string} node - The node, as the notation named it. Empty where no
+   *   notation is at hand: the member is then known by its type alone.
+   * @param {string} sourceUrn - The media URN the member holds.
+   * @param {string[]} couldBe - The args — or, for a machine in step position,
+   *   the inputs — it could go to, by name, in the order the definition
+   *   declares them.
+   */
+  constructor(node, sourceUrn, couldBe) {
+    this.node = node;
+    this.sourceUrn = sourceUrn;
+    this.couldBe = [...couldBe];
   }
 
-  /**
-   * Check if two edges are semantically equivalent.
-   *
-   * Equivalence is defined as:
-   * - Same number of sources, and each source in this has an equivalent source in other
-   * - Equivalent cap URNs (via CapUrn.isEquivalent)
-   * - Equivalent target media URNs (via MediaUrn.isEquivalent)
-   * - Same isLoop flag
-   *
-   * Source order does not matter — fan-in sources are compared as sets.
-   * Mirrors Rust MachineEdge::is_equivalent.
-   */
-  isEquivalent(other) {
-    if (this.isLoop !== other.isLoop) {
-      return false;
-    }
-
-    if (!this.capUrn.isEquivalent(other.capUrn)) {
-      return false;
-    }
-
-    // Target equivalence
-    if (!this.target.isEquivalent(other.target)) {
-      return false;
-    }
-
-    // Source set equivalence — order-independent comparison
-    if (this.sources.length !== other.sources.length) {
-      return false;
-    }
-
-    // For each source in this, find a matching source in other.
-    // Track which indices in other have been matched to avoid double-counting.
-    const matched = new Array(other.sources.length).fill(false);
-    for (const selfSrc of this.sources) {
-      let found = false;
-      for (let j = 0; j < other.sources.length; j++) {
-        if (matched[j]) continue;
-        if (selfSrc.isEquivalent(other.sources[j])) {
-          matched[j] = true;
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  /**
-   * Display string for this edge.
-   * Mirrors Rust Display for MachineEdge.
-   */
   toString() {
-    const sources = this.sources.map(s => s.toString()).join(', ');
-    // Debug-only marker for a per-item map edge. Not notation syntax (the
-    // `LOOP` keyword is retired); `is_loop` is a derived cardinality property.
-    const loopPrefix = this.isLoop ? 'map ' : '';
-    return `(${sources}) -${loopPrefix}${this.capUrn}-> ${this.target}`;
+    const who = this.node
+      ? `'${this.node}' (${this.sourceUrn})`
+      : `a member of type '${this.sourceUrn}'`;
+    return `${who} could be ${this.couldBe.join(' or ')}`;
+  }
+}
+
+const undecidedList = members => members.map(member => member.toString()).join('; ');
+const inStrand = (code, strandIndex, message, fields) => new MachineAbstractionError(
+  code, `strand ${strandIndex}: ${message}`, { strandIndex, ...fields });
+const atStatement = (code, position, message, fields) => new MachineAbstractionError(
+  code, `statement ${position}: ${message}`, { position, ...fields });
+const AE = MachineAbstractionErrorCodes;
+
+const abstractionError = Object.freeze({
+  noCapabilitySteps: () => new MachineAbstractionError(
+    AE.NO_CAPABILITY_STEPS, 'strand or wiring set contains no capability steps'),
+  unknownCap: capUrn => new MachineAbstractionError(
+    AE.UNKNOWN_CAP, `cap URN '${capUrn}' is not in the cap registry cache`, { capUrn }),
+  unmatchedSourceInCapArgs: (strandIndex, capUrn, sourceUrn) => new MachineAbstractionError(
+    AE.UNMATCHED_SOURCE_IN_CAP_ARGS,
+    `in strand ${strandIndex}, cap '${capUrn}': source URN '${sourceUrn}' does not conform to any of the cap's input arguments`,
+    { strandIndex, capUrn, sourceUrn }),
+  ambiguousMachineNotation: (strandIndex, capUrn, members) => new MachineAbstractionError(
+    AE.AMBIGUOUS_MACHINE_NOTATION,
+    `in strand ${strandIndex}, cap '${capUrn}': the types do not say which arg these members are for — name them: ${undecidedList(members)}`,
+    { strandIndex, capUrn, members: [...members] }),
+  cyclicMachineStrand: strandIndex => new MachineAbstractionError(
+    AE.CYCLIC_MACHINE_STRAND, `strand ${strandIndex}: resolved data-flow graph contains a cycle`, { strandIndex }),
+  capDoesNotDeclareInput: (strandIndex, capUrn) => new MachineAbstractionError(
+    AE.CAP_DOES_NOT_DECLARE_INPUT,
+    `strand ${strandIndex}: cap '${capUrn}' does not declare its input (no argument declares a stdin source whose URN is its in=)`,
+    { strandIndex, capUrn }),
+  unknownArgName: (strandIndex, capUrn, name, declared) => inStrand(
+    AE.UNKNOWN_ARG_NAME, strandIndex,
+    `cap '${capUrn}' declares no arg named '${name}' (it declares: ${declared.join(', ')})`,
+    { capUrn, argName: name, declared: [...declared] }),
+  unknownOutputName: (strandIndex, capUrn, name, declared) => inStrand(
+    AE.UNKNOWN_OUTPUT_NAME, strandIndex,
+    `cap '${capUrn}' declares no output named '${name}' (it declares: ${declared.join(', ')})`,
+    { capUrn, outputName: name, declared: [...declared] }),
+  sourceDoesNotConformToArg: (strandIndex, capUrn, name, accepts, sourceUrn) => inStrand(
+    AE.SOURCE_DOES_NOT_CONFORM_TO_ARG, strandIndex,
+    `cap '${capUrn}' arg '${name}' accepts '${accepts}', and its source is '${sourceUrn}'`,
+    { capUrn, argName: name, accepts, sourceUrn }),
+  constantFailsValidation: (strandIndex, capUrn, name, constant, reason) => inStrand(
+    AE.CONSTANT_FAILS_VALIDATION, strandIndex,
+    `cap '${capUrn}' arg '${name}' refuses the constant ${constant}: ${reason}`,
+    { capUrn, argName: name, constant, reason }),
+  argBoundTwice: (strandIndex, capUrn, name, count) => inStrand(
+    AE.ARG_BOUND_TWICE, strandIndex,
+    `cap '${capUrn}' arg '${name}' takes one value and is named by ${count} members`,
+    { capUrn, argName: name, count }),
+  mainInputUnbound: (strandIndex, capUrn, mainInput) => inStrand(
+    AE.MAIN_INPUT_UNBOUND, strandIndex,
+    `cap '${capUrn}' takes an input ('${mainInput}') and no member of the wiring is bound to it`,
+    { capUrn, mainInput }),
+  outputTakenTwice: (strandIndex, capUrn, output) => inStrand(
+    AE.OUTPUT_TAKEN_TWICE, strandIndex,
+    `cap '${capUrn}' output '${output}' is taken twice in one wiring`, { capUrn, output }),
+  noMainOutput: (strandIndex, capUrn) => inStrand(
+    AE.NO_MAIN_OUTPUT, strandIndex,
+    `cap '${capUrn}' has no main output to take (its out= is media:void)`, { capUrn }),
+  untypedMachineInput: (position, capUrn, members) => atStatement(
+    AE.UNTYPED_MACHINE_INPUT, position,
+    `cap '${capUrn}' is given unnamed machine inputs whose arg nothing decides (${members.join(', ')}) — name them`,
+    { capUrn, members: [...members] }),
+  unknownMachineReference: (alias, reference, details) => new MachineAbstractionError(
+    AE.UNKNOWN_MACHINE_REFERENCE,
+    `machine header '${alias}' refers to "${reference}", which does not resolve: ${details}`,
+    { alias, reference, details }),
+  cyclicMachineReference: chain => new MachineAbstractionError(
+    AE.CYCLIC_MACHINE_REFERENCE, `a machine includes itself: ${chain.join(' -> ')}`, { chain: [...chain] }),
+  invalidIncludedMachine: (alias, reference, cause) => new MachineAbstractionError(
+    AE.INVALID_INCLUDED_MACHINE,
+    `machine '${alias}' ("${reference}") is not a valid machine: ${cause.message}`,
+    { alias, reference, cause }),
+  policyOnMachine: (position, alias) => atStatement(
+    AE.POLICY_ON_MACHINE, position,
+    `'${alias}' is a machine, and a policy is written on it — write it on the steps inside`, { alias }),
+  unknownMachineInput: (position, alias, name, declared) => atStatement(
+    AE.UNKNOWN_MACHINE_INPUT, position,
+    `machine '${alias}' has no input named '${name}' (its inputs: ${declared.join(', ')})`,
+    { alias, inputName: name, declared: [...declared] }),
+  unknownMachineOutput: (position, alias, name, declared) => atStatement(
+    AE.UNKNOWN_MACHINE_OUTPUT, position,
+    `machine '${alias}' has no output named '${name}' (its outputs: ${declared.join(', ')})`,
+    { alias, outputName: name, declared: [...declared] }),
+  machineInputBinding: (position, alias, inputName, count) => atStatement(
+    AE.MACHINE_INPUT_BINDING, position,
+    `input '${inputName}' of machine '${alias}' is given ${count} members — every input of a machine takes exactly one`,
+    { alias, inputName, count }),
+  machineOutputTakenTwice: (position, alias, output) => atStatement(
+    AE.MACHINE_OUTPUT_TAKEN_TWICE, position,
+    `output '${output}' of machine '${alias}' is taken twice in one wiring`, { alias, output }),
+  unnamedMachineTarget: (position, alias, left) => atStatement(
+    AE.UNNAMED_MACHINE_TARGET, position,
+    `an unnamed target of machine '${alias}' has ${left.length} output(s) left to take (${left.join(', ')}) — name it`,
+    { alias, left: [...left] }),
+  untypedMachineMember: (position, alias, members) => atStatement(
+    AE.UNTYPED_MACHINE_MEMBER, position,
+    `machine '${alias}' is given unnamed members that have no type to be matched by (${members.join(', ')}) — name them`,
+    { alias, members: [...members] }),
+  unmatchedMachineMember: (position, alias, sourceUrn) => atStatement(
+    AE.UNMATCHED_MACHINE_MEMBER, position,
+    `a member of type '${sourceUrn}' fits no input left of machine '${alias}'`, { alias, sourceUrn }),
+  ambiguousMachineMembers: (position, alias, members) => atStatement(
+    AE.AMBIGUOUS_MACHINE_MEMBERS, position,
+    `the types do not say which input of machine '${alias}' these members are for — name them: ${undecidedList(members)}`,
+    { alias, members: [...members] }),
+  sourceDoesNotConformToMachineInput: (position, alias, name, accepts, sourceUrn) => atStatement(
+    AE.SOURCE_DOES_NOT_CONFORM_TO_MACHINE_INPUT, position,
+    `input '${name}' of machine '${alias}' holds '${accepts}', and its source is '${sourceUrn}'`,
+    { alias, inputName: name, accepts, sourceUrn }),
+  uncachedMediaDef: mediaUrn => new MachineAbstractionError(
+    AE.UNCACHED_MEDIA_DEF,
+    `media URN '${mediaUrn}' has no cached spec — cannot emit a display title for render payload`, { mediaUrn }),
+  uncachedCap: capUrn => new MachineAbstractionError(
+    AE.UNCACHED_CAP,
+    `cap URN '${capUrn}' has no cached definition — cannot emit a display title for render payload`, { capUrn }),
+  nodeMediaConflict: (node, first, second) => new MachineAbstractionError(
+    AE.NODE_MEDIA_CONFLICT,
+    `node '${node}' is given media URNs that are not on one specialization chain: '${first}' and '${second}'`,
+    { node, first, second }),
+});
+
+// ============================================================================
+// The syntax of machine notation: one walk of the parse tree into statements
+// whose every part knows where it stands in the text.
+//
+// Nothing here knows a cap definition: a name is a name, a node is a node, and
+// whether either exists is the resolver's question. What IS decided here is
+// everything the text alone decides (capdag/docs/09-machine-notation.md
+// §Statement kinds):
+//
+// - a constant is always named (UnnamedConstant);
+// - `true`, `false` and `null` are constants, never node names
+//   (ReservedNodeName);
+// - at most one target of a wiring is unnamed (SeveralUnnamedTargets);
+// - a step policy holds known keys, once each, with values from the table
+//   (InvalidPolicy).
+// ============================================================================
+
+const SYNTAX_CAP_HEADER = 'cap_header';
+const SYNTAX_MACHINE_HEADER = 'machine_header';
+const SYNTAX_WIRING = 'wiring';
+
+/** The words the notation reads as constants. A node may not bear one. */
+const RESERVED_NODE_NAMES = Object.freeze(['true', 'false', 'null']);
+
+function syntaxNode(name, position, location) {
+  if (RESERVED_NODE_NAMES.includes(name)) {
+    throw syntaxError.reservedNodeName(name, position, location);
+  }
+  return name;
+}
+
+function syntaxConstant(text, location) {
+  // The grammar's `constant` is JSON's value grammar: this is where its text
+  // is read as the value it writes, and what the grammar cannot say — a
+  // number no float holds, an escape that names half a character — is
+  // refused.
+  try {
+    return decodeConstant(text.trim());
+  } catch (error) {
+    throw syntaxError.parse(`${text.trim()} is not a JSON value: ${error.message}`, location);
+  }
+}
+
+function syntaxPolicy(entries, step, position, location) {
+  let retry = 0;
+  let onError = ON_ERROR_FAIL;
+  const seen = new Set();
+  for (const entry of entries) {
+    if (seen.has(entry.key)) {
+      throw syntaxError.invalidPolicy(step, position, `'${entry.key}' is given twice`, location);
+    }
+    if (entry.key === 'retry') {
+      // A count of further attempts: a whole number, not negative.
+      const whole = entry.isNumber && /^[0-9]+$/.test(entry.value);
+      if (!whole || BigInt(entry.value) > BigInt(MAX_RETRY)) {
+        throw syntaxError.invalidPolicy(step, position,
+          `retry takes a whole number of further attempts, not '${entry.value}'`, location);
+      }
+      retry = Number(entry.value);
+    } else if (entry.key === 'on_error') {
+      if (entry.value !== 'absent') {
+        throw syntaxError.invalidPolicy(step, position, `on_error takes 'absent', not '${entry.value}'`, location);
+      }
+      onError = ON_ERROR_ABSENT;
+    } else {
+      throw syntaxError.invalidPolicy(step, position,
+        `unknown key '${entry.key}' (a policy takes retry and on_error)`, location);
+    }
+    seen.add(entry.key);
+  }
+  return new StepPolicy(retry, onError);
+}
+
+function syntaxWiring(stmt, position) {
+  const sources = stmt.sources.map(member => {
+    if (member.constantText !== undefined) {
+      if (member.name === null) {
+        // A constant has no type of its own to be matched by: it says which
+        // arg it is for, or it is not a member.
+        throw syntaxError.unnamedConstant(member.constantText.trim(), position, member.location);
+      }
+      return {
+        name: member.name,
+        nameLocation: member.nameLocation,
+        isConstant: true,
+        node: null,
+        constant: syntaxConstant(member.constantText, member.valueLocation),
+        location: member.location,
+        valueLocation: member.valueLocation,
+      };
+    }
+    return {
+      name: member.name,
+      nameLocation: member.nameLocation,
+      isConstant: false,
+      node: syntaxNode(member.node, position, member.valueLocation),
+      constant: undefined,
+      location: member.location,
+      valueLocation: member.valueLocation,
+    };
+  });
+  const policy = syntaxPolicy(stmt.policy, stmt.step, position, stmt.policyLocation);
+  const targets = stmt.targets.map(target => ({
+    name: target.name,
+    nameLocation: target.nameLocation,
+    node: syntaxNode(target.node, position, target.valueLocation),
+    location: target.location,
+    valueLocation: target.valueLocation,
+  }));
+  // The unnamed target is the main output, and a step has one.
+  const unnamed = targets.filter(target => target.name === null).map(target => target.node);
+  if (unnamed.length > 1) {
+    throw syntaxError.severalUnnamedTargets(position, unnamed, stmt.targetsLocation);
+  }
+  return {
+    sources,
+    sourcesLocation: stmt.sourcesLocation,
+    step: stmt.step,
+    stepLocation: stmt.stepLocation,
+    policy,
+    policyLocation: stmt.policyLocation,
+    arrowLocations: stmt.arrowLocations,
+    targets,
+    targetsLocation: stmt.targetsLocation,
+  };
+}
+
+/**
+ * Read `input` into its statements, in the order written.
+ *
+ * Throws a MachineSyntaxError on text the grammar does not accept
+ * (ParseError) and on the rules the text alone decides. An input with no
+ * statement at all is not an error here: what an empty program means is the
+ * caller's question.
+ *
+ * @param {string} input
+ * @returns {Object[]} The statements: `{ kind, position, location, ... }` —
+ *   a cap header carries `alias` and `capUrn`, a machine header `alias` and
+ *   `reference` (unescaped), a wiring `wiring`; every part has its location.
+ */
+function parseSyntax(input) {
+  let tree;
+  try {
+    tree = machineParser.parse(input);
+  } catch (error) {
+    throw syntaxError.parse(error.message, error.location || null);
+  }
+  return tree.map((stmt, position) => {
+    if (stmt.type === 'header') {
+      return {
+        kind: SYNTAX_CAP_HEADER, position, location: stmt.location,
+        alias: stmt.alias, aliasLocation: stmt.aliasLocation,
+        capUrn: stmt.capUrn, capUrnLocation: stmt.capUrnLocation,
+      };
+    }
+    if (stmt.type === 'machine_header') {
+      const text = stmt.referenceText.trim();
+      let reference;
+      try {
+        reference = decodeConstant(text);
+      } catch (_) {
+        reference = null;
+      }
+      if (typeof reference !== 'string') {
+        throw syntaxError.parse(`${text} is not a JSON string`, stmt.referenceLocation);
+      }
+      return {
+        kind: SYNTAX_MACHINE_HEADER, position, location: stmt.location,
+        alias: stmt.alias, aliasLocation: stmt.aliasLocation,
+        reference, referenceLocation: stmt.referenceLocation,
+      };
+    }
+    if (stmt.type === 'wiring') {
+      return { kind: SYNTAX_WIRING, position, location: stmt.location, wiring: syntaxWiring(stmt, position) };
+    }
+    throw new Error(`a statement is a header or a wiring, not ${stmt.type}`);
+  });
+}
+
+// ============================================================================
+// The machine: strands of resolved steps over numbered data positions.
+//
+//     Machine
+//      └── strands: MachineStrand[]             ordered, declaration order matters
+//           ├── nodes: MediaUrn[]               data positions in this strand
+//           ├── edges: MachineEdge[]            canonical-order resolved cap steps
+//           │    ├── assignment: EdgeAssignmentBinding[]
+//           │    │    └── (capArgMediaUrn, argName, source: a node or a constant)
+//           │    ├── outputs: EdgeOutput[]
+//           │    │    └── (outputMediaUrn, outputName, node)
+//           │    └── policy, includedAs, isLoop, tokenId
+//           ├── inputAnchorIds: NodeId[]        root nodes (no producer)
+//           └── outputAnchorIds: NodeId[]       leaf nodes (no consumer)
+//
+// Equivalence: Machine.isEquivalent is strict and positional — the same
+// number of strands, and strands[i].isEquivalent(other.strands[i]) for every
+// i. MachineStrand.isEquivalent walks both strands in canonical edge order,
+// building a node bijection on the fly. The edges decide which node is which;
+// names never do.
+// ============================================================================
+
+/**
+ * What a step does when it fails (capdag/docs/09-machine-notation.md §Step
+ * policy). The default — no policy written — is to fail the run at once.
+ */
+class StepPolicy {
+  /**
+   * @param {number} [retry=0] - Further attempts after a failure whose class is retryable
+   * @param {string} [onError='fail'] - What a failure that stands does: 'fail' or 'absent'
+   */
+  constructor(retry = 0, onError = ON_ERROR_FAIL) {
+    if (!Number.isInteger(retry) || retry < 0 || retry > MAX_RETRY) {
+      throw new Error(`retry is a whole number of further attempts, not ${JSON.stringify(retry)}`);
+    }
+    if (onError !== ON_ERROR_FAIL && onError !== ON_ERROR_ABSENT) {
+      throw new Error(`unknown on_error: ${JSON.stringify(onError)}`);
+    }
+    this.retry = retry;
+    this.onError = onError;
+    Object.freeze(this);
+  }
+
+  /** Whether this is the policy of a step that wrote none. */
+  isDefault() {
+    return this.retry === 0 && this.onError === ON_ERROR_FAIL;
+  }
+
+  /** Whether two policies make a step behave the same. */
+  equals(other) {
+    return other instanceof StepPolicy && this.retry === other.retry && this.onError === other.onError;
+  }
+
+  /**
+   * The policy as notation writes it after a step alias: `{retry=3}`,
+   * `{on_error=absent}`, both in that order, or nothing for the default.
+   */
+  toNotation() {
+    const entries = [];
+    if (this.retry > 0) entries.push(`retry=${this.retry}`);
+    if (this.onError === ON_ERROR_ABSENT) entries.push('on_error=absent');
+    return entries.length === 0 ? '' : `{${entries.join(', ')}}`;
+  }
+
+  /** The policy as a plan carries it: both fields, always. */
+  toJSON() {
+    return { retry: this.retry, on_error: this.onError };
+  }
+}
+
+/** The run fails. The default. */
+const ON_ERROR_FAIL = 'fail';
+/** The step's outputs are absent and the run goes on. */
+const ON_ERROR_ABSENT = 'absent';
+/** The largest count of further attempts a policy holds. */
+const MAX_RETRY = 0xFFFFFFFF;
+
+/**
+ * Whether `value` is a constant of machine notation — a JSON value, whole
+ * numbers within sixty-four bits, floats finite — refusing it if not.
+ */
+function checkedConstant(value) {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value;
+  if (typeof value === 'bigint') {
+    if (value < WHOLE_MIN || value > WHOLE_MAX) {
+      throw new Error(`${value} is not a whole number a constant can hold`);
+    }
+    return value;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`${value} is not a number a constant can hold`);
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(checkedConstant);
+  if (isConstantObject(value)) {
+    const checked = {};
+    for (const key of Object.keys(value)) {
+      Object.defineProperty(checked, key, { value: checkedConstant(value[key]), enumerable: true, writable: true, configurable: true });
+    }
+    return checked;
+  }
+  throw new Error(`${Object.prototype.toString.call(value)} is not a JSON value`);
+}
+
+/**
+ * What feeds one cap argument of a step: a data position of the strand, or a
+ * constant written in the machine (any JSON value). A constant is part of the
+ * binding, not a node — nothing else can consume it.
+ */
+class BindingSource {
+  constructor(isConstant, node, constant) {
+    this.isConstant = isConstant;
+    this.node = node;
+    this.constant = constant;
+    Object.freeze(this);
+  }
+
+  /** A binding source that is a node of the strand. */
+  static ofNode(node) {
+    if (!Number.isInteger(node) || node < 0) throw new Error(`a node is a position of the strand, not ${node}`);
+    return new BindingSource(false, node, undefined);
+  }
+
+  /**
+   * A binding source that is a constant: any JSON value. Whole numbers
+   * (bigint) and floats (number) are kept apart as notation keeps them.
+   */
+  static ofConstant(value) {
+    return new BindingSource(true, undefined, checkedConstant(value));
+  }
+
+  toString() {
+    return this.isConstant ? constantText(this.constant) : `#${this.node}`;
   }
 }
 
 /**
- * A machine graph — the semantic model behind machine notation.
- *
- * The graph is a collection of directed edges where each edge is a capability
- * that transforms source media types into a target media type.
- *
- * Two graphs are equivalent if they have the same set of edges, regardless
- * of ordering. Alias names used in the textual notation are not part of
- * the graph model.
- *
- * Mirrors Rust Machine.
+ * One slot in a resolved MachineEdge's source-to-cap-arg assignment: which
+ * cap argument (identified by its media URN) is fed by what.
  */
-class Machine {
+class EdgeAssignmentBinding {
   /**
+   * @param {MediaUrn} capArgMediaUrn - Slot identity per the cap definition
+   * @param {string} argName - The arg's name in the cap definition: the label
+   *   notation writes the binding under. It is NOT identity — the media URN
+   *   is, and equivalence never reads this.
+   * @param {BindingSource} source
+   */
+  constructor(capArgMediaUrn, argName, source) {
+    this.capArgMediaUrn = capArgMediaUrn;
+    this.argName = argName;
+    this.source = source;
+  }
+
+  /** The node feeding the arg, or null when a constant does. */
+  node() {
+    return this.source.isConstant ? null : this.source.node;
+  }
+}
+
+/**
+ * One output of a step that its wiring takes, and the node it goes to.
+ */
+class EdgeOutput {
+  /**
+   * @param {MediaUrn} outputMediaUrn - The output's identity per the cap definition
+   * @param {string} outputName - Its name in the definition: a label, never compared
+   * @param {number} node
+   */
+  constructor(outputMediaUrn, outputName, node) {
+    this.outputMediaUrn = outputMediaUrn;
+    this.outputName = outputName;
+    this.node = node;
+  }
+}
+
+/** A fresh identity for a step. */
+function mintStepToken() {
+  return globalThis.crypto.randomUUID();
+}
+
+/**
+ * One resolved cap step inside a MachineStrand. The assignment is sorted by
+ * the args' media URNs and the outputs by theirs, for canonical comparison.
+ */
+class MachineEdge {
+  /**
+   * @param {CapUrn} capUrn
+   * @param {EdgeAssignmentBinding[]} assignment
+   * @param {EdgeOutput[]} outputs - The outputs the wiring takes. An output the
+   *   cap declares and no entry names is discarded; an empty list is a sink.
+   * @param {string} tokenId - Stable identity of the step: what a run reports
+   *   it under. Equivalence ignores it.
+   * @param {Object} [options]
+   * @param {StepPolicy} [options.policy] - What the step does when it fails
+   * @param {string[]} [options.includedAs] - The machine steps this step was
+   *   included through, outermost first, each as `alias#use`. A label:
+   *   equivalence never reads it, and canonical notation does not write it.
+   * @param {boolean} [options.isLoop] - Whether the step runs once per item
+   */
+  constructor(capUrn, assignment, outputs, tokenId, options = {}) {
+    this.capUrn = capUrn;
+    this.assignment = assignment;
+    this.outputs = outputs;
+    this.tokenId = tokenId;
+    this.policy = options.policy || new StepPolicy();
+    this.includedAs = [...(options.includedAs || [])];
+    this.isLoop = options.isLoop === true;
+  }
+
+  /**
+   * The node the step's MAIN output goes to: the taken output whose URN is
+   * the cap URN's `out=`. Null when the wiring does not take it.
+   */
+  mainTarget() {
+    const out = this.capUrn.outMediaUrn();
+    const main = this.outputs.find(output => output.outputMediaUrn.isEquivalent(out));
+    return main ? main.node : null;
+  }
+
+  /** Every node this step produces. */
+  outputNodes() {
+    return this.outputs.map(output => output.node);
+  }
+
+  /** Every node this step consumes. A constant is not a node. */
+  sourceNodes() {
+    return this.assignment.filter(binding => !binding.source.isConstant).map(binding => binding.source.node);
+  }
+
+  toString() {
+    const assignments = this.assignment.map(b => `${b.capArgMediaUrn}<-${b.source}`).join(', ');
+    const outputs = this.outputs.map(o => `${o.outputMediaUrn}->#${o.node}`).join(', ');
+    // Debug-only marker for a per-item map edge: not notation syntax.
+    const loopPrefix = this.isLoop ? 'map ' : '';
+    return `${loopPrefix}${this.capUrn}${this.policy.toNotation()} (${assignments}) -> (${outputs})`;
+  }
+}
+
+/**
+ * Maps the nodes of one strand to the nodes of another during an equivalence
+ * walk. Each bind records a new pair or confirms one already made; a node of
+ * either strand paired with two nodes of the other is refused, and a refused
+ * pairing leaves no trace.
+ */
+class NodeBijection {
+  constructor(selfLength, otherLength) {
+    this._selfToOther = new Array(selfLength).fill(null);
+    this._otherToSelf = new Array(otherLength).fill(null);
+  }
+
+  bind(selfId, otherId) {
+    const existingOther = this._selfToOther[selfId];
+    if (existingOther !== null && existingOther !== otherId) return false;
+    const existingSelf = this._otherToSelf[otherId];
+    if (existingSelf !== null && existingSelf !== selfId) return false;
+    this._selfToOther[selfId] = otherId;
+    this._otherToSelf[otherId] = selfId;
+    return true;
+  }
+}
+
+/**
+ * One connected component of resolved cap edges with explicit anchor
+ * commitments: every edge shares at least one node (transitively) with every
+ * other. Built once by the resolver; immutable after.
+ */
+class MachineStrand {
+  /**
+   * @param {MediaUrn[]} nodes
    * @param {MachineEdge[]} edges
+   * @param {number[]} inputAnchorIds
+   * @param {number[]} outputAnchorIds
+   * @param {boolean[]} nodeIsSequence
    */
-  constructor(edges) {
+  constructor(nodes, edges, inputAnchorIds, outputAnchorIds, nodeIsSequence) {
+    if (nodes.length !== nodeIsSequence.length) {
+      throw new Error('every node of a strand has a cardinality');
+    }
+    this._nodes = nodes;
     this._edges = edges;
+    this._inputAnchorIds = inputAnchorIds;
+    this._outputAnchorIds = outputAnchorIds;
+    this._nodeIsSequence = nodeIsSequence;
   }
 
   /**
-   * Create an empty machine graph.
-   * @returns {Machine}
+   * Whether node `id` holds a sequence, as its producer's output declares (a
+   * node nothing produces is a single value here). A sequence bound to an arg
+   * that takes a single value is what makes a step run once per item.
    */
-  static empty() {
-    return new Machine([]);
+  nodeIsSequence(id) {
+    return this._nodeIsSequence[id];
   }
 
-  /**
-   * Parse machine notation into a Machine.
-   * @param {string} input
-   * @returns {Machine}
-   * @throws {MachineSyntaxError}
-   */
-  static fromString(input) {
-    return parseMachine(input);
+  /** All distinct data positions in this strand, indexed by node id. */
+  nodes() {
+    return this._nodes;
   }
 
-  /**
-   * Get the edges of this graph.
-   * @returns {MachineEdge[]}
-   */
+  /** The cap-step edges in canonical topological order. */
   edges() {
     return this._edges;
   }
 
-  /**
-   * Number of edges in the graph.
-   * @returns {number}
-   */
-  edgeCount() {
-    return this._edges.length;
+  /** The strand's input anchors (roots: not produced by any edge). */
+  inputAnchorIds() {
+    return this._inputAnchorIds;
+  }
+
+  /** The strand's output anchors (leaves: not consumed by any edge). */
+  outputAnchorIds() {
+    return this._outputAnchorIds;
+  }
+
+  /** A node's media URN. Fails hard if `id` is out of range. */
+  nodeUrn(id) {
+    if (!Number.isInteger(id) || id < 0 || id >= this._nodes.length) {
+      throw new Error(`node ${id} is not a node of this strand (it has ${this._nodes.length})`);
+    }
+    return this._nodes[id];
+  }
+
+  inputAnchors() {
+    return this._inputAnchorIds.map(id => this._nodes[id]);
+  }
+
+  outputAnchors() {
+    return this._outputAnchorIds.map(id => this._nodes[id]);
   }
 
   /**
-   * Check if the graph has no edges.
-   * @returns {boolean}
-   */
-  isEmpty() {
-    return this._edges.length === 0;
-  }
-
-  /**
-   * Check if two machine graphs are semantically equivalent.
-   *
-   * Two graphs are equivalent if they have the same set of edges
-   * (compared using MachineEdge.isEquivalent). Edge ordering
-   * does not matter.
-   *
-   * Mirrors Rust Machine::is_equivalent.
+   * Strict equivalence with another strand. Walks both strands in canonical
+   * edge order, building a bijection between node ids on the fly. Any edge
+   * mismatch (cap URN, policy, assignment, outputs, or isLoop) fails the
+   * comparison, and so does an inconsistent bijection or two paired nodes that
+   * hold different types.
    */
   isEquivalent(other) {
-    if (this._edges.length !== other._edges.length) {
-      return false;
-    }
+    if (this._edges.length !== other._edges.length) return false;
+    const nodeMap = new NodeBijection(this._nodes.length, other._nodes.length);
+    // The two nodes must hold equivalent URNs, whatever the bijection says:
+    // nodes that stand for each other carry one type.
+    const bind = (selfId, otherId) =>
+      this._nodes[selfId].isEquivalent(other._nodes[otherId]) && nodeMap.bind(selfId, otherId);
 
-    // For each edge in this, find a matching edge in other.
-    const matched = new Array(other._edges.length).fill(false);
-    for (const selfEdge of this._edges) {
-      let found = false;
-      for (let j = 0; j < other._edges.length; j++) {
-        if (matched[j]) continue;
-        if (selfEdge.isEquivalent(other._edges[j])) {
-          matched[j] = true;
-          found = true;
-          break;
+    // The edges decide which node is which: every node is a source or an
+    // output of some edge, and an edge says what each of its nodes is FOR.
+    // Two inputs of one type are told apart by that and by nothing else.
+    for (let index = 0; index < this._edges.length; index += 1) {
+      const selfEdge = this._edges[index];
+      const otherEdge = other._edges[index];
+      if (selfEdge.isLoop !== otherEdge.isLoop) return false;
+      if (!selfEdge.policy.equals(otherEdge.policy)) return false;
+      if (!selfEdge.capUrn.isEquivalent(otherEdge.capUrn)) return false;
+      if (selfEdge.assignment.length !== otherEdge.assignment.length) return false;
+      if (selfEdge.outputs.length !== otherEdge.outputs.length) return false;
+      // The assignment is sorted by the args' media URNs: positional
+      // comparison is canonical.
+      for (let b = 0; b < selfEdge.assignment.length; b += 1) {
+        const selfBinding = selfEdge.assignment[b];
+        const otherBinding = otherEdge.assignment[b];
+        if (!selfBinding.capArgMediaUrn.isEquivalent(otherBinding.capArgMediaUrn)) return false;
+        if (selfBinding.source.isConstant !== otherBinding.source.isConstant) return false;
+        if (selfBinding.source.isConstant) {
+          // Two machines that give an arg different constants behave differently.
+          if (!constantsEqual(selfBinding.source.constant, otherBinding.source.constant)) return false;
+        } else if (!bind(selfBinding.source.node, otherBinding.source.node)) {
+          return false;
         }
       }
-      if (!found) {
-        return false;
+      // Sorted by output media URN, like the assignment.
+      for (let o = 0; o < selfEdge.outputs.length; o += 1) {
+        if (!selfEdge.outputs[o].outputMediaUrn.isEquivalent(otherEdge.outputs[o].outputMediaUrn)) return false;
+        if (!bind(selfEdge.outputs[o].node, otherEdge.outputs[o].node)) return false;
       }
     }
-
+    // Every node of a strand is a source or an output of one of its edges, so
+    // the walk has paired every node of each strand with one of the other.
     return true;
   }
 
-  /**
-   * Collect all unique source media URNs across all edges that are not
-   * also produced as targets by any other edge. These are the "root"
-   * inputs to the graph.
-   *
-   * Mirrors Rust Machine::root_sources.
-   * @returns {MediaUrn[]}
-   */
-  rootSources() {
-    const roots = [];
-    for (const edge of this._edges) {
-      for (const src of edge.sources) {
-        // Check if any edge produces this source as a target
-        const isProduced = this._edges.some(e => e.target.isEquivalent(src));
-        if (!isProduced) {
-          // Avoid duplicates (by equivalence)
-          const alreadyAdded = roots.some(r => r.isEquivalent(src));
-          if (!alreadyAdded) {
-            roots.push(src);
-          }
-        }
-      }
-    }
-    return roots;
-  }
-
-  /**
-   * Collect all unique target media URNs that are not consumed as sources
-   * by any other edge. These are the "leaf" outputs of the graph.
-   *
-   * Mirrors Rust Machine::leaf_targets.
-   * @returns {MediaUrn[]}
-   */
-  leafTargets() {
-    const leaves = [];
-    for (const edge of this._edges) {
-      const isConsumed = this._edges.some(e =>
-        e.sources.some(s => s.isEquivalent(edge.target))
-      );
-      if (!isConsumed) {
-        const alreadyAdded = leaves.some(l => l.isEquivalent(edge.target));
-        if (!alreadyAdded) {
-          leaves.push(edge.target);
-        }
-      }
-    }
-    return leaves;
-  }
-
-  // =========================================================================
-  // Serializer — deterministic canonical form
-  // Mirrors Rust serializer.rs
-  // =========================================================================
-
-  /**
-   * Serialize this machine graph to canonical one-line machine notation.
-   *
-   * The output is deterministic: same graph → same string.
-   * Mirrors Rust Machine::to_machine_notation.
-   * @returns {string}
-   */
-  toMachineNotation() {
-    if (this._edges.length === 0) {
-      return '';
-    }
-
-    const { aliases, nodeNames, edgeOrder } = this._buildSerializationMaps();
-    let output = '';
-
-    // Emit headers in alias-sorted order
-    const sortedAliases = Array.from(aliases.entries()).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-
-    for (const [alias, { edgeIdx }] of sortedAliases) {
-      const edge = this._edges[edgeIdx];
-      output += `[${alias} ${edge.capUrn}]`;
-    }
-
-    // Emit wirings in edge order
-    for (const edgeIdx of edgeOrder) {
-      const edge = this._edges[edgeIdx];
-      let alias = null;
-      for (const [a, info] of aliases) {
-        if (info.edgeIdx === edgeIdx) {
-          alias = a;
-          break;
-        }
-      }
-
-      // Source node name(s)
-      const sources = edge.sources.map(s => {
-        const key = s.toString();
-        return nodeNames.get(key);
-      });
-
-      // Target node name
-      const targetKey = edge.target.toString();
-      const targetName = nodeNames.get(targetKey);
-
-      // `is_loop` is NOT emitted into notation text: it is a derived cardinality
-      // property, not authored syntax (the `LOOP` keyword is retired).
-      if (sources.length === 1) {
-        output += `[${sources[0]} -> ${alias} -> ${targetName}]`;
-      } else {
-        const group = sources.join(', ');
-        output += `[(${group}) -> ${alias} -> ${targetName}]`;
-      }
-    }
-
-    return output;
-  }
-
-  /**
-   * Serialize to multi-line machine notation (one statement per line).
-   * Mirrors Rust Machine::to_machine_notation_multiline.
-   * @returns {string}
-   */
-  toMachineNotationMultiline() {
-    if (this._edges.length === 0) {
-      return '';
-    }
-
-    const { aliases, nodeNames, edgeOrder } = this._buildSerializationMaps();
-    const lines = [];
-
-    // Emit headers in alias-sorted order
-    const sortedAliases = Array.from(aliases.entries()).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-
-    for (const [alias, { edgeIdx }] of sortedAliases) {
-      const edge = this._edges[edgeIdx];
-      lines.push(`[${alias} ${edge.capUrn}]`);
-    }
-
-    // Emit wirings in edge order
-    for (const edgeIdx of edgeOrder) {
-      const edge = this._edges[edgeIdx];
-      let alias = null;
-      for (const [a, info] of aliases) {
-        if (info.edgeIdx === edgeIdx) {
-          alias = a;
-          break;
-        }
-      }
-
-      const sources = edge.sources.map(s => {
-        const key = s.toString();
-        return nodeNames.get(key);
-      });
-
-      const targetKey = edge.target.toString();
-      const targetName = nodeNames.get(targetKey);
-
-      // `is_loop` is NOT emitted into notation text: it is a derived cardinality
-      // property, not authored syntax (the `LOOP` keyword is retired).
-      if (sources.length === 1) {
-        lines.push(`[${sources[0]} -> ${alias} -> ${targetName}]`);
-      } else {
-        const group = sources.join(', ');
-        lines.push(`[(${group}) -> ${alias} -> ${targetName}]`);
-      }
-    }
-
-    return lines.join('\n');
-  }
-
-  /**
-   * Serialize this machine graph to machine notation in the specified format.
-   *
-   * The output is deterministic: same graph + same format → same string.
-   * @param {'bracketed' | 'line-based'} format - The notation format to use.
-   * @returns {string}
-   */
-  toMachineNotationFormatted(format) {
-    if (this._edges.length === 0) {
-      return '';
-    }
-
-    const { aliases, nodeNames, edgeOrder } = this._buildSerializationMaps();
-    const bracketed = format === 'bracketed';
-    const open = bracketed ? '[' : '';
-    const close = bracketed ? ']' : '';
-    const lines = [];
-
-    // Emit headers in alias-sorted order
-    const sortedAliases = Array.from(aliases.entries()).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-
-    for (const [alias, { edgeIdx }] of sortedAliases) {
-      const edge = this._edges[edgeIdx];
-      lines.push(`${open}${alias} ${edge.capUrn}${close}`);
-    }
-
-    // Emit wirings in edge order
-    for (const edgeIdx of edgeOrder) {
-      const edge = this._edges[edgeIdx];
-      let alias = null;
-      for (const [a, info] of aliases) {
-        if (info.edgeIdx === edgeIdx) {
-          alias = a;
-          break;
-        }
-      }
-
-      const sources = edge.sources.map(s => {
-        const key = s.toString();
-        return nodeNames.get(key);
-      });
-
-      const targetKey = edge.target.toString();
-      const targetName = nodeNames.get(targetKey);
-
-      // `is_loop` is NOT emitted into notation text: it is a derived cardinality
-      // property, not authored syntax (the `LOOP` keyword is retired).
-      if (sources.length === 1) {
-        lines.push(`${open}${sources[0]} -> ${alias} -> ${targetName}${close}`);
-      } else {
-        const group = sources.join(', ');
-        lines.push(`${open}(${group}) -> ${alias} -> ${targetName}${close}`);
-      }
-    }
-
-    return bracketed ? lines.join('') : lines.join('\n');
-  }
-
-  /**
-   * Serialize to machine notation rendering each cap by its registered display
-   * alias (shortest name, ties alphabetical) when one exists, falling back to
-   * the canonical-URN `edge_N` header form otherwise. This is the "store
-   * aliased" form: generated and persisted machines use it so the saved
-   * notation reads in terms of aliases.
-   *
-   * Semantics (mirrors Rust Machine::to_machine_notation_aliased):
-   *  - A cap WITH a display alias is referenced DIRECTLY in the wiring's
-   *    cap-position by its alias name, with NO `[edge_N cap:...]` header (the
-   *    grammar forbids an alias in a header's cap position anyway, and a header
-   *    would be redundant).
-   *  - A cap WITHOUT an alias keeps the synthetic `edge_N` wiring token plus its
-   *    `[edge_N cap:...]` header binding it to the canonical cap URN.
-   *
-   * The canonical `edge_N` numbering and node naming are inherited unchanged
-   * from the canonical serializer, so an un-aliased machine produces byte-
-   * identical output to toMachineNotationFormatted.
-   *
-   * @param {FabricRegistryClient} registry - resolves URN → display alias
-   * @param {'bracketed' | 'line-based'} format
-   * @returns {string}
-   */
-  toMachineNotationAliased(registry, format) {
-    if (this._edges.length === 0) {
-      return '';
-    }
-
-    const { aliases, nodeNames, edgeOrder } = this._buildSerializationMaps();
-    const bracketed = format === 'bracketed';
-    const open = bracketed ? '[' : '';
-    const close = bracketed ? ']' : '';
-
-    // Resolve, per edge index, the cap-position token and whether it needs a
-    // header. An aliased cap uses its display alias directly (no header); an
-    // un-aliased cap keeps its synthetic `edge_N` token (with a header).
-    const edgeToken = new Map();   // edgeIdx → token used in the wiring
-    const edgeNeedsHeader = new Map(); // edgeIdx → bool
-    for (const [edgeAlias, info] of aliases) {
-      const edge = this._edges[info.edgeIdx];
-      const displayAlias = registry.displayAliasForUrn(edge.capUrn.toString());
-      if (displayAlias !== null && displayAlias !== undefined) {
-        edgeToken.set(info.edgeIdx, displayAlias);
-        edgeNeedsHeader.set(info.edgeIdx, false);
-      } else {
-        edgeToken.set(info.edgeIdx, edgeAlias);
-        edgeNeedsHeader.set(info.edgeIdx, true);
-      }
-    }
-
-    const lines = [];
-
-    // Headers only for edges that kept a synthetic `edge_N` token (un-aliased
-    // caps). Emit in alias-sorted order to match the canonical serializer.
-    const sortedAliases = Array.from(aliases.entries()).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-    for (const [, info] of sortedAliases) {
-      if (edgeNeedsHeader.get(info.edgeIdx)) {
-        const edge = this._edges[info.edgeIdx];
-        lines.push(`${open}${edgeToken.get(info.edgeIdx)} ${edge.capUrn}${close}`);
-      }
-    }
-
-    // Wirings in canonical edge order, using the resolved cap-position token.
-    for (const edgeIdx of edgeOrder) {
-      const edge = this._edges[edgeIdx];
-      const token = edgeToken.get(edgeIdx);
-
-      const sources = edge.sources.map(s => nodeNames.get(s.toString()));
-      const targetName = nodeNames.get(edge.target.toString());
-
-      // `is_loop` is NOT emitted into notation text: it is a derived cardinality
-      // property, not authored syntax (the `LOOP` keyword is retired).
-      if (sources.length === 1) {
-        lines.push(`${open}${sources[0]} -> ${token} -> ${targetName}${close}`);
-      } else {
-        const group = sources.join(', ');
-        lines.push(`${open}(${group}) -> ${token} -> ${targetName}${close}`);
-      }
-    }
-
-    return bracketed ? lines.join('') : lines.join('\n');
-  }
-
-  /**
-   * Build the alias map, node name map, and edge ordering for serialization.
-   *
-   * Returns:
-   * - aliases: Map<string, { edgeIdx: number, capStr: string }>
-   * - nodeNames: Map<string, string> (media_urn_canonical → node_name)
-   * - edgeOrder: number[] (edge indices in canonical order)
-   *
-   * Mirrors Rust Machine::build_serialization_maps.
-   * @private
-   */
-  _buildSerializationMaps() {
-    // Step 1: Generate canonical edge ordering
-    const edgeOrder = Array.from({ length: this._edges.length }, (_, i) => i);
-    edgeOrder.sort((a, b) => {
-      const ea = this._edges[a];
-      const eb = this._edges[b];
-
-      const capCmp = ea.capUrn.toString().localeCompare(eb.capUrn.toString());
-      if (capCmp !== 0) return capCmp;
-
-      const srcA = ea.sources.map(s => s.toString());
-      const srcB = eb.sources.map(s => s.toString());
-      // Lexicographic comparison of source arrays
-      const minLen = Math.min(srcA.length, srcB.length);
-      for (let i = 0; i < minLen; i++) {
-        const cmp = srcA[i].localeCompare(srcB[i]);
-        if (cmp !== 0) return cmp;
-      }
-      if (srcA.length !== srcB.length) return srcA.length - srcB.length;
-
-      return ea.target.toString().localeCompare(eb.target.toString());
-    });
-
-    // Step 2: Generate edge aliases. The Rust reference implementation
-    // uses `edge_<idx>` unconditionally — there is no privileged tag (such
-    // as the legacy `op=…` tag) we can derive a friendlier name from, so
-    // we mirror the same pure-index scheme here.
-    // Number aliases by position in the canonical (sorted) edge order so
-    // that two graphs with the same edges in different insertion orders
-    // produce identical notation. Without this the alias number tracks
-    // insertion order and serialization is non-canonical.
-    const aliases = new Map();
-    edgeOrder.forEach((idx, position) => {
-      const edge = this._edges[idx];
-      const alias = `edge_${position}`;
-      const capStr = edge.capUrn.toString();
-      aliases.set(alias, { edgeIdx: idx, capStr });
-    });
-
-    // Step 3: Generate node names
-    // Collect all unique media URNs, assign names in order of first appearance
-    const nodeNames = new Map();
-    let nodeCounter = 0;
-
-    for (const idx of edgeOrder) {
-      const edge = this._edges[idx];
-      for (const src of edge.sources) {
-        const key = src.toString();
-        if (!nodeNames.has(key)) {
-          nodeNames.set(key, `n${nodeCounter}`);
-          nodeCounter++;
-        }
-      }
-      const targetKey = edge.target.toString();
-      if (!nodeNames.has(targetKey)) {
-        nodeNames.set(targetKey, `n${nodeCounter}`);
-        nodeCounter++;
-      }
-    }
-
-    return { aliases, nodeNames, edgeOrder };
-  }
-
-  /**
-   * Generate a Mermaid flowchart string from this machine graph.
-   *
-   * - Root sources: stadium-shaped nodes (rounded)
-   * - Leaf targets: stadium-shaped nodes (rounded)
-   * - Intermediate nodes: rectangular
-   * - Edge labels: op= tag value (or full cap URN if no op)
-   * - Per-item map edges (`is_loop`): dotted line style — `is_loop` is a
-   *   derived render property, never the retired `LOOP` keyword
-   * - Node labels: derived MediaUrn type
-   *
-   * @returns {string} Mermaid flowchart definition
-   */
-  toMermaid() {
-    if (this._edges.length === 0) {
-      return 'flowchart LR\n  empty["(empty graph)"]';
-    }
-
-    const { aliases, nodeNames, edgeOrder } = this._buildSerializationMaps();
-    const rootSourceSet = new Set(this.rootSources().map(s => s.toString()));
-    const leafTargetSet = new Set(this.leafTargets().map(t => t.toString()));
-
-    const lines = ['flowchart LR'];
-
-    // Define node shapes based on role
-    for (const [mediaKey, nodeName] of nodeNames) {
-      // Escape special mermaid characters in the label
-      const label = mediaKey.replace(/"/g, '#quot;');
-      if (rootSourceSet.has(mediaKey)) {
-        // Stadium shape for roots
-        lines.push(`  ${nodeName}([${label}])`);
-      } else if (leafTargetSet.has(mediaKey)) {
-        // Stadium shape for leaves
-        lines.push(`  ${nodeName}([${label}])`);
-      } else {
-        // Rectangle for intermediates
-        lines.push(`  ${nodeName}[${label}]`);
-      }
-    }
-
-    // Define edges
-    for (const edgeIdx of edgeOrder) {
-      const edge = this._edges[edgeIdx];
-      // Find alias for this edge. The label on the rendered diagram is the
-      // edge's alias (`edge_<idx>`), matching the Rust serializer which
-      // also uses pure-index aliases — no special tag (like the legacy
-      // `op=…`) is privileged for label derivation.
-      let label = null;
-      for (const [a, info] of aliases) {
-        if (info.edgeIdx === edgeIdx) {
-          label = a;
-          break;
-        }
-      }
-
-      const targetKey = edge.target.toString();
-      const targetName = nodeNames.get(targetKey);
-
-      for (const src of edge.sources) {
-        const srcKey = src.toString();
-        const srcName = nodeNames.get(srcKey);
-
-        if (edge.isLoop) {
-          // Dotted line renders the derived per-item map (`is_loop`) property.
-          // No "LOOP" text — that keyword is retired.
-          lines.push(`  ${srcName} -. "${label}" .-> ${targetName}`);
-        } else {
-          lines.push(`  ${srcName} -- "${label}" --> ${targetName}`);
-        }
-      }
-    }
-
-    return lines.join('\n');
-  }
-
-  /**
-   * Display string for this graph.
-   * Mirrors Rust Display for Machine.
-   */
   toString() {
-    if (this._edges.length === 0) {
-      return 'Machine(empty)';
-    }
-    return `Machine(${this._edges.length} edges)`;
-  }
-}
-
-// ============================================================================
-// Machine Parser — PEG-based parser using Peggy
-// Mirrors Rust parser.rs exactly (4-phase pipeline)
-// ============================================================================
-
-// Load the Peggy-generated parser
-
-/**
- * Assign a media URN to a node, or check consistency if already assigned.
- *
- * Uses MediaUrn.isComparable() — two types on the same specialization
- * chain are compatible.
- *
- * Mirrors Rust assign_or_check_node.
- * @private
- */
-function assignOrCheckNode(node, mediaUrn, nodeMedia, position, location) {
-  const existing = nodeMedia.get(node);
-  if (existing !== undefined) {
-    const compatible = existing.isComparable(mediaUrn);
-    if (!compatible) {
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.INVALID_WIRING,
-        `invalid wiring at statement ${position}: node '${node}' has conflicting media types: existing '${existing}', new '${mediaUrn}'`,
-        location
-      );
-    }
-  } else {
-    nodeMedia.set(node, mediaUrn);
+    return `MachineStrand(${this._nodes.length} nodes, ${this._edges.length} edges, ` +
+      `inputs=[${this._inputAnchorIds}], outputs=[${this._outputAnchorIds}])`;
   }
 }
 
 /**
- * Internal: run the 4-phase parse pipeline on machine notation input.
- * Returns { machine, statements, aliasMap, nodeMedia } for full introspection.
- *
- * @param {string} input - Machine notation string
- * @returns {{ machine: Machine, statements: Object[], aliasMap: Map, nodeMedia: Map }}
- * @throws {MachineSyntaxError}
- * @private
+ * An ordered collection of resolved strands. Strand declaration order
+ * matters: isEquivalent compares strand by strand, positionally.
  */
-function _parseMachineInternal(input) {
-  const trimmed = input.trim();
-  if (trimmed.length === 0) {
-    throw new MachineSyntaxError(
-      MachineSyntaxErrorCodes.EMPTY,
-      'machine notation is empty'
-    );
+class Machine {
+  /**
+   * @param {MachineStrand[]} strands
+   */
+  constructor(strands) {
+    this._strands = strands;
   }
 
-  // Phase 1: Parse with Peggy grammar
-  let stmts;
-  try {
-    stmts = machineParser.parse(trimmed);
-  } catch (e) {
-    // Peggy SyntaxError has .location — propagate it
-    const loc = e.location || null;
-    throw new MachineSyntaxError(
-      MachineSyntaxErrorCodes.PARSE_ERROR,
-      `parse error: ${e.message}`,
-      loc
-    );
+  /** All resolved strands in declaration order. */
+  strands() {
+    return this._strands;
   }
 
-  // Phase 2: Separate headers and wirings (already done by grammar actions)
-  const headers = [];
-  const wirings = [];
+  strandCount() {
+    return this._strands.length;
+  }
 
-  for (let i = 0; i < stmts.length; i++) {
-    const stmt = stmts[i];
-    if (stmt.type === 'header') {
-      // Parse the cap URN string
-      let capUrn;
-      try {
-        capUrn = CapUrn.fromString(stmt.capUrn);
-      } catch (e) {
-        throw new MachineSyntaxError(
-          MachineSyntaxErrorCodes.INVALID_CAP_URN,
-          `invalid cap URN in header '${stmt.alias}': ${e.message}`,
-          stmt.capUrnLocation || stmt.location
-        );
+  isEmpty() {
+    return this._strands.length === 0;
+  }
+
+  /**
+   * Strict, positional equivalence: the same number of strands, and
+   * strands[i].isEquivalent(other.strands[i]) for every i.
+   */
+  isEquivalent(other) {
+    if (this._strands.length !== other._strands.length) return false;
+    return this._strands.every((strand, index) => strand.isEquivalent(other._strands[index]));
+  }
+
+  toString() {
+    return this.toMachineNotation();
+  }
+}
+
+// ============================================================================
+// Which steps of a machine run once per item, and inside which map.
+//
+// Notation never writes iteration: it follows from cardinality (docs 09
+// §Iteration). This is the one place that rule is computed. The resolver asks
+// it which steps map. Notation has no run, so its inputs are single values; a
+// caller that knows a run says which inputs it binds a sequence to.
+//
+// Every node lives in a scope: the machine itself, or a map. A node in a map
+// has one value per run of that map. Seen from outside the map it is the
+// sequence of those values in item order — and when the map is itself inside
+// another, seen from outside both it is one flat sequence.
+//
+// A map is what it iterates: the sequences it zips, in the scope it is opened
+// in. Two steps that map over the same sequences in the same scope run in the
+// same map, so what each produces for an item can be given to a third step for
+// that item.
+//
+// A step is first placed in the deepest scope its members ask for, when those
+// scopes lie on one line of nesting; when they do not, in the scope that
+// encloses them all. What a member asks for:
+// - bound to an arg that takes one value: the scope the node lives in;
+// - a sequence bound to an arg that takes a sequence: the scope it lives in —
+//   the step is given that sequence whole;
+// - a single value bound to an arg that takes a sequence: the scope that
+//   encloses the node's map — the step folds what the map collected.
+//
+// From its placement, each member bound to an arg that takes one value is one
+// of: a single value there (given as it is); the sequence a map the placement
+// is inside iterates (given as that map's item — the step joins the map); a
+// sequence that lives in the placement, or was collected into it (mapped: the
+// step runs in the map over it, opened inside the placement; several mapped
+// members are zipped); or a sequence from outside that no enclosing map
+// iterates — mapping it here would run every item of it for every item of the
+// enclosing map, a cross product nobody wrote, so the step is placed further
+// out instead, where that sequence lives.
+// ============================================================================
+
+/** The machine itself: what is not inside any map. */
+const SCOPE_ROOT = 0;
+
+/** The steps a machine cannot place because they wait on one another. */
+class CyclicSteps extends Error {
+  constructor(steps) {
+    super(`steps [${steps.join(', ')}] wait on one another`);
+    this.name = 'CyclicSteps';
+    this.steps = [...steps];
+  }
+}
+
+/** Where a step runs. */
+class StepPlacement {
+  constructor(placedIn, map = null, mapped = []) {
+    /** The scope the step is placed in: where it is given its members. */
+    this.placedIn = placedIn;
+    /** The map the step runs in, when it maps: opened inside its placement. */
+    this.map = map;
+    /** The members the step maps over, zipped, in the order the step lists them. */
+    this.mapped = mapped;
+  }
+
+  /** Whether the step maps. */
+  get maps() {
+    return this.map !== null;
+  }
+
+  /** The scope the step's invocations run in, and its outputs live in. */
+  scope() {
+    return this.map !== null ? this.map : this.placedIn;
+  }
+}
+
+/** The scopes of a machine and the place of every step and node in them. */
+class IterationStructure {
+  constructor() {
+    this._scopes = [{ parent: SCOPE_ROOT, sources: [], mappers: [] }];
+    this._steps = [];
+    this._nodeScope = new Map();
+    this._nodeIsSequence = new Map();
+  }
+
+  _allPlaced(members) {
+    return members.every(member => this._nodeScope.has(member.node));
+  }
+
+  _place(index, step) {
+    // What each member asks for.
+    const asked = step.members.map(member => {
+      const scope = this._nodeScope.get(member.node);
+      if (member.argIsSequence && !this._nodeIsSequence.get(member.node)) {
+        return this._scopes[scope].parent;
       }
-      headers.push({
-        alias: stmt.alias,
-        capUrn,
-        position: i,
-        location: stmt.location,
-        aliasLocation: stmt.aliasLocation,
-        capUrnLocation: stmt.capUrnLocation,
-      });
-    } else if (stmt.type === 'wiring') {
-      wirings.push({
-        sources: stmt.sources,
-        capAlias: stmt.capAlias,
-        target: stmt.target,
-        position: i,
-        location: stmt.location,
-        sourceLocations: stmt.sourceLocations,
-        capAliasLocation: stmt.capAliasLocation,
-        targetLocation: stmt.targetLocation,
-      });
-    }
-  }
-
-  // Phase 3: Build alias → CapUrn map, checking for duplicates
-  const aliasMap = new Map();
-  for (const header of headers) {
-    if (aliasMap.has(header.alias)) {
-      const firstPos = aliasMap.get(header.alias).position;
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.DUPLICATE_ALIAS,
-        `duplicate alias '${header.alias}' (first defined at statement ${firstPos})`,
-        header.aliasLocation || header.location
-      );
-    }
-    aliasMap.set(header.alias, {
-      capUrn: header.capUrn,
-      position: header.position,
-      location: header.location,
-      aliasLocation: header.aliasLocation,
-      capUrnLocation: header.capUrnLocation,
+      return scope;
     });
-  }
-
-  // Phase 4: Resolve wirings into MachineEdges
-  if (wirings.length === 0 && headers.length > 0) {
-    throw new MachineSyntaxError(
-      MachineSyntaxErrorCodes.NO_EDGES,
-      'machine has headers but no wirings — define at least one edge',
-      headers[headers.length - 1].location
-    );
-  }
-
-  const nodeMedia = new Map(); // node_name → MediaUrn
-  const edges = [];
-
-  for (const wiring of wirings) {
-    // Look up the cap alias
-    const aliasEntry = aliasMap.get(wiring.capAlias);
-    if (!aliasEntry) {
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.UNDEFINED_ALIAS,
-        `wiring references undefined alias '${wiring.capAlias}'`,
-        wiring.capAliasLocation || wiring.location
-      );
-    }
-    const capUrn = aliasEntry.capUrn;
-
-    // Check node-alias collisions
-    for (let si = 0; si < wiring.sources.length; si++) {
-      const src = wiring.sources[si];
-      if (aliasMap.has(src)) {
-        throw new MachineSyntaxError(
-          MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION,
-          `node name '${src}' collides with cap alias '${src}'`,
-          wiring.sourceLocations ? wiring.sourceLocations[si] : wiring.location
-        );
-      }
-    }
-    if (aliasMap.has(wiring.target)) {
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.NODE_ALIAS_COLLISION,
-        `node name '${wiring.target}' collides with cap alias '${wiring.target}'`,
-        wiring.targetLocation || wiring.location
-      );
+    let deepest = SCOPE_ROOT;
+    asked.forEach((scope, position) => {
+      // Two different scopes of one depth are not on one line of nesting,
+      // and then the deepest is not where the step is placed.
+      if (position === 0 || this.depth(scope) > this.depth(deepest)) deepest = scope;
+    });
+    let placedIn = deepest;
+    if (!asked.every(scope => this.encloses(scope, deepest))) {
+      placedIn = asked.slice(1).reduce((common, scope) => this.commonScope(common, scope), asked[0]);
     }
 
-    // Derive media URNs from cap's in=/out= specs
-    let capInMedia;
-    try {
-      capInMedia = capUrn.inMediaUrn();
-    } catch (e) {
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.INVALID_MEDIA_URN,
-        `invalid media URN in cap '${wiring.capAlias}': in= spec: ${e.message}`,
-        aliasEntry.capUrnLocation || wiring.location
-      );
-    }
-
-    let capOutMedia;
-    try {
-      capOutMedia = capUrn.outMediaUrn();
-    } catch (e) {
-      throw new MachineSyntaxError(
-        MachineSyntaxErrorCodes.INVALID_MEDIA_URN,
-        `invalid media URN in cap '${wiring.capAlias}': out= spec: ${e.message}`,
-        aliasEntry.capUrnLocation || wiring.location
-      );
-    }
-
-    // Resolve source media URNs
-    const sourceUrns = [];
-    for (let i = 0; i < wiring.sources.length; i++) {
-      const src = wiring.sources[i];
-      if (i === 0) {
-        // Primary source: use cap's in= spec
-        assignOrCheckNode(src, capInMedia, nodeMedia, wiring.position,
-          wiring.sourceLocations ? wiring.sourceLocations[i] : wiring.location);
-        sourceUrns.push(capInMedia);
-      } else {
-        // Secondary source (fan-in): use existing type if assigned,
-        // otherwise use wildcard media: — the orchestrator parser will
-        // resolve the real type from the cap's args via registry lookup.
-        let secondaryMedia = nodeMedia.get(src);
-        if (secondaryMedia === undefined) {
-          secondaryMedia = MediaUrn.fromString('media:');
-          nodeMedia.set(src, secondaryMedia);
+    // What each member bound to an arg that takes one value is from there. A
+    // sequence from outside that no enclosing map iterates moves the
+    // placement out to where it lives, and the members are read again.
+    let mapped;
+    for (;;) {
+      mapped = [];
+      let moved = false;
+      for (const member of step.members) {
+        if (member.argIsSequence) continue;
+        const livesIn = this._nodeScope.get(member.node);
+        if (this.encloses(livesIn, placedIn)) {
+          if (!this._nodeIsSequence.get(member.node)) continue; // one value here
+          if (livesIn !== placedIn) {
+            if (this._iteratedBetween(member.node, placedIn, livesIn)) continue; // the item of a map the step is inside
+            placedIn = livesIn;
+            moved = true;
+            break;
+          }
+          // A sequence that lives here: mapped.
         }
-        sourceUrns.push(secondaryMedia);
+        // Otherwise the node lives in a map the placement is not inside, and
+        // the placement encloses that map: the node is seen here as what the
+        // map collected — a sequence, mapped.
+        if (!mapped.includes(member.node)) mapped.push(member.node);
       }
+      if (!moved) break;
     }
 
-    // Assign target media URN
-    assignOrCheckNode(wiring.target, capOutMedia, nodeMedia, wiring.position,
-      wiring.targetLocation || wiring.location);
-
-    // `is_loop` is a derived cardinality property, not authored syntax (the
-    // `LOOP` keyword is retired). The pure-JS parse path has no cap definitions
-    // — it derives media only from the cap URN's in=/out= specs — so it cannot
-    // evaluate the ForEach rule (a sequence source feeding a scalar-input cap).
-    // Editors obtain the derived `is_loop` from the engine server's resolved
-    // graph; here it defaults to false.
-    edges.push(new MachineEdge(sourceUrns, capUrn, capOutMedia, false));
+    const placement = new StepPlacement(placedIn, null, mapped);
+    if (mapped.length === 0) return placement;
+    const sources = [...mapped].sort((a, b) => a - b);
+    let found = this._scopes.findIndex(scope =>
+      // The machine itself zips nothing, so it is never the map sought.
+      scope !== this._scopes[SCOPE_ROOT] && scope.parent === placedIn &&
+      scope.sources.length === sources.length && scope.sources.every((node, i) => node === sources[i])
+    );
+    if (found < 0) {
+      this._scopes.push({ parent: placedIn, sources, mappers: [] });
+      found = this._scopes.length - 1;
+    }
+    this._scopes[found].mappers.push(index);
+    placement.map = found;
+    return placement;
   }
 
-  return {
-    machine: new Machine(edges),
-    statements: stmts,
-    aliasMap,
-    nodeMedia,
+  /** Whether a map from `inner` outward, short of `outer`, iterates `node`. */
+  _iteratedBetween(node, inner, outer) {
+    for (let at = inner; at !== outer; at = this._scopes[at].parent) {
+      if (this._scopes[at].sources.includes(node)) return true;
+    }
+    return false;
+  }
+
+  /** Where each step runs, in the order the steps were given. */
+  steps() {
+    return this._steps;
+  }
+
+  /** How many scopes there are, the machine included. */
+  scopeCount() {
+    return this._scopes.length;
+  }
+
+  /** The scope that encloses `scope`. The machine encloses itself. */
+  parent(scope) {
+    return this._scopes[scope].parent;
+  }
+
+  /** The sequences map `scope` zips, in a fixed order; none for the machine. */
+  sources(scope) {
+    return [...this._scopes[scope].sources];
+  }
+
+  /** The first step that maps in `scope`: the one the map is opened by. */
+  openedBy(scope) {
+    const mappers = this._scopes[scope].mappers;
+    return mappers.length > 0 ? mappers[0] : null;
+  }
+
+  /**
+   * The map that gives a step running in `fromScope` the ITEM of `node`: the
+   * innermost map at or around `fromScope` that iterates it. Null when no map
+   * the step is inside iterates the node: the step is given it whole.
+   */
+  itemMap(node, fromScope) {
+    for (let at = fromScope; at !== SCOPE_ROOT; at = this._scopes[at].parent) {
+      if (this._scopes[at].sources.includes(node)) return at;
+    }
+    return null;
+  }
+
+  /** The scope a node lives in. */
+  nodeScope(node) {
+    return this._nodeScope.get(node);
+  }
+
+  /** How many maps enclose `scope`, itself included. */
+  depth(scope) {
+    let depth = 0;
+    for (let at = scope; at !== SCOPE_ROOT; at = this._scopes[at].parent) depth += 1;
+    return depth;
+  }
+
+  /** Whether `outer` is `inner` or encloses it. */
+  encloses(outer, inner) {
+    for (let at = inner; ; at = this._scopes[at].parent) {
+      if (at === outer) return true;
+      if (at === SCOPE_ROOT) return false;
+    }
+  }
+
+  /** The deepest scope that encloses both. */
+  commonScope(a, b) {
+    let at = a;
+    while (!this.encloses(at, b)) at = this._scopes[at].parent;
+    return at;
+  }
+
+  /**
+   * Whether `node` is a sequence as a step placed in `fromScope` is given it:
+   * what it is in its own scope when that scope encloses `fromScope`, and the
+   * collected sequence otherwise.
+   */
+  isSequenceFrom(node, fromScope) {
+    if (this.encloses(this._nodeScope.get(node), fromScope)) return this._nodeIsSequence.get(node);
+    return true;
+  }
+}
+
+/**
+ * Place every step. Each step is `{ members: [{node, argIsSequence}],
+ * outputs: [{node, isSequence}] }`; a constant is not a member — it is one
+ * value wherever the step runs. `inputIsSequence(node)` says, for a node no
+ * step produces, whether it holds a sequence. Throws CyclicSteps naming the
+ * steps that wait on one another.
+ * @returns {IterationStructure}
+ */
+function iterationOf(steps, inputIsSequence) {
+  const produced = new Set(steps.flatMap(step => step.outputs.map(output => output.node)));
+  const structure = new IterationStructure();
+  // An input of the machine lives in the machine.
+  for (const step of steps) {
+    for (const member of step.members) {
+      if (!produced.has(member.node)) {
+        structure._nodeScope.set(member.node, SCOPE_ROOT);
+        structure._nodeIsSequence.set(member.node, inputIsSequence(member.node));
+      }
+    }
+  }
+  // A step is placed once every node it is given has a place. The order steps
+  // are placed in does not change where any of them lands: a placement reads
+  // only its members, and a map is found by what it iterates.
+  const placements = new Array(steps.length).fill(null);
+  let remaining = steps.length;
+  while (remaining > 0) {
+    const before = remaining;
+    steps.forEach((step, index) => {
+      if (placements[index] !== null || !structure._allPlaced(step.members)) return;
+      const placement = structure._place(index, step);
+      for (const output of step.outputs) {
+        structure._nodeScope.set(output.node, placement.scope());
+        structure._nodeIsSequence.set(output.node, output.isSequence);
+      }
+      placements[index] = placement;
+      remaining -= 1;
+    });
+    if (remaining === before) {
+      throw new CyclicSteps(placements.map((placement, i) => (placement === null ? i : -1)).filter(i => i >= 0));
+    }
+  }
+  structure._steps = placements;
+  for (const scope of structure._scopes) scope.mappers.sort((a, b) => a - b);
+  return structure;
+}
+
+// ============================================================================
+// URN order, and what a constant is held to.
+// ============================================================================
+
+function compareStrings(a, b) {
+  return compareCodePoints(a, b);
+}
+
+function compareTagPairs(left, right) {
+  const leftKeys = Object.keys(left).sort(compareStrings);
+  const rightKeys = Object.keys(right).sort(compareStrings);
+  const shared = Math.min(leftKeys.length, rightKeys.length);
+  for (let i = 0; i < shared; i += 1) {
+    const byKey = compareStrings(leftKeys[i], rightKeys[i]);
+    if (byKey !== 0) return byKey;
+    const byValue = compareStrings(String(left[leftKeys[i]]), String(right[rightKeys[i]]));
+    if (byValue !== 0) return byValue;
+  }
+  return leftKeys.length - rightKeys.length;
+}
+
+/**
+ * The order media URNs are sorted by: the tags as (key, stored value) pairs in
+ * key order (every media URN has the one prefix). This is the reference's
+ * structural order — NOT the order of the canonical text, which differs
+ * wherever one key is the beginning of another (`file` and `file-path`).
+ * Everything canonical that sorts by URN sorts by this.
+ * @param {MediaUrn} a
+ * @param {MediaUrn} b
+ * @returns {number}
+ */
+function compareMediaUrns(a, b) {
+  return compareTagPairs(a._urn.tags, b._urn.tags);
+}
+
+const EFFECT_ORDER = Object.freeze({ declared: 0, none: 1, patch: 2, '?': 3 });
+
+/**
+ * The order cap URNs are sorted by: `in=` and `out=` as media URNs, then the
+ * effect (declared, none, patch, unspecified), then the remaining tags as
+ * (key, stored value) pairs in key order.
+ * @param {CapUrn} a
+ * @param {CapUrn} b
+ * @returns {number}
+ */
+function compareCapUrns(a, b) {
+  const byIn = compareMediaUrns(a.inMediaUrn(), b.inMediaUrn());
+  if (byIn !== 0) return byIn;
+  const byOut = compareMediaUrns(a.outMediaUrn(), b.outMediaUrn());
+  if (byOut !== 0) return byOut;
+  const byEffect = EFFECT_ORDER[a.getEffect()] - EFFECT_ORDER[b.getEffect()];
+  if (byEffect !== 0) return byEffect;
+  return compareTagPairs(a.tags, b.tags);
+}
+
+function numberText(value) {
+  return Number.isInteger(value) ? String(value) : String(value);
+}
+
+/**
+ * The first rule of a media definition's `validation` that `value` breaks,
+ * described, or null when it breaks none. Throws when a rule itself cannot be
+ * applied (a pattern that is not a regular expression): a defect in the media
+ * definition, not in the value.
+ *
+ * A rule applies to the values it is about and passes the rest: `min` and
+ * `max` to numbers, the length rules to strings and arrays, `pattern` and
+ * `allowed_values` to strings. A string's length is its UTF-8 bytes, as every
+ * implementation measures it.
+ * @param {Object} validation - { min, max, min_length, max_length, pattern, allowed_values }
+ * @param {*} value - A constant
+ * @returns {string|null}
+ */
+function validationViolation(validation, value) {
+  const has = key => validation[key] !== undefined && validation[key] !== null;
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    const number = Number(value);
+    if (has('min') && number < validation.min) return `minimum value ${numberText(validation.min)}`;
+    if (has('max') && number > validation.max) return `maximum value ${numberText(validation.max)}`;
+  }
+  let length = null;
+  let kind = '';
+  if (typeof value === 'string') length = new TextEncoder().encode(value).length;
+  else if (Array.isArray(value)) { length = value.length; kind = 'array '; }
+  if (length !== null) {
+    if (has('min_length') && length < validation.min_length) return `minimum ${kind}length ${validation.min_length}`;
+    if (has('max_length') && length > validation.max_length) return `maximum ${kind}length ${validation.max_length}`;
+  }
+  if (has('pattern') && typeof value === 'string') {
+    let compiled;
+    try {
+      compiled = new RegExp(validation.pattern, 'u');
+    } catch (error) {
+      throw new Error(`Invalid regex pattern '${validation.pattern}': ${error.message}`);
+    }
+    if (!compiled.test(value)) return `pattern '${validation.pattern}'`;
+  }
+  if (has('allowed_values') && typeof value === 'string') {
+    if (!validation.allowed_values.includes(value)) {
+      return `allowed values: [${validation.allowed_values.map(each => JSON.stringify(each)).join(', ')}]`;
+    }
+  }
+  return null;
+}
+
+/** Keywords a schema may carry that say nothing about a value. */
+const SCHEMA_ANNOTATIONS = new Set(['$schema', '$id', '$comment', 'title', 'description', 'default', 'examples', 'definitions', '$defs']);
+
+function jsonTypeOf(value) {
+  if (value === null) return 'null';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'string') return 'string';
+  if (typeof value === 'bigint') return 'integer';
+  if (typeof value === 'number') return Number.isInteger(value) ? 'integer' : 'number';
+  if (Array.isArray(value)) return 'array';
+  return 'object';
+}
+
+function resolveSchemaRef(root, ref) {
+  if (typeof ref !== 'string' || !ref.startsWith('#')) {
+    throw new Error(`schema reference '${ref}' is not a reference into the schema itself`);
+  }
+  let at = root;
+  for (const raw of ref.slice(1).split('/').filter(part => part !== '')) {
+    const part = decodeURIComponent(raw).replace(/~1/g, '/').replace(/~0/g, '~');
+    if (at === null || typeof at !== 'object' || !Object.prototype.hasOwnProperty.call(at, part)) {
+      throw new Error(`schema reference '${ref}' names nothing in the schema`);
+    }
+    at = at[part];
+  }
+  return at;
+}
+
+/**
+ * Hold a value to an inline JSON Schema, returning what it breaks, described
+ * (empty when it breaks nothing). This is the reading of a media definition's
+ * schema a constant written in a machine is held to when the machine is
+ * resolved. It reads the keywords media definitions use — type, enum, const,
+ * the numeric and length bounds, pattern, properties, required,
+ * additionalProperties, items, anyOf, allOf, oneOf, not and local $ref — and
+ * refuses a schema that uses any other: a rule nobody read is not a rule
+ * passed.
+ * @param {Object|boolean} schema
+ * @param {*} value - A constant
+ * @returns {string[]}
+ */
+function schemaViolations(schema, value) {
+  const violations = [];
+  const check = (node, at, path) => {
+    if (node === true) return;
+    if (node === false) { violations.push(`${path || '(root)'}: no value is valid here`); return; }
+    if (node === null || typeof node !== 'object' || Array.isArray(node)) {
+      throw new Error(`a schema is an object or a boolean, not ${JSON.stringify(node)}`);
+    }
+    const where = path || '(root)';
+    if (node.$ref !== undefined) {
+      check(resolveSchemaRef(schema, node.$ref), at, path);
+    }
+    for (const keyword of Object.keys(node)) {
+      if (SCHEMA_ANNOTATIONS.has(keyword) || keyword === '$ref') continue;
+      const rule = node[keyword];
+      switch (keyword) {
+        case 'type': {
+          const allowed = Array.isArray(rule) ? rule : [rule];
+          const actual = jsonTypeOf(at);
+          if (!allowed.some(type => type === actual || (type === 'number' && actual === 'integer'))) {
+            violations.push(`${where}: ${constantText(at)} is not of type ${allowed.map(t => `"${t}"`).join(', ')}`);
+          }
+          break;
+        }
+        case 'enum':
+          if (!rule.some(each => constantsEqual(decodeConstant(JSON.stringify(each)), at))) {
+            violations.push(`${where}: ${constantText(at)} is not one of ${JSON.stringify(rule)}`);
+          }
+          break;
+        case 'const':
+          if (!constantsEqual(decodeConstant(JSON.stringify(rule)), at)) {
+            violations.push(`${where}: ${JSON.stringify(rule)} was expected`);
+          }
+          break;
+        case 'minimum': case 'maximum': case 'exclusiveMinimum': case 'exclusiveMaximum': {
+          if (typeof at !== 'number' && typeof at !== 'bigint') break;
+          const number = Number(at);
+          const broken = (keyword === 'minimum' && number < rule) || (keyword === 'maximum' && number > rule) ||
+            (keyword === 'exclusiveMinimum' && number <= rule) || (keyword === 'exclusiveMaximum' && number >= rule);
+          if (broken) violations.push(`${where}: ${constantText(at)} breaks ${keyword} ${rule}`);
+          break;
+        }
+        case 'minLength': case 'maxLength': {
+          if (typeof at !== 'string') break;
+          const length = Array.from(at).length;
+          if ((keyword === 'minLength' && length < rule) || (keyword === 'maxLength' && length > rule)) {
+            violations.push(`${where}: ${constantText(at)} breaks ${keyword} ${rule}`);
+          }
+          break;
+        }
+        case 'pattern':
+          if (typeof at === 'string' && !new RegExp(rule, 'u').test(at)) {
+            violations.push(`${where}: ${constantText(at)} does not match '${rule}'`);
+          }
+          break;
+        case 'minItems': case 'maxItems':
+          if (Array.isArray(at) && ((keyword === 'minItems' && at.length < rule) || (keyword === 'maxItems' && at.length > rule))) {
+            violations.push(`${where}: an array of ${at.length} breaks ${keyword} ${rule}`);
+          }
+          break;
+        case 'items':
+          if (!Array.isArray(at)) break;
+          at.forEach((item, index) => {
+            const itemSchema = Array.isArray(rule) ? rule[index] : rule;
+            if (itemSchema !== undefined) check(itemSchema, item, `${path}/${index}`);
+          });
+          break;
+        case 'properties':
+          if (!isConstantObject(at)) break;
+          for (const name of Object.keys(rule)) {
+            if (Object.prototype.hasOwnProperty.call(at, name)) check(rule[name], at[name], `${path}/${name}`);
+          }
+          break;
+        case 'required':
+          if (!isConstantObject(at)) break;
+          for (const name of rule) {
+            if (!Object.prototype.hasOwnProperty.call(at, name)) violations.push(`${where}: "${name}" is a required property`);
+          }
+          break;
+        case 'additionalProperties':
+          if (!isConstantObject(at)) break;
+          for (const name of Object.keys(at)) {
+            if (node.properties && Object.prototype.hasOwnProperty.call(node.properties, name)) continue;
+            if (rule === false) violations.push(`${where}: additional property "${name}" is not allowed`);
+            else check(rule, at[name], `${path}/${name}`);
+          }
+          break;
+        case 'anyOf': case 'oneOf': case 'allOf': {
+          const passing = rule.filter(each => schemaViolationsUnder(schema, each, at).length === 0).length;
+          const holds = keyword === 'anyOf' ? passing > 0 : keyword === 'oneOf' ? passing === 1 : passing === rule.length;
+          if (!holds) violations.push(`${where}: ${constantText(at)} is not valid under ${keyword}`);
+          break;
+        }
+        case 'not':
+          if (schemaViolationsUnder(schema, rule, at).length === 0) {
+            violations.push(`${where}: ${constantText(at)} must not be valid under the schema it is not to match`);
+          }
+          break;
+        default:
+          throw new Error(`the schema keyword '${keyword}' is not one this capdag reads`);
+      }
+    }
   };
+  const schemaViolationsUnder = (root, node, at) => {
+    const saved = violations.length;
+    check(node, at, '');
+    return violations.splice(saved);
+  };
+  check(schema, value, '');
+  return violations;
+}
+
+// ============================================================================
+// Resolution: a wiring set over numbered nodes into a MachineStrand whose
+// every edge has an explicit source-to-cap-arg assignment and names the
+// outputs it takes, anchored by the strand's input roots and output leaves.
+//
+// Members that name an arg bind first, each to the arg of that name; the
+// source must conform to what that arg ACCEPTS. A name written more than once
+// gathers, and only a sequence arg may be gathered into. A constant is held to
+// the validation of the arg's media definition.
+//
+// The members that name no arg are matched by type over the args no name
+// bound, by minimum-cost assignment in two phases of strict precedence:
+// - Cost of pairing source s with arg a: spec(s) - spec(a) if s conforms to
+//   what a accepts — how much more the source says than the arg asks;
+//   otherwise the pair is impossible.
+// - Phase 1 — product: each source claims a distinct arg. Whenever such an
+//   assignment exists, this phase decides.
+// - Phase 2 — gather: only when no such assignment exists, a sequence arg may
+//   absorb several conforming sources (scalar args still take at most one).
+// - The minimum-cost assignment of the deciding phase must be unique: a tie
+//   is AmbiguousMachineNotation. Where a member stands in its group is never
+//   a tiebreaker (it only fixes the item order within one gathered arg).
+// ============================================================================
+
+/**
+ * Where a resolver reads the definitions a machine names: the caps its steps
+ * run and the media definitions its constants are held to.
+ *
+ * Any object with these two methods serves; `CapDefinitions` is one held in
+ * memory.
+ * @typedef {Object} MachineDefinitions
+ * @property {function(string): (Cap|null)} capDefinition - The definition of
+ *   the cap a URN names, or null
+ * @property {function(string): (MediaDef|null)} mediaDefinition - The
+ *   definition of the media a URN names, or null
+ */
+
+/**
+ * Definitions held in memory, found by URN equivalence: two spellings of one
+ * URN find one definition.
+ */
+class CapDefinitions {
+  constructor() {
+    this._caps = [];
+    this._media = [];
+    this._aliases = new Map();
+  }
+
+  /** Add cap definitions. A later one for an equivalent URN replaces the earlier. */
+  addCaps(caps) {
+    for (const cap of caps) {
+      if (!(cap instanceof Cap)) throw new Error('a cap definition is a Cap');
+      this._caps = this._caps.filter(known => !known.urn.isEquivalent(cap.urn));
+      this._caps.push(cap);
+    }
+    return this;
+  }
+
+  /** Add media definitions (each with its `mediaUrn`). */
+  addMediaDefs(defs) {
+    for (const def of defs) {
+      if (!(def instanceof MediaDef) || typeof def.mediaUrn !== 'string') {
+        throw new Error('a media definition is a MediaDef that names its media URN');
+      }
+      const urn = MediaUrn.fromString(def.mediaUrn);
+      this._media = this._media.filter(known => !MediaUrn.fromString(known.mediaUrn).isEquivalent(urn));
+      this._media.push(def);
+    }
+    return this;
+  }
+
+  /**
+   * Register a fabric alias: a name for a cap URN or a media URN. The name is
+   * held normalized and the target canonical, as the fabric holds them.
+   */
+  addAlias(name, target) {
+    const kind = classifyAliasTarget(target);
+    if (kind === null) throw new Error(`alias '${name}' names '${target}', which is neither a cap URN nor a media URN`);
+    const canonical = kind === ALIAS_TARGET_CAP ? CapUrn.fromString(target).toString() : MediaUrn.fromString(target).toString();
+    this._aliases.set(normalizeAliasName(name), canonical);
+    return this;
+  }
+
+  capDefinition(capUrn) {
+    const wanted = CapUrn.fromString(capUrn);
+    return this._caps.find(cap => cap.urn.isEquivalent(wanted)) || null;
+  }
+
+  mediaDefinition(mediaUrn) {
+    const wanted = MediaUrn.fromString(mediaUrn);
+    return this._media.find(def => MediaUrn.fromString(def.mediaUrn).isEquivalent(wanted)) || null;
+  }
+
+  /**
+   * The URN a fabric alias names, or null. A name that is not a well-formed
+   * alias name is no alias.
+   */
+  aliasTarget(name) {
+    if (!isAliasToken(name)) return null;
+    const normalized = normalizeAliasName(name);
+    return this._aliases.has(normalized) ? this._aliases.get(normalized) : null;
+  }
+
+  /**
+   * The name a cap or media URN is displayed by: of the aliases that name
+   * it, the shortest, ties alphabetical. Null when none does. The same
+   * question FabricRegistryClient answers, so either can name the caps of a
+   * machine written out.
+   */
+  displayAliasForUrn(urn) {
+    const kind = classifyAliasTarget(urn);
+    if (kind === null) return null;
+    const canonical = kind === ALIAS_TARGET_CAP ? CapUrn.fromString(urn).toString() : MediaUrn.fromString(urn).toString();
+    const names = [...this._aliases.entries()].filter(([, target]) => target === canonical).map(([name]) => name);
+    return selectDisplayAlias(names);
+  }
+}
+
+function mustMedia(text, what) {
+  try {
+    return MediaUrn.fromString(text);
+  } catch (error) {
+    throw new Error(`cap registry invariant: ${what} is a valid media URN: '${text}': ${error.message}`);
+  }
+}
+
+/**
+ * Hold a constant to the validation of the arg it is bound to: the rules and
+ * the schema the arg's media definition declares. A constant is known when
+ * the machine is resolved, so that is when it is checked.
+ */
+function checkConstant(definitions, capUrn, arg, value, strandIndex) {
+  const refused = reason => abstractionError.constantFailsValidation(
+    strandIndex, capUrn, arg.name, constantText(value), reason);
+  // Without the definition there is nothing to hold the constant to, and a
+  // constant nobody checked is not bound.
+  const definition = definitions.mediaDefinition(arg.media_urn);
+  if (definition === null) {
+    throw refused(`the media definition of '${arg.media_urn}' is not available, so the constant cannot be validated`);
+  }
+  if (definition.validation !== null && definition.validation !== undefined) {
+    let rule;
+    try {
+      rule = validationViolation(definition.validation, value);
+    } catch (error) {
+      throw refused(error.message);
+    }
+    if (rule !== null) throw refused(`it breaks the rule: ${rule}`);
+  }
+  if (definition.schema !== null && definition.schema !== undefined) {
+    let details;
+    try {
+      details = schemaViolations(definition.schema, value);
+    } catch (error) {
+      throw refused(`its schema cannot be applied: ${error.message}`);
+    }
+    if (details.length > 0) throw refused(`it does not match the schema: ${details.join('; ')}`);
+  }
+}
+
+/**
+ * Why the unnamed members of a wiring could not be placed. It speaks in
+ * positions — of the sources and args the matching was given — because what a
+ * source or an arg is CALLED is its caller's to say.
+ */
+class MatchFailure extends Error {
+  constructor(source = 0, undecided = null) {
+    super(undecided !== null ? 'the types leave more than one answer' : `source ${source} fits no arg left for it`);
+    this.name = 'MatchFailure';
+    /** The types leave more than one answer, and `undecided` says about which sources. */
+    this.ambiguous = undecided !== null;
+    /** Otherwise, the source that fits no arg left for it. */
+    this.source = source;
+    /** Each source the minimum-cost assignments place differently, and the args they place it on. */
+    this.undecided = undecided || [];
+  }
+}
+
+/**
+ * Every source→arg assignment of minimum total cost. `canGather[a]` gives arg
+ * `a` unbounded capacity (a sequence arg in the gather phase); otherwise the
+ * arg is claimed by at most one source. Empty when there is no assignment.
+ */
+function minimumAssignments(cost, mustBind, canGather) {
+  const argCount = cost.length > 0 ? cost[0].length : 0;
+  let bestCost = null;
+  let best = [];
+  const current = new Array(cost.length).fill(0);
+  const used = new Array(argCount).fill(false);
+  const place = source => {
+    if (source === cost.length) {
+      // A placement that leaves out the arg that must be bound is not an
+      // assignment.
+      if (mustBind !== null && !current.includes(mustBind)) return;
+      const total = current.reduce((sum, arg, at) => sum + cost[at][arg], 0);
+      if (bestCost === null || total < bestCost) {
+        bestCost = total;
+        best = [[...current]];
+      } else if (total === bestCost) {
+        best.push([...current]);
+      }
+      return;
+    }
+    for (let arg = 0; arg < argCount; arg += 1) {
+      if ((used[arg] && !canGather[arg]) || cost[source][arg] === null) continue;
+      const wasUsed = used[arg];
+      used[arg] = true;
+      current[source] = arg;
+      place(source + 1);
+      used[arg] = wasUsed;
+    }
+  };
+  place(0);
+  return best;
+}
+
+/**
+ * The one minimum-cost assignment, as pairs — or, when several tie, a failure
+ * naming the sources they disagree about.
+ */
+function oneAssignment(best, sources, args) {
+  if (best.length === 1) {
+    const pairs = best[0].map((arg, source) => [args[arg], sources[source]]);
+    // Stable, and the pairs are in source order.
+    pairs.sort((a, b) => compareMediaUrns(a[0], b[0]));
+    return pairs;
+  }
+  const undecided = [];
+  for (let source = 0; source < sources.length; source += 1) {
+    const placed = [...new Set(best.map(assignment => assignment[source]))].sort((a, b) => a - b);
+    if (placed.length >= 2) undecided.push([source, placed]);
+  }
+  throw new MatchFailure(0, undecided);
+}
+
+/**
+ * Match a wiring's sources to a cap's args by minimum total
+ * specificity-distance, with a uniqueness requirement.
+ *
+ * 1. Product — each source claims a distinct arg. It wins whenever such an
+ *    assignment exists, including the hard failure on tied minimum-cost
+ *    assignments.
+ * 2. Gather — only when no such assignment exists: a sequence arg may absorb
+ *    several conforming sources; a scalar arg still takes at most one.
+ *
+ * `mustBind` is the index of the arg an assignment MUST bind — the cap's main
+ * input, when these sources are what can feed it — or null.
+ *
+ * @param {MediaUrn[]} sources
+ * @param {MediaUrn[]} args - What each arg accepts
+ * @param {boolean[]} argIsSequence
+ * @param {number|null} mustBind
+ * @returns {Array<[MediaUrn, MediaUrn]>} Pairs `[arg, source]` sorted by arg
+ *   URN (stably: sources gathered into one arg keep their declaration order).
+ * @throws {MatchFailure}
+ */
+function matchSourcesToArgs(sources, args, argIsSequence, mustBind) {
+  const hasSequenceArg = argIsSequence.some(Boolean);
+  const fitsSomething = source => args.some(arg => source.conformsTo(arg));
+  const cost = sources.map((source, position) => {
+    if (!fitsSomething(source)) throw new MatchFailure(position);
+    return args.map(arg => {
+      if (!source.conformsTo(arg)) return null;
+      // How much more the source says than the arg asks: never negative.
+      const distance = source.specificity() - arg.specificity();
+      if (distance < 0) {
+        throw new Error(`a source that conforms to an arg is never less specific than it: ${source} conforms to ${arg}`);
+      }
+      return distance;
+    });
+  });
+  // An assignment binds the arg that MUST be bound: a way of placing the
+  // sources that leaves the main input out is not an assignment at all. It is
+  // a constraint, not a tiebreak.
+  let bound = mustBind;
+  if (bound !== null && !cost.some(row => row[bound] !== null)) bound = null;
+  // Phase 1: product.
+  if (sources.length <= args.length) {
+    const best = minimumAssignments(cost, bound, new Array(args.length).fill(false));
+    // A tie among minimum-cost assignments is a hard ambiguity; it never falls
+    // through to gather, which would mask it.
+    if (best.length > 0) return oneAssignment(best, sources, args);
+  }
+  // Phase 2: gather.
+  if (!hasSequenceArg) throw new MatchFailure(0);
+  const best = minimumAssignments(cost, bound, argIsSequence);
+  if (best.length === 0) throw new MatchFailure(0);
+  return oneAssignment(best, sources, args);
+}
+
+/**
+ * The canonical structural order of edges that are ready together: the cap
+ * URN; the assignment element-wise (the arg's slot URN, then the source — a
+ * node by its URN, a constant by its text, after every node), a shorter one
+ * that is a prefix of a longer one first; the outputs likewise (the output's
+ * URN, then its node's URN); the isLoop flag.
+ */
+function compareEdges(a, b, nodes) {
+  const byCap = compareCapUrns(a.capUrn, b.capUrn);
+  if (byCap !== 0) return byCap;
+  const compareSource = (left, right) => {
+    if (left.isConstant !== right.isConstant) return left.isConstant ? 1 : -1;
+    if (left.isConstant) return compareStrings(constantText(left.constant), constantText(right.constant));
+    return compareMediaUrns(nodes[left.node], nodes[right.node]);
+  };
+  const shared = Math.min(a.assignment.length, b.assignment.length);
+  for (let i = 0; i < shared; i += 1) {
+    const bySlot = compareMediaUrns(a.assignment[i].capArgMediaUrn, b.assignment[i].capArgMediaUrn);
+    if (bySlot !== 0) return bySlot;
+    const bySource = compareSource(a.assignment[i].source, b.assignment[i].source);
+    if (bySource !== 0) return bySource;
+  }
+  if (a.assignment.length !== b.assignment.length) return a.assignment.length - b.assignment.length;
+  const sharedOutputs = Math.min(a.outputs.length, b.outputs.length);
+  for (let i = 0; i < sharedOutputs; i += 1) {
+    const byUrn = compareMediaUrns(a.outputs[i].outputMediaUrn, b.outputs[i].outputMediaUrn);
+    if (byUrn !== 0) return byUrn;
+    const byNode = compareMediaUrns(nodes[a.outputs[i].node], nodes[b.outputs[i].node]);
+    if (byNode !== 0) return byNode;
+  }
+  if (a.outputs.length !== b.outputs.length) return a.outputs.length - b.outputs.length;
+  return (a.isLoop ? 1 : 0) - (b.isLoop ? 1 : 0);
+}
+
+/**
+ * Kahn's algorithm over the data-flow dependencies of the edges, ready edges
+ * taken in canonical order. Edge B depends on edge A iff B is given a node A
+ * produces. The edges given are acyclic: steps that wait on one another are
+ * refused when the steps are placed.
+ */
+function topoSort(edges, nodes) {
+  const producersOf = new Map();
+  edges.forEach((edge, index) => {
+    for (const node of edge.outputNodes()) {
+      if (!producersOf.has(node)) producersOf.set(node, []);
+      producersOf.get(node).push(index);
+    }
+  });
+  const indegree = new Array(edges.length).fill(0);
+  const successors = edges.map(() => []);
+  edges.forEach((edge, bIndex) => {
+    for (const source of edge.sourceNodes()) {
+      for (const aIndex of producersOf.get(source) || []) {
+        successors[aIndex].push(bIndex);
+        indegree[bIndex] += 1;
+      }
+    }
+  });
+  const order = (i, j) => compareEdges(edges[i], edges[j], nodes) || i - j;
+  const ready = edges.map((_, i) => i).filter(i => indegree[i] === 0).sort(order);
+  const result = [];
+  while (ready.length > 0) {
+    const index = ready.shift();
+    result.push(index);
+    for (const successor of successors[index]) {
+      indegree[successor] -= 1;
+      if (indegree[successor] === 0) {
+        ready.push(successor);
+        ready.sort(order);
+      }
+    }
+  }
+  if (result.length < edges.length) {
+    throw new Error(`${edges.length - result.length} of ${edges.length} placed steps wait on one another`);
+  }
+  return result;
+}
+
+/**
+ * One wiring with its source and target slots already numbered against a
+ * parallel nodes list. The resolver does no URN-based interning of its own:
+ * two distinct nodes whose URNs are equivalent stay distinct, which is what
+ * lets notation honor the identity of node names.
+ *
+ * @typedef {Object} PreInternedWiring
+ * @property {string} tokenId - The step's stable identity
+ * @property {CapUrn} capUrn
+ * @property {Array<[string, BindingSource]>} namedSources - Members that say
+ *   which arg they are for, by the arg's NAME; they bind first, as written
+ * @property {number[]} sourceNodeIds - Members that name no arg: matched by type
+ * @property {Array<{node: number, name: (string|null)}>} targets - The outputs
+ *   taken, by their names (null: the main output). Empty: a sink.
+ * @property {StepPolicy} policy
+ * @property {string[]} includedAs
+ */
+
+/**
+ * Resolve a wiring set into a MachineStrand.
+ * @param {MediaUrn[]} nodes
+ * @param {PreInternedWiring[]} wirings
+ * @param {MachineDefinitions} definitions
+ * @param {number} strandIndex
+ * @returns {MachineStrand}
+ */
+function resolvePreInterned(nodes, wirings, definitions, strandIndex) {
+  return resolveWirings(nodes, null, wirings, definitions, strandIndex);
+}
+
+/**
+ * `resolvePreInterned` for wirings read from notation: `nodeNames` is the name
+ * the text gave each node, so that a refusal about a member can say which.
+ */
+function resolveNamedWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
+  if (nodes.length !== nodeNames.length) {
+    throw new Error('every node of a strand read from notation has a name');
+  }
+  return resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex);
+}
+
+function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
+  if (wirings.length === 0) throw abstractionError.noCapabilitySteps();
+
+  // Step 0: the outputs each wiring takes, by the names its targets wrote, and
+  // with them the cardinality of every node: a node holds a sequence, in the
+  // scope it lives in, iff the output that produces it is declared one.
+  const nodeIsSequence = new Array(nodes.length).fill(false);
+  const defs = [];
+  const wiringOutputs = [];
+  for (const wiring of wirings) {
+    const capUrn = wiring.capUrn.toString();
+    const definition = definitions.capDefinition(capUrn);
+    if (definition === null) throw abstractionError.unknownCap(capUrn);
+    defs.push(definition);
+    const outputs = [];
+    for (const target of wiring.targets) {
+      let output;
+      if (target.name === null) {
+        // The unnamed target takes the main output.
+        output = definition.mainOutput();
+        if (output === null) throw abstractionError.noMainOutput(strandIndex, capUrn);
+      } else {
+        output = definition.outputNamed(target.name);
+        if (output === null) {
+          throw abstractionError.unknownOutputName(strandIndex, capUrn, target.name,
+            definition.getOutputs().map(each => each.name));
+        }
+      }
+      const outputMediaUrn = mustMedia(output.media_urn, 'every output media_urn');
+      if (outputs.some(taken => taken.outputMediaUrn.isEquivalent(outputMediaUrn))) {
+        throw abstractionError.outputTakenTwice(strandIndex, capUrn, output.name);
+      }
+      nodeIsSequence[target.node] = output.is_sequence === true;
+      outputs.push(new EdgeOutput(outputMediaUrn, output.name, target.node));
+    }
+    // Canonical order, like the assignment's.
+    outputs.sort((a, b) => compareMediaUrns(a.outputMediaUrn, b.outputMediaUrn));
+    wiringOutputs.push(outputs);
+  }
+
+  // Step 1: per-wiring binding of sources to cap args. Named members bind
+  // first; the rest are matched by type over the args no name bound.
+  const voidUrn = mustMedia(MEDIA_VOID, 'media:void');
+  const shapes = [];
+  const assignments = [];
+  wirings.forEach((wiring, index) => {
+    const definition = defs[index];
+    const capUrn = wiring.capUrn.toString();
+    const args = definition.args;
+    const capInSpec = mustMedia(definition.urn.getInSpec(), "a cap's in=");
+    let primaryArgIndex = null;
+    if (!capInSpec.isEquivalent(voidUrn)) {
+      const found = args.findIndex(arg => arg.isMainInput(capInSpec));
+      if (found < 0) throw abstractionError.capDoesNotDeclareInput(strandIndex, capUrn);
+      primaryArgIndex = found;
+    }
+    // Every arg, by what it ACCEPTS (the type a source must conform to) and by
+    // its SLOT (its media_urn, the identity a binding records and the URN its
+    // stream is delivered under). How an arg is supplied on a command line
+    // plays no part: every arg can be bound by a wiring.
+    const argAccepts = args.map(arg => mustMedia(arg.acceptedUrn(), 'what every arg accepts'));
+    const argSlots = args.map(arg => mustMedia(arg.media_urn, 'every cap arg media_urn'));
+
+    // Named members bind first.
+    const bindings = [];
+    const namedCount = new Array(args.length).fill(0);
+    for (const [name, source] of wiring.namedSources) {
+      const argIndex = args.findIndex(arg => arg.name === name);
+      if (argIndex < 0) {
+        throw abstractionError.unknownArgName(strandIndex, capUrn, name, args.map(arg => arg.name));
+      }
+      if (source.isConstant) {
+        checkConstant(definitions, capUrn, args[argIndex], source.constant, strandIndex);
+      } else {
+        const sourceUrn = nodes[source.node];
+        if (!sourceUrn.conformsTo(argAccepts[argIndex])) {
+          throw abstractionError.sourceDoesNotConformToArg(strandIndex, capUrn, name,
+            argAccepts[argIndex].toString(), sourceUrn.toString());
+        }
+      }
+      namedCount[argIndex] += 1;
+      bindings.push(new EdgeAssignmentBinding(argSlots[argIndex], args[argIndex].name, source));
+    }
+    namedCount.forEach((count, argIndex) => {
+      if (count > 1 && !args[argIndex].is_sequence) {
+        throw abstractionError.argBoundTwice(strandIndex, capUrn, args[argIndex].name, count);
+      }
+    });
+
+    // The unnamed members are matched by type over the args no name bound.
+    const free = args.map((_, i) => i).filter(i => namedCount[i] === 0);
+    const freeAccepts = free.map(i => argAccepts[i]);
+    const freeIsSequence = free.map(i => args[i].is_sequence === true);
+    // The main input, when no named member bound it.
+    const mustBind = primaryArgIndex !== null && free.includes(primaryArgIndex) ? free.indexOf(primaryArgIndex) : null;
+    const sourceUrns = wiring.sourceNodeIds.map(nodeId => nodes[nodeId]);
+    if (sourceUrns.length > 0) {
+      let matched;
+      try {
+        matched = matchSourcesToArgs(sourceUrns, freeAccepts, freeIsSequence, mustBind);
+      } catch (failure) {
+        if (!(failure instanceof MatchFailure)) throw failure;
+        if (!failure.ambiguous) {
+          throw abstractionError.unmatchedSourceInCapArgs(strandIndex, capUrn, sourceUrns[failure.source].toString());
+        }
+        // Which members the types leave open, by the names the text gave
+        // them, and the args each could go to.
+        const members = failure.undecided.map(([source, on]) => new UndecidedMember(
+          nodeNames !== null ? nodeNames[wiring.sourceNodeIds[source]] : '',
+          sourceUrns[source].toString(),
+          on.map(arg => args[free[arg]].name),
+        ));
+        throw abstractionError.ambiguousMachineNotation(strandIndex, capUrn, members);
+      }
+      // The matching answers in URNs. Each accepted URN is translated back to
+      // its slot identity, and each source URN to its position among the
+      // wiring's unnamed sources, walking the positions not yet taken so that
+      // two sources that share a URN stay two.
+      const consumed = new Array(wiring.sourceNodeIds.length).fill(false);
+      for (const [argUrn, sourceUrn] of matched) {
+        const argAt = freeAccepts.findIndex(accepts => accepts.isEquivalent(argUrn));
+        const sourceAt = wiring.sourceNodeIds.findIndex((nodeId, position) =>
+          !consumed[position] && nodes[nodeId].isEquivalent(sourceUrn));
+        if (argAt < 0 || sourceAt < 0) throw new Error('the matching answered in a URN it was not given');
+        consumed[sourceAt] = true;
+        bindings.push(new EdgeAssignmentBinding(argSlots[free[argAt]], args[free[argAt]].name,
+          BindingSource.ofNode(wiring.sourceNodeIds[sourceAt])));
+      }
+    }
+    // Sorted by slot identity, stably: several bindings gathered onto one arg
+    // keep their declaration order — the gathered sequence's item order.
+    bindings.sort((a, b) => compareMediaUrns(a.capArgMediaUrn, b.capArgMediaUrn));
+    // A cap that takes an input is given it.
+    if (primaryArgIndex !== null) {
+      const mainSlot = argSlots[primaryArgIndex];
+      if (!bindings.some(binding => binding.capArgMediaUrn.isEquivalent(mainSlot))) {
+        throw abstractionError.mainInputUnbound(strandIndex, capUrn, args[primaryArgIndex].name);
+      }
+    }
+    // What the step is given, as far as iteration is concerned. A constant
+    // is one value wherever the step runs.
+    const members = [];
+    for (const binding of bindings) {
+      if (binding.source.isConstant) continue;
+      const argIndex = argSlots.findIndex(slot => slot.isEquivalent(binding.capArgMediaUrn));
+      members.push({ node: binding.source.node, argIsSequence: args[argIndex].is_sequence === true });
+    }
+    const outputs = wiringOutputs[index].map(output => ({ node: output.node, isSequence: nodeIsSequence[output.node] }));
+    shapes.push({ members, outputs });
+    assignments.push(bindings);
+  });
+
+  // Step 2: which steps map. Iteration is DERIVED from cardinality, never
+  // authored. Notation has no run, so an input of the machine is one value.
+  let iteration;
+  try {
+    iteration = iterationOf(shapes, () => false);
+  } catch (error) {
+    if (error instanceof CyclicSteps) throw abstractionError.cyclicMachineStrand(strandIndex);
+    throw error;
+  }
+  const indexedEdges = wirings.map((wiring, index) => new MachineEdge(
+    wiring.capUrn, assignments[index], wiringOutputs[index], wiring.tokenId, {
+      policy: wiring.policy,
+      includedAs: wiring.includedAs,
+      isLoop: iteration.steps()[index].maps,
+    }));
+
+  // Step 3: canonical edge order.
+  const edges = topoSort(indexedEdges, nodes).map(index => indexedEdges[index]);
+
+  // Step 4: anchors. Every node is a source or an output of some step; one
+  // nothing produces is an input of the strand, one nothing consumes an
+  // output of it.
+  const produced = new Set(edges.flatMap(edge => edge.outputNodes()));
+  const consumedNodes = new Set(edges.flatMap(edge => edge.sourceNodes()));
+  const inputAnchorIds = [];
+  const outputAnchorIds = [];
+  for (let nodeId = 0; nodeId < nodes.length; nodeId += 1) {
+    if (!produced.has(nodeId) && !consumedNodes.has(nodeId)) {
+      throw new Error(`node ${nodeId} of strand ${strandIndex} is touched by no wiring`);
+    }
+    if (!produced.has(nodeId)) inputAnchorIds.push(nodeId);
+    if (!consumedNodes.has(nodeId)) outputAnchorIds.push(nodeId);
+  }
+  // Anchors come by the URN they hold, then by node id, so the result is
+  // stable across node-allocation orders that yield equivalent strands.
+  const byUrnThenId = (a, b) => compareMediaUrns(nodes[a], nodes[b]) || a - b;
+  inputAnchorIds.sort(byUrnThenId);
+  outputAnchorIds.sort(byUrnThenId);
+  return new MachineStrand(nodes, edges, inputAnchorIds, outputAnchorIds, nodeIsSequence);
+}
+
+// ============================================================================
+// Machines in step position: where another machine's notation comes from, and
+// what a machine looks like to the machine that includes it.
+//
+// A header `alias machine "<reference>"` names another machine. The reference
+// is an opaque string: the host resolves it through one interface,
+// MachineSource. The parser reads the referenced notation, resolves it on its
+// own, and writes its steps into the including machine with node positions of
+// their own (capdag/docs/09-machine-notation.md, §Machines in step position).
+// ============================================================================
+
+/** Why a reference did not yield a machine. */
+class MachineSourceError extends Error {
+  /**
+   * @param {string} details - What the source found
+   * @param {boolean} [noSource] - The notation is being read with nothing to
+   *   resolve references against
+   */
+  constructor(details = '', noSource = false) {
+    super(noSource ? 'there is nothing to resolve machine references against' : details);
+    this.name = 'MachineSourceError';
+    this.noSource = noSource;
+    this.details = details;
+  }
+}
+
+/**
+ * Where the machines named in machine headers come from. `load(reference,
+ * including)` returns `{ id, notation }`: what the source knows the machine by
+ * (two references to one machine yield one id — it is what a circle of
+ * inclusions is recognized by, and what a reference written inside it is
+ * resolved relative to) and its notation. `including` is the id of the machine
+ * whose header wrote the reference, or null when that machine came from no
+ * place the source knows. It throws MachineSourceError when the reference
+ * yields no machine.
+ */
+class MachineSource {
+  load(_reference, _including) {
+    throw new Error('a MachineSource says how it loads a machine');
+  }
+}
+
+/** The source of a host that resolves no references. A machine header read against it is refused. */
+class NoMachineSource extends MachineSource {
+  load() {
+    throw new MachineSourceError('', true);
+  }
+}
+
+/**
+ * The id a FileMachineSource gives the machine in the file at `path`: what to
+ * name the including machine by, so that its own references are read relative
+ * to it and an inclusion of it is recognized.
+ */
+function fileMachineId(filePath) {
+  const { fs } = nodeModules('reading a machine from a file');
+  try {
+    return fs.realpathSync(filePath);
+  } catch (error) {
+    throw new MachineSourceError(`${filePath}: ${error.message}`);
+  }
+}
+
+/**
+ * Machines in files. A reference is a path: relative to the directory of the
+ * including file, or to the base when the including machine came from no
+ * file. A machine's id is its file's canonical path.
+ */
+class FileMachineSource extends MachineSource {
+  constructor(base) {
+    super();
+    this._base = base;
+  }
+
+  load(reference, including) {
+    const { fs, path } = nodeModules('reading a machine from a file');
+    const directory = including === null ? this._base : path.dirname(including);
+    const filePath = path.join(directory, reference);
+    const id = fileMachineId(filePath);
+    let notation;
+    try {
+      notation = new TextDecoder('utf-8', { fatal: true }).decode(fs.readFileSync(filePath));
+    } catch (error) {
+      throw new MachineSourceError(`${filePath}: ${error.message}`);
+    }
+    return { id, notation };
+  }
+}
+
+/**
+ * Machines in memory, each under the reference that names it. A reference
+ * names the same machine wherever it is written. For a host that loads the
+ * machines a notation refers to before it parses, and for tests.
+ */
+class MapMachineSource extends MachineSource {
+  constructor() {
+    super();
+    this._machines = new Map();
+  }
+
+  /** Hold `notation` under `reference`. */
+  insert(reference, notation) {
+    this._machines.set(reference, notation);
+    return this;
+  }
+
+  load(reference) {
+    if (!this._machines.has(reference)) {
+      throw new MachineSourceError(`no machine is held under "${reference}"`);
+    }
+    return { id: reference, notation: this._machines.get(reference) };
+  }
+}
+
+/**
+ * A machine as the machine that includes it sees it: its inputs and outputs,
+ * by the names its notation wrote, and its steps — each step with every member
+ * under the name of the arg its own resolution bound it to and every target
+ * under the name of the output it takes. Written into another machine, a step
+ * binds what it bound alone: nothing about where it is included can change it.
+ */
+class IncludedMachine {
+  constructor() {
+    /** Every input anchor, by name, with the media it holds. */
+    this.inputs = [];
+    this.outputs = [];
+    /** Every node, by name, with the media it holds in the machine as it resolved alone. */
+    this.nodeMedia = [];
+    /** `{ capUrn, policy, members: [[argName, {isConstant, node, constant}]], targets: [[outputName, node]], includedAs }` */
+    this.steps = [];
+  }
+
+  inputNames() {
+    return this.inputs.map(([name]) => name);
+  }
+
+  outputNames() {
+    return this.outputs.map(([name]) => name);
+  }
+
+  /** The media the input of that name holds, or null. */
+  input(name) {
+    const found = this.inputs.find(([each]) => each === name);
+    return found ? found[1] : null;
+  }
+
+  /** The media the output of that name holds, or null. */
+  output(name) {
+    const found = this.outputs.find(([each]) => each === name);
+    return found ? found[1] : null;
+  }
+}
+
+/**
+ * Read a resolved machine, with the names its notation wrote (`names[i]` maps
+ * a node name of strand `i` to its node id).
+ * @param {Machine} machine
+ * @param {Array<Map<string, number>>} names
+ * @returns {IncludedMachine}
+ */
+function includedMachineOf(machine, names) {
+  const included = new IncludedMachine();
+  machine.strands().forEach((strand, strandIndex) => {
+    const nameOf = new Map([...names[strandIndex].entries()].map(([name, id]) => [id, name]));
+    const name = id => {
+      if (!nameOf.has(id)) throw new Error('the parser names every node of a strand it resolved');
+      return nameOf.get(id);
+    };
+    const anchors = ids => ids.map(id => [name(id), strand.nodeUrn(id)])
+      .sort((a, b) => compareStrings(a[0], b[0]));
+    included.nodeMedia.push(...anchors(strand.nodes().map((_, id) => id)));
+    included.inputs.push(...anchors(strand.inputAnchorIds()));
+    included.outputs.push(...anchors(strand.outputAnchorIds()));
+    for (const edge of strand.edges()) {
+      included.steps.push({
+        capUrn: edge.capUrn,
+        policy: edge.policy,
+        includedAs: [...edge.includedAs],
+        members: edge.assignment.map(binding => [binding.argName, binding.source.isConstant
+          ? { isConstant: true, node: null, constant: binding.source.constant }
+          : { isConstant: false, node: name(binding.source.node), constant: undefined }]),
+        targets: edge.outputs.map(output => [output.outputName, name(output.node)]),
+      });
+    }
+  });
+  return included;
+}
+
+// ============================================================================
+// The notation parser: the grammar, then anchor realization.
+//
+// 1. Lexical / grammatical — `parseSyntax` reads the text into statements.
+//    Failures here surface as MachineSyntaxError.
+// 2. Resolution — the wirings are partitioned into connected components (one
+//    per maximal set of wirings sharing node names), each component is given
+//    to the resolver, and the resulting strands are assembled into a Machine
+//    in the order each component first appears. Failures here surface as
+//    MachineAbstractionError.
+//
+// The media URN of a node: every node has one URN, derived from the wirings
+// that touch it; where a member stands in its group never decides it (09 §The
+// URN of a node):
+// - a node some step produces has the URN of what that output carries;
+// - a node nothing produces, as a named member, has the accepted type of the
+//   arg it names;
+// - as an unnamed member that nothing else gives a URN, it has the accepted
+//   type of the step's main input — at most one such member per wiring, and
+//   only while no named member bound the main input (UntypedMachineInput
+//   otherwise);
+// - URNs given to one node must be on one specialization chain
+//   (NodeMediaConflict otherwise); the node has the most specific.
+// ============================================================================
+
+function rawSourceNodes(wiring) {
+  return wiring.sources.filter(member => !member.value.isConstant).map(member => member.value.node);
+}
+
+function rawNodes(wiring) {
+  return [...rawSourceNodes(wiring), ...wiring.targets.map(target => target.node)];
+}
+
+function rawUnnamedNodes(wiring) {
+  return wiring.sources.filter(member => member.name === null && !member.value.isConstant)
+    .map(member => member.value.node);
+}
+
+/** A tiny union-find structure for the connected-components partition. */
+class UnionFind {
+  constructor(count) {
+    this._parent = Array.from({ length: count }, (_, i) => i);
+    this._rank = new Array(count).fill(0);
+  }
+
+  find(x) {
+    while (this._parent[x] !== x) {
+      this._parent[x] = this._parent[this._parent[x]];
+      x = this._parent[x];
+    }
+    return x;
+  }
+
+  union(a, b) {
+    const ra = this.find(a);
+    const rb = this.find(b);
+    if (ra === rb) return;
+    if (this._rank[ra] < this._rank[rb]) this._parent[ra] = rb;
+    else if (this._rank[ra] > this._rank[rb]) this._parent[rb] = ra;
+    else { this._parent[rb] = ra; this._rank[ra] += 1; }
+  }
+}
+
+/**
+ * The connected components of a wiring set: two wirings are in one iff a path
+ * of shared node names joins them. A wiring that touches no node at all
+ * (`() -> tick -> ()`) is a component of its own. Components come in the
+ * order each first appears; each lists its wirings in the order written.
+ */
+function componentsOf(wirings) {
+  const union = new UnionFind(wirings.length);
+  const firstWiring = new Map();
+  wirings.forEach((wiring, index) => {
+    for (const node of rawNodes(wiring)) {
+      if (firstWiring.has(node)) union.union(firstWiring.get(node), index);
+      else firstWiring.set(node, index);
+    }
+  });
+  const groups = new Map();
+  wirings.forEach((_, index) => {
+    const root = union.find(index);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(index);
+  });
+  return [...groups.values()].sort((a, b) => a[0] - b[0]);
+}
+
+/**
+ * Give `node` the URN `media`, beside any URN it was already given: the two
+ * must be on one specialization chain, and the node holds the more specific.
+ */
+function giveMedia(nodeMedia, node, media) {
+  const existing = nodeMedia.get(node);
+  if (existing === undefined) {
+    nodeMedia.set(node, media);
+    return;
+  }
+  if (!existing.isComparable(media)) {
+    throw abstractionError.nodeMediaConflict(node, existing.toString(), media.toString());
+  }
+  if (media.specificity() > existing.specificity()) nodeMedia.set(node, media);
+}
+
+/**
+ * Give every node of one strand its media URN. The result does not depend on
+ * the order of the wirings: what produces a node and what names it are read
+ * first, for every wiring; only then is each wiring asked for the one unnamed
+ * machine input its main input can type, against what the first two passes
+ * left untyped.
+ *
+ * A node written in from an included machine comes with the type it held
+ * there (`includedMedia`). A step that is a machine (`machines`) gives each
+ * node it produces the type of the output that node takes, and each input of
+ * this machine it is given BY NAME the type of that input; it has no main
+ * input to type an unnamed one by.
+ */
+function typeNodes(wirings, aliasMap, machines, includedMedia, definitions, strandIndex) {
+  const capOf = wiring => {
+    const capUrn = aliasMap.get(wiring.capAlias).capUrn;
+    const definition = definitions.capDefinition(capUrn.toString());
+    if (definition === null) throw abstractionError.unknownCap(capUrn.toString());
+    return [capUrn, definition];
+  };
+  const media = text => mustMedia(text, "a definition's media URNs");
+  const voidUrn = media(MEDIA_VOID);
+  const mainInputOf = (wiring, capUrn) => {
+    let inMedia;
+    try {
+      inMedia = capUrn.inMediaUrn();
+    } catch (error) {
+      throw syntaxError.invalidMediaUrn(wiring.capAlias, `in= spec: ${error.message}`, wiring.stepLocation);
+    }
+    return inMedia.isEquivalent(voidUrn) ? null : inMedia;
+  };
+
+  const nodeMedia = new Map();
+  for (const wiring of wirings) {
+    for (const node of rawNodes(wiring)) {
+      if (includedMedia.has(node)) giveMedia(nodeMedia, node, includedMedia.get(node));
+    }
+  }
+
+  // What produces a node, and — for a node nothing produces — what names it.
+  const produced = new Set(wirings.flatMap(wiring => wiring.targets.map(target => target.node)));
+  for (const wiring of wirings) {
+    const machine = machines.get(wiring.capAlias);
+    if (machine !== undefined) {
+      for (const target of wiring.targets) {
+        // Every target of a machine step was named against its outputs.
+        giveMedia(nodeMedia, target.node, machine.output(target.name));
+      }
+      for (const member of wiring.sources) {
+        if (member.name === null || member.value.isConstant) continue;
+        const accepts = machine.input(member.name);
+        if (accepts === null) {
+          throw abstractionError.unknownMachineInput(wiring.position, wiring.capAlias, member.name, machine.inputNames());
+        }
+        if (!produced.has(member.value.node)) giveMedia(nodeMedia, member.value.node, accepts);
+      }
+      continue;
+    }
+    const [capUrn, definition] = capOf(wiring);
+    for (const target of wiring.targets) {
+      let held;
+      if (target.name === null) {
+        // The main output: the cap URN's `out=`.
+        try {
+          held = capUrn.outMediaUrn();
+        } catch (error) {
+          throw syntaxError.invalidMediaUrn(wiring.capAlias, `out= spec: ${error.message}`, wiring.stepLocation);
+        }
+      } else {
+        const output = definition.outputNamed(target.name);
+        if (output === null) {
+          throw abstractionError.unknownOutputName(strandIndex, capUrn.toString(), target.name,
+            definition.getOutputs().map(each => each.name));
+        }
+        held = media(output.media_urn);
+        if (output.carries !== null) {
+          // An output that carries the input holds the input's type.
+          const inMedia = mainInputOf(wiring, capUrn);
+          if (inMedia !== null) held = inMedia;
+        }
+      }
+      giveMedia(nodeMedia, target.node, held);
+    }
+    for (const member of wiring.sources) {
+      if (member.name === null || member.value.isConstant) continue;
+      const arg = definition.argNamed(member.name);
+      if (arg === null) {
+        throw abstractionError.unknownArgName(strandIndex, capUrn.toString(), member.name,
+          definition.args.map(each => each.name));
+      }
+      // A node some step produces has that output's type; whether it conforms
+      // to the arg it is named into is the resolver's to say. The name types
+      // an input of the machine, which has no other type.
+      if (!produced.has(member.value.node)) giveMedia(nodeMedia, member.value.node, media(arg.acceptedUrn()));
+    }
+  }
+
+  // What a step's MAIN input says of the unnamed member that feeds it. Where
+  // exactly one unnamed member can be it, that member's node is given the type
+  // the main input accepts:
+  // - a member nothing above gave a URN is an input of the machine whose arg
+  //   nothing says: one such member per wiring is the main input, and only
+  //   that (UntypedMachineInput otherwise);
+  // - failing that, the one unnamed member whose URN is on the main input's
+  //   specialization chain is refined to it.
+  // Read against what the passes above left, for every wiring, before any of
+  // it is applied: the order of the wirings changes nothing.
+  const fromMainInput = [];
+  for (const wiring of wirings) {
+    if (machines.has(wiring.capAlias)) continue;
+    const unnamed = rawUnnamedNodes(wiring);
+    if (unnamed.length === 0) continue;
+    const [capUrn, definition] = capOf(wiring);
+    const mainInput = mainInputOf(wiring, capUrn);
+    let mainNamed = false;
+    if (mainInput !== null) {
+      const mainArg = definition.args.find(arg => arg.isMainInput(mainInput));
+      if (mainArg !== undefined) mainNamed = wiring.sources.some(member => member.name === mainArg.name);
+    }
+    const untyped = unnamed.filter(node => !nodeMedia.has(node));
+    if (untyped.length === 0) {
+      if (mainInput !== null && !mainNamed) {
+        const onChain = unnamed.filter(node => nodeMedia.get(node).isComparable(mainInput));
+        if (onChain.length === 1) fromMainInput.push([onChain[0], mainInput]);
+      }
+    } else if (untyped.length === 1 && mainInput !== null && !mainNamed) {
+      fromMainInput.push([untyped[0], mainInput]);
+    } else {
+      throw abstractionError.untypedMachineInput(wiring.position, capUrn.toString(), untyped);
+    }
+  }
+  for (const [node, given] of fromMainInput) giveMedia(nodeMedia, node, given);
+
+  // A machine step has no main input: an unnamed member that nothing above
+  // gave a type has none to be matched by.
+  for (const wiring of wirings) {
+    if (!machines.has(wiring.capAlias)) continue;
+    const untyped = rawUnnamedNodes(wiring).filter(node => !nodeMedia.has(node));
+    if (untyped.length > 0) throw abstractionError.untypedMachineMember(wiring.position, wiring.capAlias, untyped);
+  }
+  return nodeMedia;
+}
+
+/**
+ * Write every step that is a machine out as the steps of that machine (09
+ * §Machines in step position).
+ *
+ * A machine step binds like a cap step: a named member to the input of that
+ * name, the unnamed members to the inputs left by type — read off the wirings
+ * as they were written, before anything is written out. A machine has no main
+ * input and no main output: an unnamed member with no type of its own has
+ * nothing to be matched by, and an unnamed target takes the one output the
+ * other targets leave.
+ *
+ * The steps written in are the included machine's as IT resolved them: each
+ * member under the name of the arg it was bound to, each node holding the type
+ * it held there (`includedMedia`). A node inside the included machine becomes
+ * a node of this one under a name nothing written can bear (`alias#use/name`);
+ * an input becomes what was bound to it; an output becomes the node that takes
+ * it, and an output nothing takes is not taken from the step that produces it.
+ */
+function includeMachines(wirings, aliasMap, machines, includedMedia, definitions) {
+  // What each machine step takes, by output name. Its unnamed target is given
+  // its name here, so that everything after reads names alone.
+  for (const wiring of wirings) {
+    const machine = machines.get(wiring.capAlias);
+    if (machine === undefined) continue;
+    if (!wiring.policy.isDefault()) throw abstractionError.policyOnMachine(wiring.position, wiring.capAlias);
+    const taken = new Set();
+    for (const target of wiring.targets) {
+      if (target.name === null) continue;
+      if (machine.output(target.name) === null) {
+        throw abstractionError.unknownMachineOutput(wiring.position, wiring.capAlias, target.name, machine.outputNames());
+      }
+      if (taken.has(target.name)) throw abstractionError.machineOutputTakenTwice(wiring.position, wiring.capAlias, target.name);
+      taken.add(target.name);
+    }
+    for (const target of wiring.targets) {
+      if (target.name !== null) continue;
+      const left = machine.outputNames().filter(output => !taken.has(output));
+      if (left.length !== 1) throw abstractionError.unnamedMachineTarget(wiring.position, wiring.capAlias, left);
+      target.name = left[0];
+    }
+  }
+
+  // The type of every node, as the wirings were written.
+  const mediaOf = new Array(wirings.length).fill(null);
+  componentsOf(wirings).forEach((memberIndices, strandIndex) => {
+    if (!memberIndices.some(index => machines.has(wirings[index].capAlias))) return;
+    const nodeMedia = typeNodes(memberIndices.map(index => wirings[index]), aliasMap, machines, includedMedia, definitions, strandIndex);
+    for (const index of memberIndices) {
+      if (machines.has(wirings[index].capAlias)) mediaOf[index] = nodeMedia;
+    }
+  });
+
+  const uses = new Map();
+  const written = [];
+  wirings.forEach((wiring, index) => {
+    const machine = machines.get(wiring.capAlias);
+    if (machine === undefined) {
+      written.push(wiring);
+      return;
+    }
+    const nodeMedia = mediaOf[index];
+    const alias = wiring.capAlias;
+    const position = wiring.position;
+
+    // Named members bind first, each to the input it names.
+    const bound = new Map();
+    for (const member of wiring.sources) {
+      if (member.name === null) continue;
+      const accepts = machine.input(member.name);
+      if (accepts === null) throw abstractionError.unknownMachineInput(position, alias, member.name, machine.inputNames());
+      if (bound.has(member.name)) {
+        const count = wiring.sources.filter(other => other.name === member.name).length;
+        throw abstractionError.machineInputBinding(position, alias, member.name, count);
+      }
+      if (!member.value.isConstant) {
+        const held = nodeMedia.get(member.value.node);
+        if (!held.conformsTo(accepts)) {
+          throw abstractionError.sourceDoesNotConformToMachineInput(position, alias, member.name, accepts.toString(), held.toString());
+        }
+      }
+      bound.set(member.name, member.value);
+    }
+
+    // The unnamed members, to the inputs left, by type alone.
+    const unnamed = rawUnnamedNodes(wiring);
+    if (unnamed.length > 0) {
+      const free = machine.inputs.filter(([name]) => !bound.has(name));
+      const sources = unnamed.map(node => nodeMedia.get(node));
+      const accepted = free.map(([, media]) => media);
+      let pairs;
+      try {
+        pairs = matchSourcesToArgs(sources, accepted, new Array(accepted.length).fill(false), null);
+      } catch (failure) {
+        if (!(failure instanceof MatchFailure)) throw failure;
+        if (!failure.ambiguous) throw abstractionError.unmatchedMachineMember(position, alias, sources[failure.source].toString());
+        const members = failure.undecided.map(([at, on]) => new UndecidedMember(
+          unnamed[at], sources[at].toString(), on.map(inputAt => free[inputAt][0])));
+        throw abstractionError.ambiguousMachineMembers(position, alias, members);
+      }
+      // Where the matching is unique no two members and no two inputs it
+      // paired hold one type — two that did would swap — so each pair names
+      // one member and one input.
+      const placed = new Array(unnamed.length).fill(false);
+      for (const [argUrn, sourceUrn] of pairs) {
+        const inputAt = free.findIndex(([name, media]) => !bound.has(name) && media.toString() === argUrn.toString());
+        const memberAt = unnamed.findIndex((_, i) => !placed[i] && sources[i].toString() === sourceUrn.toString());
+        if (inputAt < 0 || memberAt < 0) throw new Error('the matching pairs every member with an input it was given');
+        placed[memberAt] = true;
+        bound.set(free[inputAt][0], { isConstant: false, node: unnamed[memberAt], constant: undefined });
+      }
+    }
+    for (const [name] of machine.inputs) {
+      if (!bound.has(name)) throw abstractionError.machineInputBinding(position, alias, name, 0);
+    }
+
+    // Output name → the node that takes it. Every target was named above.
+    const takenBy = new Map(wiring.targets.map(target => [target.name, target.node]));
+
+    // The steps, written in.
+    uses.set(alias, (uses.get(alias) || 0) + 1);
+    const instance = `${alias}#${uses.get(alias)}`;
+    const inside = node => `${instance}/${node}`;
+    for (const [name, media] of machine.nodeMedia) {
+      if (machine.input(name) === null && !takenBy.has(name)) includedMedia.set(inside(name), media);
+    }
+    machine.steps.forEach((step, stepIndex) => {
+      const stepAlias = `${instance}/${stepIndex}`;
+      aliasMap.set(stepAlias, { capUrn: step.capUrn, position });
+      const inlined = {
+        sources: [],
+        capAlias: stepAlias,
+        stepLocation: wiring.stepLocation,
+        policy: step.policy,
+        targets: [],
+        position,
+        // The step came through this use, and then through whatever uses it
+        // had already come through inside the included machine.
+        includedAs: [instance, ...step.includedAs],
+      };
+      for (const [arg, value] of step.members) {
+        let given;
+        if (value.isConstant) given = { isConstant: true, node: null, constant: value.constant };
+        else if (bound.has(value.node)) given = bound.get(value.node);
+        else given = { isConstant: false, node: inside(value.node), constant: undefined };
+        inlined.sources.push({ name: arg, value: given });
+      }
+      for (const [output, node] of step.targets) {
+        if (takenBy.has(node)) inlined.targets.push({ name: output, node: takenBy.get(node) });
+        else if (machine.output(node) === null) inlined.targets.push({ name: output, node: inside(node) });
+        // Otherwise an output of the machine that nothing here takes.
+      }
+      written.push(inlined);
+    });
+  });
+  return written;
+}
+
+/**
+ * Parse one machine. `including` is every machine whose parse this one is
+ * inside of, this one last when it has an id.
+ */
+function parseProgram(input, definitions, source, id, including) {
+  const text = input.trim();
+  if (text.length === 0) throw syntaxError.empty();
+
+  // Phase 1: the text, read into statements.
+  const statements = parseSyntax(text);
+
+  // Phase 2: headers and wirings.
+  const aliasMap = new Map();
+  const machineHeaders = [];
+  // Every alias a header declares, in the order written: cap headers and
+  // machine headers name steps in one space.
+  const declared = [];
+  let wirings = [];
+  for (const statement of statements) {
+    if (statement.kind === SYNTAX_CAP_HEADER) {
+      let parsed;
+      try {
+        parsed = CapUrn.fromString(statement.capUrn);
+      } catch (error) {
+        throw syntaxError.invalidCapUrn(statement.alias, error.message, statement.capUrnLocation);
+      }
+      declared.push(statement);
+      if (!aliasMap.has(statement.alias)) {
+        aliasMap.set(statement.alias, { capUrn: parsed, position: statement.position, location: statement.location, aliasLocation: statement.aliasLocation, capUrnLocation: statement.capUrnLocation });
+      }
+    } else if (statement.kind === SYNTAX_MACHINE_HEADER) {
+      declared.push(statement);
+      machineHeaders.push(statement);
+    } else {
+      const wiring = statement.wiring;
+      wirings.push({
+        sources: wiring.sources.map(member => ({
+          name: member.name,
+          location: member.valueLocation,
+          value: { isConstant: member.isConstant, node: member.node, constant: member.constant },
+        })),
+        capAlias: wiring.step,
+        stepLocation: wiring.stepLocation,
+        policy: wiring.policy,
+        targets: wiring.targets.map(target => ({ name: target.name, node: target.node, location: target.valueLocation })),
+        position: statement.position,
+        includedAs: [],
+      });
+    }
+  }
+
+  // Phase 3: no alias is declared twice.
+  const firstDeclared = new Map();
+  for (const statement of declared) {
+    if (firstDeclared.has(statement.alias)) {
+      throw syntaxError.duplicateAlias(statement.alias, firstDeclared.get(statement.alias), statement.aliasLocation);
+    }
+    firstDeclared.set(statement.alias, statement.position);
+  }
+  if (wirings.length === 0 && declared.length > 0) throw syntaxError.noEdges(declared[declared.length - 1].location);
+  if (wirings.length === 0) throw syntaxError.empty();
+
+  // Phase 3a: the machines the machine headers name, each resolved on its own
+  // before anything here is. A machine is what it is alone: where it is
+  // included changes nothing about it.
+  const machines = new Map();
+  for (const header of machineHeaders) {
+    let loaded;
+    try {
+      loaded = source.load(header.reference, id);
+    } catch (error) {
+      if (!(error instanceof MachineSourceError)) throw error;
+      if (error.noSource) throw syntaxError.machineReferenceWithoutSource(header.alias, header.reference, header.referenceLocation);
+      throw abstractionError.unknownMachineReference(header.alias, header.reference, error.details);
+    }
+    const at = including.indexOf(loaded.id);
+    if (at >= 0) throw abstractionError.cyclicMachineReference([...including.slice(at), loaded.id]);
+    including.push(loaded.id);
+    let parsed;
+    try {
+      parsed = parseProgram(loaded.notation, definitions, source, loaded.id, including);
+    } catch (error) {
+      // A circle is one fact about the whole, said once: it is not a defect
+      // of each machine on the way round.
+      if (error instanceof MachineAbstractionError && error.code === MachineAbstractionErrorCodes.CYCLIC_MACHINE_REFERENCE) throw error;
+      if (error instanceof MachineSyntaxError || error instanceof MachineAbstractionError) {
+        throw abstractionError.invalidIncludedMachine(header.alias, header.reference, error);
+      }
+      throw error;
+    } finally {
+      including.pop();
+    }
+    machines.set(header.alias, includedMachineOf(parsed.machine, parsed.nodeNames));
+  }
+
+  // Phase 3b: a step name no header defines is taken to be a fabric cap alias
+  // and resolved through the definitions — before it is declared undefined.
+  // An alias that points at a media URN in step position is a hard error; a
+  // name that resolves to nothing is left for the undefined-alias error.
+  const seenUnresolved = new Set();
+  for (const wiring of wirings) {
+    const name = wiring.capAlias;
+    if (aliasMap.has(name) || machines.has(name) || seenUnresolved.has(name)) continue;
+    seenUnresolved.add(name);
+    const target = typeof definitions.aliasTarget === 'function' ? definitions.aliasTarget(name) : null;
+    if (target === null || target === undefined) continue;
+    let resolved;
+    try {
+      resolved = CapUrn.fromString(target);
+    } catch (_) {
+      throw syntaxError.aliasNotACap(name, target, wiring.stepLocation);
+    }
+    // A synthetic position past every real statement.
+    aliasMap.set(name, { capUrn: resolved, position: declared.length + wirings.length + aliasMap.size, location: null, aliasLocation: null, capUrnLocation: null, fromFabric: true });
+  }
+
+  // Phase 4: every step is defined, and no node bears a step's name.
+  const isStep = name => aliasMap.has(name) || machines.has(name);
+  for (const wiring of wirings) {
+    if (!isStep(wiring.capAlias)) throw syntaxError.undefinedAlias(wiring.capAlias, wiring.stepLocation);
+    for (const member of wiring.sources) {
+      if (!member.value.isConstant && isStep(member.value.node)) {
+        throw syntaxError.nodeAliasCollision(member.value.node, member.value.node, member.location);
+      }
+    }
+    for (const target of wiring.targets) {
+      if (isStep(target.node)) throw syntaxError.nodeAliasCollision(target.node, target.node, target.location);
+    }
+  }
+
+  // Phase 4a: every step that is a machine is written out as the steps of
+  // that machine. From here on the wirings are of caps alone.
+  const includedMedia = new Map();
+  if (wirings.some(wiring => machines.has(wiring.capAlias))) {
+    wirings = includeMachines(wirings, aliasMap, machines, includedMedia, definitions);
+  }
+  const noMachines = new Map();
+
+  // Phase 5 and 6: connected components, in the order each first appears;
+  // per component, node typing, numbering and resolution. Node ids are given
+  // in the order node names are met, walking the wirings as written. Two
+  // distinct node names that share a media URN stay two nodes.
+  const strands = [];
+  const nodeNames = [];
+  const nodeMediaByName = new Map();
+  componentsOf(wirings).forEach((memberIndices, strandIndex) => {
+    const members = memberIndices.map(index => wirings[index]);
+    const nodeMedia = typeNodes(members, aliasMap, noMachines, includedMedia, definitions, strandIndex);
+    const nodes = [];
+    const nameToId = new Map();
+    const intern = name => {
+      if (nameToId.has(name)) return nameToId.get(name);
+      if (!nodeMedia.has(name)) throw new Error(`every node of the strand was given its URN: ${name}`);
+      const nodeId = nodes.length;
+      nodes.push(nodeMedia.get(name));
+      nameToId.set(name, nodeId);
+      return nodeId;
+    };
+    const preInterned = members.map(wiring => {
+      const pre = {
+        // Notation has no resolved-strand step to inherit an identity from:
+        // each wiring's step is given its own.
+        tokenId: mintStepToken(),
+        capUrn: aliasMap.get(wiring.capAlias).capUrn,
+        namedSources: [],
+        sourceNodeIds: [],
+        targets: [],
+        policy: wiring.policy,
+        includedAs: [...wiring.includedAs],
+      };
+      for (const member of wiring.sources) {
+        if (member.name !== null && member.value.isConstant) {
+          pre.namedSources.push([member.name, BindingSource.ofConstant(member.value.constant)]);
+        } else if (member.name !== null) {
+          pre.namedSources.push([member.name, BindingSource.ofNode(intern(member.value.node))]);
+        } else if (member.value.isConstant) {
+          throw new Error('the syntax refuses a constant that names no arg');
+        } else {
+          pre.sourceNodeIds.push(intern(member.value.node));
+        }
+      }
+      for (const target of wiring.targets) pre.targets.push({ node: intern(target.node), name: target.name });
+      return pre;
+    });
+    const namesById = new Array(nodes.length).fill('');
+    for (const [name, nodeId] of nameToId) namesById[nodeId] = name;
+    strands.push(resolveNamedWirings(nodes, namesById, preInterned, definitions, strandIndex));
+    nodeNames.push(nameToId);
+    for (const [name, nodeId] of nameToId) nodeMediaByName.set(name, nodes[nodeId]);
+  });
+  return { machine: new Machine(strands), nodeNames, statements, aliasMap, machines, nodeMedia: nodeMediaByName };
 }
 
 /**
  * Parse machine notation into a Machine.
  *
- * Uses the Peggy-generated PEG parser to parse the input, then resolves
- * cap URNs and derives media URNs from cap in/out specs.
- *
- * Fails hard — no fallbacks, no guessing, no recovery.
- *
- * Mirrors Rust parse_machine exactly.
- *
- * @param {string} input - Machine notation string
+ * @param {string} input - Machine notation
+ * @param {MachineDefinitions} definitions - Where the caps the machine names,
+ *   and the media its constants are held to, are defined
+ * @param {Object} [options]
+ * @param {MachineSource} [options.source] - Where the machines its machine
+ *   headers name come from; without one, a machine header is refused
+ * @param {string} [options.id] - What the source knows this machine by: the
+ *   references it writes are resolved relative to it, and an inclusion of it
+ *   from inside is a circle
  * @returns {Machine}
- * @throws {MachineSyntaxError}
+ * @throws {MachineSyntaxError|MachineAbstractionError}
  */
-function parseMachine(input) {
-  return _parseMachineInternal(input).machine;
+function parseMachine(input, definitions, options = {}) {
+  return parseMachineWithAST(input, definitions, options).machine;
 }
 
 /**
- * Parse machine notation and return both the Machine and the raw AST with locations.
+ * Parse machine notation and keep what was read on the way: the statements
+ * with every part's location (for editor support), the alias map, the names
+ * the text gave each strand's nodes (`nodeNames[i]` maps a name of strand `i`
+ * to its node id — a host addresses a machine's inputs and outputs by them)
+ * and each node's media by name.
  *
- * Use this for LSP tooling — the statements array contains full position information
- * for every element (aliases, cap URNs, sources, targets).
+ * What comes back is the inlined whole: every step of every included machine
+ * is a step of this one, and no reference is left.
  *
- * @param {string} input - Machine notation string
- * @returns {{ machine: Machine, statements: Object[], aliasMap: Map, nodeMedia: Map }}
- * @throws {MachineSyntaxError}
+ * @param {string} input
+ * @param {MachineDefinitions} definitions
+ * @param {Object} [options] - `source` and `id`, as for parseMachine
+ * @returns {{ machine: Machine, statements: Object[], aliasMap: Map, nodeNames: Array<Map<string, number>>, nodeMedia: Map<string, MediaUrn> }}
+ * @throws {MachineSyntaxError|MachineAbstractionError}
  */
-function parseMachineWithAST(input) {
-  return _parseMachineInternal(input);
+function parseMachineWithAST(input, definitions, options = {}) {
+  if (definitions === null || definitions === undefined || typeof definitions.capDefinition !== 'function') {
+    throw new Error('parsing a machine takes the definitions of the caps it names');
+  }
+  const source = options.source || new NoMachineSource();
+  const id = options.id !== undefined ? options.id : null;
+  const result = parseProgram(input, definitions, source, id, id === null ? [] : [id]);
+  return {
+    machine: result.machine,
+    statements: result.statements,
+    aliasMap: result.aliasMap,
+    nodeNames: result.nodeNames,
+    nodeMedia: result.nodeMedia,
+  };
 }
 
 // ============================================================================
-// MachineBuilder — programmatic path construction
+// The canonical text of a Machine.
+//
+// The serializer walks the strands in declaration order and emits one notation
+// document covering all of them. Two strictly-equivalent Machines produce
+// byte-identical notation, because both the canonical edge order within each
+// strand and the allocation of step and node names are deterministic functions
+// of the resolved structure.
+//
+// All headers come first, then all wirings. Steps are named `edge_<n>` in the
+// order of the walk across all strands; nodes are named `n<n>` in the order the
+// walk first meets them. Strand boundaries are unmarked: the parser recovers
+// them from shared node names, and each strand's node names are a range of its
+// own.
 // ============================================================================
 
+/** Each statement wrapped in `[...]`: the canonical, single-line form used as a stable identifier. */
+const NOTATION_FORMAT_BRACKETED = 'bracketed';
+/** One statement per line, no brackets. */
+const NOTATION_FORMAT_LINE_BASED = 'line-based';
+
 /**
- * Builder for constructing Machines programmatically.
- *
- * Provides a fluent API for building machine graphs without writing
- * machine notation strings. Useful for constructing paths from graph
- * exploration (e.g., selecting paths in the UI).
+ * Name every step and node of the machine. With `aliases` (anything with
+ * `displayAliasForUrn(capUrn)`: CapDefinitions, FabricRegistryClient), a cap
+ * that has a display alias is written by it.
  */
-class MachineBuilder {
-  constructor() {
-    this._edges = [];
-  }
-
-  /**
-   * Add an edge to the graph.
-   * @param {string[]} sourceUrns - Source media URN strings
-   * @param {string} capUrnStr - Cap URN string
-   * @param {string} targetUrn - Target media URN string
-   * @param {boolean} [isLoop=false] - Whether this edge has ForEach semantics
-   * @returns {MachineBuilder} this (for chaining)
-   */
-  addEdge(sourceUrns, capUrnStr, targetUrn, isLoop = false) {
-    const sources = sourceUrns.map(s => MediaUrn.fromString(s));
-    const capUrn = CapUrn.fromString(capUrnStr);
-    const target = MediaUrn.fromString(targetUrn);
-    this._edges.push(new MachineEdge(sources, capUrn, target, isLoop));
-    return this;
-  }
-
-  /**
-   * Add a linear chain of edges from CapFabEdge[] (from CapFab.findAllPaths).
-   *
-   * Each CapFabEdge has fromUrn, toUrn, and cap (with cap.urn).
-   * This converts the path into a series of MachineEdges.
-   *
-   * @param {CapFabEdge[]} capFabEdges - Array of CapFabEdge from pathfinding
-   * @returns {MachineBuilder} this (for chaining)
-   */
-  addCapFabPath(capFabEdges) {
-    for (const edge of capFabEdges) {
-      const source = MediaUrn.fromString(edge.fromUrn);
-      const target = MediaUrn.fromString(edge.toUrn);
-      this._edges.push(new MachineEdge([source], edge.cap.urn, target, false));
+function serializationPlan(machine, aliases) {
+  const plans = [];
+  let nextAlias = 0;
+  let nextNode = 0;
+  for (const strand of machine.strands()) {
+    const plan = { edgeTokens: [], needsHeader: [], nodeNames: new Array(strand.nodes().length).fill('') };
+    for (const edge of strand.edges()) {
+      let token = `edge_${nextAlias}`;
+      let needsHeader = true;
+      if (aliases !== null) {
+        const alias = aliases.displayAliasForUrn(edge.capUrn.toString());
+        if (alias !== null && alias !== undefined) {
+          token = alias;
+          needsHeader = false;
+        }
+      }
+      plan.edgeTokens.push(token);
+      plan.needsHeader.push(needsHeader);
+      nextAlias += 1;
     }
-    return this;
+    // Nodes are named in the order the canonical edge walk first meets them:
+    // each edge's sources in assignment order, then its outputs. The name of a
+    // node is then a property of the machine, not of the order its nodes
+    // happened to be allocated in.
+    const named = new Array(strand.nodes().length).fill(false);
+    for (const edge of strand.edges()) {
+      for (const node of [...edge.sourceNodes(), ...edge.outputNodes()]) {
+        if (!named[node]) {
+          plan.nodeNames[node] = `n${nextNode}`;
+          named[node] = true;
+          nextNode += 1;
+        }
+      }
+    }
+    named.forEach((isNamed, node) => {
+      if (!isNamed) throw new Error(`every node of a strand is a source or an output of an edge: node ${node} is neither`);
+    });
+    plans.push(plan);
   }
-
-  /**
-   * Build the Machine from the accumulated edges.
-   * @returns {Machine}
-   */
-  build() {
-    return new Machine([...this._edges]);
-  }
+  return plans;
 }
+
+/**
+ * One wiring statement for an edge, without brackets. Every binding is written
+ * under its arg's name and every taken output under its output's name, in the
+ * canonical (URN-sorted) order of the edge: nothing is left for a reader to
+ * match by type. A gather writes its arg's name once per member, in item
+ * order. The per-item map is not written: it is derived from cardinality.
+ */
+function formatWiring(edge, token, plan) {
+  const members = edge.assignment.map(binding => binding.source.isConstant
+    ? `${binding.argName}=${constantText(binding.source.constant)}`
+    : `${binding.argName}=${plan.nodeNames[binding.source.node]}`);
+  const targets = edge.outputs.map(output => `${output.outputName}=${plan.nodeNames[output.node]}`);
+  return `(${members.join(', ')}) -> ${token}${edge.policy.toNotation()} -> (${targets.join(', ')})`;
+}
+
+/** Every statement between `opening` and `closing`, joined by `between`. */
+function emitNotation(machine, plans, opening, closing, between) {
+  if (machine.isEmpty()) return '';
+  const statements = [];
+  // Headers across all strands, only for a step written as a synthetic `edge_N`.
+  machine.strands().forEach((strand, s) => {
+    strand.edges().forEach((edge, index) => {
+      if (plans[s].needsHeader[index]) statements.push(`${opening}${plans[s].edgeTokens[index]} ${edge.capUrn}${closing}`);
+    });
+  });
+  // Wirings across all strands, in canonical edge order.
+  machine.strands().forEach((strand, s) => {
+    strand.edges().forEach((edge, index) => {
+      statements.push(opening + formatWiring(edge, plans[s].edgeTokens[index], plans[s]) + closing);
+    });
+  });
+  return statements.join(between);
+}
+
+function emitFormatted(machine, plans, format) {
+  if (format === NOTATION_FORMAT_BRACKETED) return emitNotation(machine, plans, '[', ']', '');
+  if (format === NOTATION_FORMAT_LINE_BASED) return emitNotation(machine, plans, '', '', '\n');
+  throw new Error(`unknown notation format '${format}': it is '${NOTATION_FORMAT_BRACKETED}' or '${NOTATION_FORMAT_LINE_BASED}'`);
+}
+
+/** Canonical one-line bracketed notation. Caps are written by their canonical URN. */
+Machine.prototype.toMachineNotation = function toMachineNotation() {
+  return emitFormatted(this, serializationPlan(this, null), NOTATION_FORMAT_BRACKETED);
+};
+
+/** One statement per line, each wrapped in `[...]`: the canonical statements, with newlines between them. */
+Machine.prototype.toMachineNotationMultiline = function toMachineNotationMultiline() {
+  return emitNotation(this, serializationPlan(this, null), '[', ']', '\n');
+};
+
+/** Notation in the given format, caps written by their canonical URN. */
+Machine.prototype.toMachineNotationFormatted = function toMachineNotationFormatted(format) {
+  return emitFormatted(this, serializationPlan(this, null), format);
+};
+
+/**
+ * Notation writing each cap by its display alias (shortest name, ties
+ * alphabetical) when one exists, and by a header otherwise. An aliased cap is
+ * written in step position with no header; the parser resolves the alias back
+ * to its URN, so the form round-trips.
+ * @param {{displayAliasForUrn: function(string): (string|null)}} aliases
+ * @param {string} [format]
+ */
+Machine.prototype.toMachineNotationAliased = function toMachineNotationAliased(aliases, format = NOTATION_FORMAT_BRACKETED) {
+  if (aliases === null || aliases === undefined || typeof aliases.displayAliasForUrn !== 'function') {
+    throw new Error('writing a machine by its aliases takes something that knows them');
+  }
+  return emitFormatted(this, serializationPlan(this, aliases), format);
+};
+
+/**
+ * The payload a graph view draws from (cap-fab-renderer's machine mode):
+ *
+ *     {"strands":[{"nodes":[{"id","urn","title"}],
+ *                  "edges":[{"alias","cap_urn","title","is_loop","retry","on_error","included_as",
+ *                            "assignment":[{"cap_arg_media_urn","arg_name","source_node"|"constant"}],
+ *                            "outputs":[{"output_media_urn","output_name","node"}]}],
+ *                  "input_anchor_nodes":[...],"output_anchor_nodes":[...]}]}
+ *
+ * Node names are those of the canonical notation, so a notation string and its
+ * render payload share node identities; each step is its canonical `edge_N`.
+ * Each node carries the title of its media definition and each step the title
+ * of its cap definition: one that is not at hand is refused, since a title is
+ * never made up from a URN. A constant is written as its JSON text, so a whole
+ * number past 2^53 keeps every digit.
+ * @param {MachineDefinitions} definitions
+ * @returns {string}
+ * @throws {MachineAbstractionError} UncachedMediaDef, UncachedCap
+ */
+Machine.prototype.toRenderPayloadJson = function toRenderPayloadJson(definitions) {
+  if (definitions === null || definitions === undefined || typeof definitions.mediaDefinition !== 'function') {
+    throw new Error('a render payload takes the definitions its titles come from');
+  }
+  if (this.isEmpty()) return '{"strands":[]}';
+  const plans = serializationPlan(this, null);
+  const mediaTitle = urn => {
+    const found = definitions.mediaDefinition(urn);
+    if (found === null || typeof found.title !== 'string') throw abstractionError.uncachedMediaDef(urn);
+    return found.title;
+  };
+  const capTitle = urn => {
+    const found = definitions.capDefinition(urn);
+    if (found === null || typeof found.title !== 'string') throw abstractionError.uncachedCap(urn);
+    return found.title;
+  };
+  const text = value => JSON.stringify(value);
+  const listed = items => `[${items.join(',')}]`;
+  const strands = this.strands().map((strand, s) => {
+    const plan = plans[s];
+    const nodes = strand.nodes().map((urn, id) =>
+      `{"id":${text(plan.nodeNames[id])},"urn":${text(urn.toString())},"title":${text(mediaTitle(urn.toString()))}}`);
+    const edges = strand.edges().map((edge, index) => {
+      const assignment = edge.assignment.map(binding => {
+        const fed = binding.source.isConstant
+          ? `"constant":${constantText(binding.source.constant)}`
+          : `"source_node":${text(plan.nodeNames[binding.source.node])}`;
+        return `{"cap_arg_media_urn":${text(binding.capArgMediaUrn.toString())},"arg_name":${text(binding.argName)},${fed}}`;
+      });
+      const outputs = edge.outputs.map(output =>
+        `{"output_media_urn":${text(output.outputMediaUrn.toString())},"output_name":${text(output.outputName)},"node":${text(plan.nodeNames[output.node])}}`);
+      return `{"alias":${text(plan.edgeTokens[index])},"cap_urn":${text(edge.capUrn.toString())}` +
+        `,"title":${text(capTitle(edge.capUrn.toString()))}` +
+        `,"is_loop":${edge.isLoop ? 'true' : 'false'},"retry":${edge.policy.retry},"on_error":${text(edge.policy.onError)}` +
+        // The machine steps the step was included through, outermost first:
+        // what a view groups the steps of an included machine by.
+        `,"included_as":${listed(edge.includedAs.map(text))}` +
+        `,"assignment":${listed(assignment)},"outputs":${listed(outputs)}}`;
+    });
+    return `{"nodes":${listed(nodes)},"edges":${listed(edges)}` +
+      `,"input_anchor_nodes":${listed(strand.inputAnchorIds().map(id => text(plan.nodeNames[id])))}` +
+      `,"output_anchor_nodes":${listed(strand.outputAnchorIds().map(id => text(plan.nodeNames[id])))}}`;
+  });
+  return `{"strands":${listed(strands)}}`;
+};
+
+/**
+ * A Mermaid flowchart of the machine, for a view that draws one. Every data
+ * node is a rounded box labelled with its canonical name and media URN (an
+ * input or output of the machine a stadium), every step a box of its own
+ * labelled with its alias, every constant a box with its text. An edge into a
+ * step is labelled with the arg it binds, an edge out of one with the output
+ * it takes; the edges of a step that runs once per item are dotted.
+ * @param {{displayAliasForUrn: function(string): (string|null)}|null} [aliases]
+ * @returns {string}
+ */
+Machine.prototype.toMermaid = function toMermaid(aliases = null) {
+  if (this.isEmpty()) return 'flowchart LR\n  empty["(empty machine)"]';
+  const plans = serializationPlan(this, aliases);
+  // Mermaid reads a quoted label up to the next quote; one inside is written
+  // as its entity.
+  const label = text => `"${text.replace(/"/g, '#quot;')}"`;
+  const lines = ['flowchart LR'];
+  let stepNumber = 0;
+  let constantNumber = 0;
+  this.strands().forEach((strand, s) => {
+    const plan = plans[s];
+    const anchors = new Set([...strand.inputAnchorIds(), ...strand.outputAnchorIds()]);
+    strand.nodes().forEach((urn, id) => {
+      const text = label(`${plan.nodeNames[id]}: ${urn}`);
+      lines.push(anchors.has(id) ? `  ${plan.nodeNames[id]}([${text}])` : `  ${plan.nodeNames[id]}(${text})`);
+    });
+    strand.edges().forEach((edge, index) => {
+      const step = `s${stepNumber}`;
+      stepNumber += 1;
+      lines.push(`  ${step}[${label(plan.edgeTokens[index] + edge.policy.toNotation())}]`);
+      const arrow = edge.isLoop ? '-.' : '--';
+      const head = edge.isLoop ? '.->' : '-->';
+      for (const binding of edge.assignment) {
+        let from;
+        if (binding.source.isConstant) {
+          from = `k${constantNumber}`;
+          constantNumber += 1;
+          lines.push(`  ${from}[/${label(constantText(binding.source.constant))}/]`);
+        } else {
+          from = plan.nodeNames[binding.source.node];
+        }
+        lines.push(`  ${from} ${arrow} ${label(binding.argName)} ${head} ${step}`);
+      }
+      for (const output of edge.outputs) {
+        lines.push(`  ${step} ${arrow} ${label(output.outputName)} ${head} ${plan.nodeNames[output.node]}`);
+      }
+    });
+  });
+  return lines.join('\n');
+};
 
 // ============================================================================
 // Cap & Media Registry Client
@@ -9357,11 +11735,56 @@ export {
   // Machine notation
   MachineSyntaxError,
   MachineSyntaxErrorCodes,
+  MachineAbstractionError,
+  MachineAbstractionErrorCodes,
+  UndecidedMember,
+  SYNTAX_CAP_HEADER,
+  SYNTAX_MACHINE_HEADER,
+  SYNTAX_WIRING,
+  RESERVED_NODE_NAMES,
+  parseSyntax,
+  decodeConstant,
+  constantText,
+  constantsEqual,
+  constantToJSON,
+  StepPolicy,
+  ON_ERROR_FAIL,
+  ON_ERROR_ABSENT,
+  MAX_RETRY,
+  mintStepToken,
+  BindingSource,
+  EdgeAssignmentBinding,
+  EdgeOutput,
   MachineEdge,
+  NodeBijection,
+  MachineStrand,
   Machine,
-  MachineBuilder,
+  SCOPE_ROOT,
+  CyclicSteps,
+  StepPlacement,
+  IterationStructure,
+  iterationOf,
+  compareMediaUrns,
+  compareCapUrns,
+  validationViolation,
+  schemaViolations,
+  CapDefinitions,
+  MatchFailure,
+  matchSourcesToArgs,
+  resolvePreInterned,
+  resolveNamedWirings,
+  MachineSourceError,
+  MachineSource,
+  NoMachineSource,
+  FileMachineSource,
+  MapMachineSource,
+  fileMachineId,
+  IncludedMachine,
+  includedMachineOf,
   parseMachine,
   parseMachineWithAST,
+  NOTATION_FORMAT_BRACKETED,
+  NOTATION_FORMAT_LINE_BASED,
   // Cap & Media Registry
   FabricRegistryEntry,
   MediaRegistryEntry,

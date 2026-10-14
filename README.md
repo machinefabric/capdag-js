@@ -42,11 +42,45 @@ console.log(parsed.toString() === built.toString());
 Treat URNs as opaque parsed values. Use the package's predicates for
 equivalence, conformance, dispatch, and ranking instead of string surgery.
 
+## Read and write Machine Notation
+
+A machine is read against the definitions of the caps it names: they say what
+each step takes and gives, by name and by type, and what a constant written in
+the machine is held to.
+
+```javascript
+import { Cap, CapArg, CapOutput, ArgSource, CapUrn, CapDefinitions, parseMachine } from "capdag";
+
+const extract = new Cap(
+  CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+  "Extract Text", ["extract"]
+);
+extract.addArg(new CapArg("media:document;ext=pdf", "document", true,
+  [new ArgSource({ stdin: "media:document;ext=pdf" })]));
+extract.addOutput(new CapOutput("media:enc=utf-8;ext=txt", "text", "The text"));
+
+const definitions = new CapDefinitions().addCaps([extract]);
+const machine = parseMachine(
+  '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+  "[(document=pdf) -> extract -> text]",
+  definitions
+);
+console.log(machine.toMachineNotation());
+```
+
+`parseMachineWithAST` also returns every statement with where each part of it
+stands in the text, and the name the text gave each node. A machine that names
+other machines in step position is read with a `MachineSource`
+(`MapMachineSource`, or `FileMachineSource` under Node.js). Anything with
+`capDefinition(urn)` and `mediaDefinition(urn)` can stand in for
+`CapDefinitions`.
+
 ## Find the relevant API
 
-- `capdag.js` provides URNs, definitions, dispatch, and matching.
+- `capdag.js` provides URNs, definitions, dispatch, matching, and Machine
+  Notation: reading, resolving and writing machines.
 - `machine-parser.js` is generated from `machine.pegjs`.
-- `planner.js` provides planning and Machine Notation structures.
+- `planner.js` provides the planner's request and result vocabulary.
 - `cap-fab-renderer.js` (`capdag/cap-fab-renderer`) renders graphs; the page
   provides cytoscape and cytoscape-elk.
 - `formal/` is the generated model code, with its WebAssembly program.
