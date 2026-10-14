@@ -3296,6 +3296,9 @@ class CapFabRenderer {
     const resizeAndRefit = () => {
       if (!this.cy) return;
       this.cy.resize();
+      // The registry (browse) is laid out in a worker: until it is, there is no graph to measure
+      // or to centre, and _afterLayout does both when it lands
+      if (this.mode === 'browse' && !this._layoutReady) return;
       // Container size may have changed — recompute the zoom limits
       // so "fit the entire graph" still corresponds to actual pixel
       // capacity, not the size we had at first paint.
@@ -3318,7 +3321,10 @@ class CapFabRenderer {
       }
     };
     this.cy.on('ready', resizeAndRefit);
-    this.cy.on('resize', () => this._recomputeZoomLimits());
+    this.cy.on('resize', () => {
+      if (this.mode === 'browse' && !this._layoutReady) return;
+      this._recomputeZoomLimits();
+    });
     requestAnimationFrame(resizeAndRefit);
     setTimeout(resizeAndRefit, 100);
     setTimeout(resizeAndRefit, 300);
