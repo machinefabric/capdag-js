@@ -721,6 +721,30 @@ function buildStylesheet() {
         'curve-style': 'bezier',
       },
     },
+    // An edge laid along its ELK route (browse mode): a polyline through the route's points,
+    // from where it leaves its source's box to where it enters its target's; in the overview,
+    // where a node is a dot at the box's centre, carried on to the dot. The route is the edge's
+    // data (`_routeWithElk`), so a change of detail is a change of class, not of each edge's style.
+    {
+      selector: 'edge.routed',
+      style: {
+        'curve-style': 'segments',
+        'edge-distances': 'node-position',
+        'segment-weights': 'data(routeWeights)',
+        'segment-distances': 'data(routeDistances)',
+        'source-endpoint': 'data(routeSource)',
+        'target-endpoint': 'data(routeTarget)',
+      },
+    },
+    {
+      selector: 'edge.routed.lod-overview',
+      style: {
+        'segment-weights': 'data(routeWeightsOverview)',
+        'segment-distances': 'data(routeDistancesOverview)',
+        'source-endpoint': '0px 0px',
+        'target-endpoint': '0px 0px',
+      },
+    },
     {
       selector: 'edge.highlighted',
       style: { 'width': 2.5, 'z-index': 999 },
@@ -3541,46 +3565,33 @@ class CapFabRenderer {
     if (this.cy !== cy) return;
 
     const centres = new Map(laid.children.map((c) => [c.id, { x: c.x + c.width / 2, y: c.y + c.height / 2 }]));
+    // marking the routed edges is not a change the names need placing again for
+    this._placingNames = true;
     cy.batch(() => {
       cy.nodes().forEach((node) => node.position(centres.get(node.id())));
       (laid.edges || []).forEach((laidEdge) => {
         const section = laidEdge.sections && laidEdge.sections[0];
         if (!section) return;
         const edge = cy.getElementById(laidEdge.id);
-        edge.scratch('_route', routeFromSection(section, centres.get(edge.source().id()), centres.get(edge.target().id())));
-      });
-    });
-    this._applyEdgeRoutes();
-    this._afterLayout({ stretch: false });
-  }
-
-  // Draws each edge along its route: a polyline through the route's points, sampled finely
-  // from ELK's splines, from the point where it leaves its source's box to where it enters
-  // its target's. In the overview, where a node is a dot at the box's centre, the route is
-  // carried on smoothly from each box's side to the dot (`routeFromSection`).
-  _applyEdgeRoutes() {
-    if (!this.cy) return;
-    const overview = !!this._lodOverview;
-    this._placingNames = true;
-    this.cy.batch(() => {
-      this.cy.edges().forEach((edge) => {
-        const route = edge.scratch('_route');
-        if (!route) return;
-        const weights = overview ? route.overviewWeights : route.weights;
-        const distances = overview ? route.overviewDistances : route.distances;
         // a self-loop's route is cytoscape's own loop: its points would all lie on one node
-        if (edge.source().id() === edge.target().id()) return;
-        edge.style({
-          'curve-style': weights.length ? 'segments' : 'straight',
-          'edge-distances': 'node-position',
-          'segment-weights': weights.length ? weights.join(' ') : '0.5',
-          'segment-distances': distances.length ? distances.join(' ') : '0',
-          'source-endpoint': overview ? '0px 0px' : `${route.source.dx}px ${route.source.dy}px`,
-          'target-endpoint': overview ? '0px 0px' : `${route.target.dx}px ${route.target.dy}px`,
+        if (edge.source().same(edge.target())) return;
+        const route = routeFromSection(section, centres.get(edge.source().id()), centres.get(edge.target().id()));
+        // a route with no bend is one point on the straight line between the ends
+        const weightsOf = (weights) => (weights.length ? weights.join(' ') : '0.5');
+        const distancesOf = (distances) => (distances.length ? distances.join(' ') : '0');
+        edge.data({
+          routeWeights: weightsOf(route.weights),
+          routeDistances: distancesOf(route.distances),
+          routeWeightsOverview: weightsOf(route.overviewWeights),
+          routeDistancesOverview: distancesOf(route.overviewDistances),
+          routeSource: `${route.source.dx}px ${route.source.dy}px`,
+          routeTarget: `${route.target.dx}px ${route.target.dy}px`,
         });
+        edge.addClass('routed');
       });
     });
     this._placingNames = false;
+    this._afterLayout({ stretch: false });
   }
 
   // What follows a layout, however it was made: the per-edge stretch (cytoscape-elk's
@@ -3929,9 +3940,7 @@ class CapFabRenderer {
         cy.elements().removeClass('lod-overview');
       }
     });
-    const changed = this._lodOverview !== overview;
     this._lodOverview = overview;
-    if (changed) this._applyEdgeRoutes();
   }
 
   // Fit padding must scale down in very short viewports. The compact
