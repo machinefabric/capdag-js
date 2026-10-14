@@ -28,7 +28,7 @@
 //   * cytoscape-elk extension (registers itself on `cytoscape`)
 //   * elkjs (via cytoscape-elk)
 //   * TaggedUrn (from tagged-urn browser build)
-//   * CapUrn, MediaUrn, Cap, createCap, CapFab (from capdag.js)
+//   * CapUrn, MediaUrn, Cap, CapFab (from capdag.js)
 //
 // The renderer owns its own theme observer (<html data-theme>) so hosts do
 // nothing to drive theme sync. It owns its own tooltip element and its own
@@ -41,7 +41,7 @@
 // uses a different name for the same concept, the fix is at the producer,
 // not here.
 
-import { CapUrn, CapFab, MediaUrn, createCap } from './capdag.js';
+import { Cap, CapUrn, CapFab, MediaUrn } from './capdag.js';
 
 // =============================================================================
 // Host dependencies — the page's: cytoscape and cytoscape-elk, loaded as
@@ -1262,10 +1262,11 @@ function buildBrowseGraphData(capabilities) {
     const edgeId = `edge-${edges.length}`;
     const title = capData.title || '';
 
-    // Parsing the URN canonicalizes it and validates it — fail hard on
-    // malformed registry data.
-    const parsedUrn = CapUrn.fromString(capData.urn);
-    const cap = createCap(parsedUrn, title, capData.aliases || []);
+    // The cap as the fabric defines it — its args and outputs with their
+    // names — so a path through the graph is a machine its caps resolve.
+    // Reading it validates the URN and the record: malformed registry data
+    // fails hard.
+    const cap = Cap.fromJSON(capData);
     const capFabEdgeIndex = capFab.edges.length;
     capFab.addCap(cap, 'registry');
 

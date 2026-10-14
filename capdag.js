@@ -10750,6 +10750,32 @@ function parseMachine(input, definitions, options = {}) {
 }
 
 /**
+ * The machine a path of the cap fabric is: one strand, each edge a step whose
+ * main input is fed by the step before it. A path carries the definitions of
+ * its caps, so they are what it is read against. The counterpart of the
+ * reference's `Machine::from_strand`: what a planner found becomes notation,
+ * and runs as notation does.
+ *
+ * @param {CapFabEdge[]} path
+ * @returns {Machine}
+ * @throws {Error} on an empty path or an edge without its cap
+ * @throws {MachineAbstractionError} when the caps do not chain
+ */
+function machineFromCapPath(path) {
+  if (!Array.isArray(path) || path.length === 0) {
+    throw new Error('a path of the cap fabric has at least one edge');
+  }
+  path.forEach((edge, index) => {
+    if (!(edge instanceof CapFabEdge) || !(edge.cap instanceof Cap)) {
+      throw new Error(`path edge ${index} is not a cap fabric edge carrying its cap`);
+    }
+  });
+  const headers = path.map((edge, index) => `[step_${index} ${edge.cap.urn.toString()}]`).join('');
+  const wirings = path.map((_, index) => `[n${index} -> step_${index} -> n${index + 1}]`).join('');
+  return parseMachine(headers + wirings, new CapDefinitions().addCaps(path.map(edge => edge.cap)));
+}
+
+/**
  * Parse machine notation and keep what was read on the way: the statements
  * with every part's location (for editor support), the alias map, the names
  * the text gave each strand's nodes (`nodeNames[i]` maps a name of strand `i`
@@ -11915,6 +11941,7 @@ export {
   IncludedMachine,
   includedMachineOf,
   parseMachine,
+  machineFromCapPath,
   parseMachineWithAST,
   NOTATION_FORMAT_BRACKETED,
   NOTATION_FORMAT_LINE_BASED,

@@ -50,6 +50,8 @@ import {
   fileMachineId,
   parseMachine,
   parseMachineWithAST,
+  machineFromCapPath,
+  CapFabEdge,
   NOTATION_FORMAT_LINE_BASED,
 } from './capdag.js';
 
@@ -960,6 +962,33 @@ function test12867_renderPayloadMarksTheMainInputAndOutput() {
     [['comparison', true], ['residuals', false]],
     'the main output is marked, the other output is not',
   );
+}
+
+// TEST12871: a path of the cap fabric is the machine of one strand whose steps
+// feed one another in the path's order; its caps are what it is read against.
+// Reversing the path is another machine, and a path of caps that do not chain
+// is refused, as the notation would be.
+function test12871_aCapPathIsAMachine() {
+  const pdf = 'media:document;ext=pdf';
+  const text = 'media:enc=utf-8;ext=txt';
+  const summary = 'media:enc=utf-8;summary';
+  const extract = stdinCap(`cap:in="${pdf}";extract;out="${text}"`, 'extract', pdf, text);
+  const summarize = stdinCap(`cap:in="${text}";summarize;out="${summary}"`, 'summarize', text, summary);
+  const edge = cap => new CapFabEdge(cap.urn.inSpec, cap.urn.outSpec, cap, 'fabric', 1);
+
+  const machine = machineFromCapPath([edge(extract), edge(summarize)]);
+  const written = parseMachine(
+    `[x ${extract.urn.toString()}][s ${summarize.urn.toString()}][doc -> x -> t][t -> s -> out]`,
+    definitionsOf([extract, summarize]),
+  );
+  assert(machine.isEquivalent(written), 'the path is the machine its steps chained in order make');
+  assertEqual(machine.toMachineNotationMultiline(), written.toMachineNotationMultiline(), 'and writes the same canonical text');
+  assertEqual(machine.strandCount(), 1, 'one strand');
+
+  const reversed = thrown(() => machineFromCapPath([edge(summarize), edge(extract)]), 'caps that do not chain');
+  assert(reversed instanceof MachineAbstractionError, `a path whose caps do not chain is refused as notation is: ${reversed}`);
+  assert(/at least one edge/.test(thrown(() => machineFromCapPath([]), 'an empty path').message), 'an empty path is no machine');
+  assert(/carrying its cap/.test(thrown(() => machineFromCapPath([{ cap: null }]), 'an edge without its cap').message), 'an edge carries its cap');
 }
 
 // TEST12833: an output that carries the input holds the input's type, not the
@@ -2627,6 +2656,7 @@ function runTests() {
   runTest('TEST12742: a_machine_reference_needs_a_source', test12742_aMachineReferenceNeedsASource);
   runTest('TEST12743: render_payload_carries_names_constants_and_outputs', test12743_renderPayloadCarriesNamesConstantsAndOutputs);
   runTest('TEST12867: render_payload_marks_the_main_input_and_output', test12867_renderPayloadMarksTheMainInputAndOutput);
+  runTest('TEST12871: a_cap_path_is_a_machine', test12871_aCapPathIsAMachine);
   runTest('TEST12833: a_carried_output_holds_the_inputs_type', test12833_aCarriedOutputHoldsTheInputsType);
   runTest('TEST12834: a_node_stands_for_one_node', test12834_aNodeStandsForOneNode);
   runTest('TEST12838: urns_are_ordered_by_their_parts_not_their_text', test12838_urnsAreOrderedByTheirPartsNotTheirText);

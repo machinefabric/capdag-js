@@ -54,6 +54,7 @@ import {
   StoredAlias, Manifest,
   CapDefinitions,
   parseMachine,
+  machineFromCapPath,
 } from './capdag.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -4327,6 +4328,38 @@ function test6482_Renderer_mediaNodeLabel_rejectsUrnDerivedLabels() {
 }
 
 // TEST6483: Renderer build browse graph data rejects missing media titles
+// TEST12872: the browse graph's caps are the caps the fabric defines — their
+// args and outputs with their names — so a path found through it is a machine
+// its caps resolve, written as notation.
+function test12872_Renderer_browsePathIsAMachine() {
+  const record = (urn, title, alias, input, output, inTitle, outTitle) => ({
+    urn, title, aliases: [alias],
+    in_spec: input, out_spec: output, in_media_title: inTitle, out_media_title: outTitle,
+    args: [{ media_urn: input, name: 'input', required: true, sources: [{ stdin: input }] }],
+    outputs: [{ media_urn: output, name: 'output', output_description: title }],
+  });
+  const pdf = 'media:document;ext=pdf';
+  const text = 'media:enc=utf-8;ext=txt';
+  const summary = 'media:enc=utf-8;summary';
+  const built = rendererBuildBrowseGraphData([
+    record(`cap:in="${pdf}";extract;out="${text}"`, 'Extract', 'extract-pdf', pdf, text, 'PDF', 'Text'),
+    record(`cap:in="${text}";summarize;out="${summary}"`, 'Summarize', 'summarize-text', text, summary, 'Text', 'Summary'),
+  ]);
+  const extract = built.capFab.edges.find(edge => edge.cap.title === 'Extract').cap;
+  assertEqual(extract.args.map(arg => arg.name).join(','), 'input', 'a browse cap keeps its named args');
+  assertEqual(extract.getOutputs().map(output => output.name).join(','), 'output', 'and its outputs');
+  const [path] = built.capFab.findAllPaths(rendererCanonicalMediaUrn(pdf), rendererCanonicalMediaUrn(summary), 5);
+  assertEqual(path.map(edge => edge.cap.title).join(','), 'Extract,Summarize', 'the path through both');
+  const notation = machineFromCapPath(path).toMachineNotationMultiline();
+  assert(notation.includes('extract') && notation.includes('summarize'), `the path is a machine of both caps: ${notation}`);
+
+  const bare = { ...record(`cap:in="${pdf}";bare;out="${text}"`, 'Bare', 'bare', pdf, text, 'PDF', 'Text') };
+  delete bare.aliases;
+  let refused = null;
+  try { rendererBuildBrowseGraphData([bare]); } catch (error) { refused = error; }
+  assert(refused !== null && /alias/.test(refused.message), 'a record that is no cap definition is refused, not drawn as one');
+}
+
 function test6483_Renderer_buildBrowseGraphData_rejectsMissingMediaTitles() {
   let threw = false;
   let message = '';
@@ -7092,6 +7125,7 @@ async function runTests() {
   runTest('RENDERER: canonicalMediaUrn_rejectsCapUrn',        test6481_Renderer_canonicalMediaUrn_rejectsCapUrn);
   runTest('RENDERER: mediaNodeLabel_rejectsUrnDerived',       test6482_Renderer_mediaNodeLabel_rejectsUrnDerivedLabels);
   runTest('RENDERER: buildBrowse_rejectsMissingMediaTitles',  test6483_Renderer_buildBrowseGraphData_rejectsMissingMediaTitles);
+  runTest('TEST12872: browse_path_is_a_machine', test12872_Renderer_browsePathIsAMachine);
 
   console.log('\n--- cap-fab-renderer strand builder ---');
   runTest('RENDERER: validateStrandStep_unknownVariant',      test6484_Renderer_validateStrandStep_rejectsUnknownVariant);
