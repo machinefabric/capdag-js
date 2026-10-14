@@ -30,7 +30,8 @@ import {
   CapFabEdge, CapFabStats, CapFab,
   StdinSource, StdinSourceKind,
   validateNoMediaDefRedefinitionSync,
-  CapArgumentValue, CapArg, ArgSource, validateCapArgs, ValidationError,
+  CapArgumentValue, CapArg, CapOutput, OUTPUT_CARRIES_INPUT, ArgSource, validateCapArgs, validateCapOutputs,
+  validateCapDefinition, isValidDefinitionName, ManifestLoadError, advertisedCapGroups, identityCap, ValidationError,
   llmGenerateTextUrn, modelAvailabilityUrn, modelPathUrn,
   MachineSyntaxError, MachineSyntaxErrorCodes, MachineEdge, Machine, MachineBuilder, parseMachine, parseMachineWithAST,
   FabricRegistryEntry, MediaRegistryEntry, FabricRegistryClient,
@@ -1279,7 +1280,7 @@ function test110_multipleExtensions() {
 // TEST115: Test CapArg serialization and deserialization with multiple sources
 function test115_capArgSerialization() {
   const arg = new CapArg(
-    MEDIA_STRING,
+    MEDIA_STRING, 'string',
     true,
     [new ArgSource({ cli_flag: '--name' }), new ArgSource({ position: 0 })],
     {
@@ -1312,7 +1313,7 @@ function test115_capArgSerialization() {
 // TEST116: Test CapArg constructor methods basic and with_description create args correctly
 function test116_capArgConstructors() {
   const basicArg = new CapArg(
-    MEDIA_STRING,
+    MEDIA_STRING, 'string',
     true,
     [new ArgSource({ cli_flag: '--name' })]
   );
@@ -1323,7 +1324,7 @@ function test116_capArgConstructors() {
   assertEqual(basicArg.default_value, null, 'basic arg default_value must be absent');
 
   const describedArg = new CapArg(
-    MEDIA_INTEGER,
+    MEDIA_INTEGER, 'integer',
     false,
     [new ArgSource({ position: 0 })],
     {
@@ -1341,9 +1342,9 @@ function test116_capArgConstructors() {
 function test150_capManifestJsonSerialization() {
   const capUrn = CapUrn.fromString(test6204_Urn('extract;target=metadata'));
   const cap = new Cap(capUrn, 'Extract Metadata', ['extract-metadata']);
-  cap.addArg(new CapArg('media:document;ext=pdf', true, [new ArgSource({ stdin: 'media:document;ext=pdf' })]));
+  cap.addArg(new CapArg('media:document;ext=pdf', 'document', true, [new ArgSource({ stdin: 'media:document;ext=pdf' })]));
   cap.addArg(new CapArg(
-    'media:chunk-size;enc=utf-8;numeric',
+    'media:chunk-size;enc=utf-8;numeric', 'chunk-size',
     false,
     [new ArgSource({ cli_flag: '--chunk-size' })],
     {
@@ -1353,7 +1354,7 @@ function test150_capManifestJsonSerialization() {
     }
   ));
   cap.addArg(new CapArg(
-    'media:bool;enc=utf-8;timestamps',
+    'media:bool;enc=utf-8;timestamps', 'bool',
     false,
     [new ArgSource({ cli_flag: '--timestamps' })],
     {
@@ -1396,7 +1397,7 @@ function test150_capManifestJsonSerialization() {
 // TEST597: CapArg::with_full_definition stores all fields including optional ones
 function test597_capArgWithFullDefinition() {
   const arg = new CapArg(
-    MEDIA_STRING,
+    MEDIA_STRING, 'string',
     true,
     [new ArgSource({ cli_flag: '--name' })],
     {
@@ -1792,7 +1793,7 @@ function test6246_JS_capJSONSerialization() {
     required: [{ name: 'input', media_urn: MEDIA_STRING }],
     optional: []
   };
-  cap.output = { media_urn: 'media:custom', output_description: 'Test output' };
+  cap.addOutput(new CapOutput('media:custom', 'custom', 'Test output'));
 
   const json = cap.toJSON();
   assertEqual(typeof json.urn, 'string', 'URN should be string');
@@ -3041,42 +3042,42 @@ function test6544_builderRejectsStructuralKeys() {
   );
 }
 
-// TEST1294: RULE11 - void-input cap with stdin source rejected
-function test1294_rule11VoidInputWithStdinRejected() {
+// TEST1294: RULE15 - void-input cap with stdin source rejected
+function test1294_rule15VoidInputWithStdinRejected() {
   const urn = CapUrn.fromString('cap:in="media:void";test;out="media:string"');
   const cap = new Cap(urn, 'Test', ['test-cmd']);
   const stdinSource = ArgSource.fromJSON({ stdin: 'media:string' });
-  cap.args = [new CapArg('media:string', true, [stdinSource])];
+  cap.args = [new CapArg('media:string', 'string', true, [stdinSource])];
   try {
     validateCapArgs(cap);
-    assert(false, 'Should have thrown RULE11 for void input with stdin');
+    assert(false, 'Should have thrown RULE15 for void input with stdin');
   } catch (e) {
     assert(e instanceof ValidationError, 'Should be ValidationError');
-    assert(e.message.includes('RULE11'), 'Should mention RULE11: ' + e.message);
+    assert(e.message.includes('RULE15'), 'Should mention RULE15: ' + e.message);
   }
 }
 
-// TEST1295: RULE11 - non-void-input cap without stdin source rejected
-function test1295_rule11NonVoidInputWithoutStdinRejected() {
+// TEST1295: RULE15 - non-void-input cap without stdin source rejected
+function test1295_rule15NonVoidInputWithoutStdinRejected() {
   const urn = CapUrn.fromString('cap:in="media:string";test;out="media:string"');
   const cap = new Cap(urn, 'Test', ['test-cmd']);
   const posSource = ArgSource.fromJSON({ cli_flag: '--name' });
-  cap.args = [new CapArg('media:string', true, [posSource])];
+  cap.args = [new CapArg('media:string', 'string', true, [posSource])];
   try {
     validateCapArgs(cap);
-    assert(false, 'Should have thrown RULE11 for non-void input without stdin');
+    assert(false, 'Should have thrown RULE15 for non-void input without stdin');
   } catch (e) {
     assert(e instanceof ValidationError, 'Should be ValidationError');
-    assert(e.message.includes('RULE11'), 'Should mention RULE11: ' + e.message);
+    assert(e.message.includes('RULE15'), 'Should mention RULE15: ' + e.message);
   }
 }
 
-// TEST1296: RULE11 - void-input cap with only cli_flag sources passes
-function test1296_rule11VoidInputCliFlagOnly() {
+// TEST1296: RULE15 - void-input cap with only cli_flag sources passes
+function test1296_rule15VoidInputCliFlagOnly() {
   const urn = CapUrn.fromString('cap:in="media:void";test;out="media:string"');
   const cap = new Cap(urn, 'Test', ['test-cmd']);
   const flagSource = ArgSource.fromJSON({ cli_flag: '--name' });
-  cap.args = [new CapArg('media:string', true, [flagSource])];
+  cap.args = [new CapArg('media:string', 'string', true, [flagSource])];
   // Should not throw
   validateCapArgs(cap);
 }
@@ -3089,16 +3090,16 @@ function test1296_rule11VoidInputCliFlagOnly() {
 function test1953_rule14StreamingOnlyOnMainInput() {
   const urn = CapUrn.fromString('cap:in="media:string";test;out="media:string"');
   const ok = new Cap(urn, 'Test', ['test-cmd']);
-  const main = new CapArg('media:string', true, [ArgSource.fromJSON({ stdin: 'media:string' })], { streaming: true });
+  const main = new CapArg('media:string', 'string', true, [ArgSource.fromJSON({ stdin: 'media:string' })], { streaming: true });
   ok.args = [main];
   validateCapArgs(ok);
   assert(CapArg.fromJSON(main.toJSON()).streaming === true, 'streaming survives the JSON round-trip');
-  assert(!('streaming' in new CapArg('media:string', true, []).toJSON()), 'streaming is omitted when false, like is_sequence');
+  assert(!('streaming' in new CapArg('media:string', 'string2', true, []).toJSON()), 'streaming is omitted when false, like is_sequence');
 
   const bad = new Cap(CapUrn.fromString('cap:in="media:string";test;out="media:string"'), 'Test', ['test-cmd']);
   bad.args = [
-    new CapArg('media:string', true, [ArgSource.fromJSON({ stdin: 'media:string' })]),
-    new CapArg('media:integer;numeric', false, [ArgSource.fromJSON({ cli_flag: '--count' })], { streaming: true }),
+    new CapArg('media:string', 'string3', true, [ArgSource.fromJSON({ stdin: 'media:string' })]),
+    new CapArg('media:integer;numeric', 'integer', false, [ArgSource.fromJSON({ cli_flag: '--count' })], { streaming: true }),
   ];
   try {
     validateCapArgs(bad);
@@ -3117,26 +3118,408 @@ function test1953_rule14StreamingOnlyOnMainInput() {
 function test1964_unknownDefinitionFieldIsRefused() {
   let threw = null;
   try {
-    CapArg.fromJSON({ media_urn: 'media:string', required: true, sources: [{ stdin: 'media:string' }], chunking: 'adaptive' });
+    CapArg.fromJSON({ media_urn: 'media:string', name: 'text', required: true, sources: [{ stdin: 'media:string' }], chunking: 'adaptive' });
   } catch (e) { threw = e; }
   assert(threw !== null && threw.message.includes('chunking'), 'an unknown arg field must be refused by name: ' + (threw && threw.message));
-  assert(CapArg.fromJSON({ media_urn: 'media:string', required: true, sources: [{ stdin: 'media:string' }], streaming: true }).streaming === true);
+  assert(CapArg.fromJSON({ media_urn: 'media:string', name: 'text', required: true, sources: [{ stdin: 'media:string' }], streaming: true }).streaming === true);
 
   const capJson = new Cap(CapUrn.fromString('cap:in="media:string";test;out="media:string"'), 'Test', ['test-cmd']).toJSON();
-  capJson.output = { media_urn: 'media:string', output_description: 'x', windowed: true };
+  capJson.outputs = [{ media_urn: 'media:string', name: 'text', output_description: 'x', windowed: true }];
   threw = null;
   try { Cap.fromJSON(capJson); } catch (e) { threw = e; }
   assert(threw !== null && threw.message.includes('windowed'), 'an unknown output field must be refused by name: ' + (threw && threw.message));
+
+  // A definition without its name is not one this capdag reads: the name is
+  // how a machine says which arg or output it means.
+  for (const [what, read] of [
+    ['cap argument', () => CapArg.fromJSON({ media_urn: 'media:string', required: true, sources: [{ stdin: 'media:string' }] })],
+    ['cap output', () => CapOutput.fromJSON({ media_urn: 'media:string', output_description: 'x' })],
+  ]) {
+    threw = null;
+    try { read(); } catch (e) { threw = e; }
+    assert(threw !== null && threw.message.includes('missing field `name`') && threw.message.includes(what),
+      `${what}: ${threw && threw.message}`);
+  }
 }
 
-// TEST1297: RULE11 - non-void-input cap with stdin source passes
-function test1297_rule11NonVoidInputWithStdin() {
+// TEST1297: RULE15 - non-void-input cap with stdin source passes
+function test1297_rule15NonVoidInputWithStdin() {
   const urn = CapUrn.fromString('cap:in="media:string";test;out="media:string"');
   const cap = new Cap(urn, 'Test', ['test-cmd']);
   const stdinSource = ArgSource.fromJSON({ stdin: 'media:string' });
-  cap.args = [new CapArg('media:string', true, [stdinSource])];
+  cap.args = [new CapArg('media:string', 'string', true, [stdinSource])];
   // Should not throw
   validateCapArgs(cap);
+}
+
+// ============================================================================
+// Definition rules: named arguments, the type an argument accepts, and a cap's
+// outputs (RULE3, RULE15, RULE17-RULE22)
+// ============================================================================
+
+function capIssue(check) {
+  try {
+    check();
+  } catch (e) {
+    assert(e instanceof ValidationError, `expected a ValidationError, got ${e && e.message}`);
+    return e.message;
+  }
+  throw new Error('Assertion failed: the definition must be refused');
+}
+
+function capWithArgs(urn, args) {
+  const cap = new Cap(CapUrn.fromString(urn), 'Test', ['cmd']);
+  for (const arg of args) cap.addArg(arg);
+  return cap;
+}
+
+const VOID_CAP = 'cap:in="media:void";test;out="media:void"';
+const TEXT_CAP = 'cap:in="media:enc=utf-8";test;out="media:void"';
+const flagArg = (urn, name, flag) => new CapArg(urn, name, false, [new ArgSource({ cli_flag: flag })]);
+const stdinArg = (urn, name, stdin) => new CapArg(urn, name, true, [new ArgSource({ stdin })]);
+
+// TEST580: RULE3 - two args that declare a stdin source are rejected
+function test580_rule3TwoStdinArgsRejected() {
+  const err = capIssue(() => validateCapArgs(capWithArgs(TEXT_CAP, [
+    stdinArg(MEDIA_STRING, 'input', 'media:enc=utf-8'),
+    stdinArg(MEDIA_INTEGER, 'other', 'media:'),
+  ])));
+  assert(err.includes('RULE3'), 'Error should mention RULE3: ' + err);
+  // Both arguments are named, by the URNs that identify them.
+  assert(err.includes(MEDIA_STRING) && err.includes(MEDIA_INTEGER), err);
+}
+
+// TEST581: RULE3 - two stdin args are rejected even when their stdin URNs are identical
+//
+// The rule used to allow this ("multiple stdin sources with the same URN is OK"), on the
+// reasoning that one stdin stream can only be one type. A cap has one main input: two args
+// that both claim it leave nothing to say which of them a piped value is.
+function test581_rule3IdenticalStdinUrnsAreStillTwoMainInputs() {
+  const err = capIssue(() => validateCapArgs(capWithArgs(TEXT_CAP, [
+    stdinArg(MEDIA_STRING, 'input', 'media:enc=utf-8'),
+    stdinArg(MEDIA_INTEGER, 'other', 'media:enc=utf-8'),
+  ])));
+  assert(err.includes('RULE3'), 'Error should mention RULE3: ' + err);
+  // One is the main input; a cap of one is fine.
+  validateCapArgs(capWithArgs(TEXT_CAP, [stdinArg(MEDIA_STRING, 'input', 'media:enc=utf-8')]));
+}
+
+// TEST12705: RULE15 - the stdin argument's URN is the cap's `in=`, as a
+// tagged URN: the same tags in another order pass, another type does not.
+function test12705_rule15TheStdinArgumentIsTheCapsInput() {
+  const capOf = stdin => capWithArgs('cap:in="media:document;ext=pdf";test;out="media:record"', [
+    stdinArg('media:enc=utf-8;file-path', 'document', stdin),
+  ]);
+  validateCapArgs(capOf('media:document;ext=pdf'));
+  validateCapArgs(capOf('media:ext=pdf;document'));  // tag order is not identity
+  const err = capIssue(() => validateCapArgs(capOf('media:document')));
+  assert(err.includes('RULE15') && err.includes('media:document;ext=pdf'), err);
+}
+
+// TEST12706: RULE17 - every argument has a well-formed name, unique in its cap.
+function test12706_rule17ArgumentNames() {
+  // Two args, two names: fine. A name says nothing of the URN it labels.
+  validateCapArgs(capWithArgs(VOID_CAP, [
+    flagArg(MEDIA_STRING, 'window', '--a'),
+    flagArg(MEDIA_INTEGER, 'benchmark', '--b'),
+  ]));
+
+  const refused = args => capIssue(() => validateCapArgs(capWithArgs(VOID_CAP, args)));
+  let err = refused([flagArg(MEDIA_STRING, '', '--a')]);
+  assert(err.includes('RULE17') && err.includes('has no name'), err);
+  for (const bad of ['9lives', 'has space', 'dotted.name', 'a=b', 'true', 'false', 'null', '-lead']) {
+    err = refused([flagArg(MEDIA_STRING, bad, '--a')]);
+    assert(err.includes('RULE17') && err.includes('not a valid name'), `${bad}: ${err}`);
+    assert(!isValidDefinitionName(bad), bad);
+  }
+  for (const good of ['x', '_x', 'model-spec', 'top_k', 'A1']) {
+    validateCapArgs(capWithArgs(VOID_CAP, [flagArg(MEDIA_STRING, good, '--a')]));
+    assert(isValidDefinitionName(good), good);
+  }
+  err = refused([flagArg(MEDIA_STRING, 'same', '--a'), flagArg(MEDIA_INTEGER, 'same', '--b')]);
+  assert(err.includes('RULE17') && err.includes("share the name 'same'"), err);
+  assert(err.includes(MEDIA_STRING) && err.includes(MEDIA_INTEGER), 'both args are named by URN: ' + err);
+  // A name is a string: an argument cannot be made without one.
+  assertThrowsMessage(() => new CapArg(MEDIA_STRING, true, []), 'name is a string', 'a name is required');
+}
+
+// TEST12707: RULE18 - an argument says what it accepts in one place; and what
+// it accepts is not what it is delivered under.
+function test12707_rule18AcceptsAndTheTwoUrnsOfAnArgument() {
+  const series = 'media:fmt=json;list;record;time-series';
+  const own = 'media:benchmark;fmt=json;list;record;time-series';
+  const declared = new CapArg(own, 'benchmark', true, [new ArgSource({ cli_flag: '--benchmark' })]);
+  const benchmark = declared.accepting(series);
+  // It accepts a plain series, and is delivered under its own URN: two args
+  // accepting one type stay distinct on the wire.
+  assertEqual(benchmark.acceptedUrn(), series, 'what it accepts');
+  assertEqual(benchmark.streamUrn(), own, 'what it is delivered under');
+  assertEqual(declared.accepts, null, 'the arg it was made from is not changed');
+  assertEqual(benchmark.name, 'benchmark', 'and keeps its name');
+  // It survives the JSON round trip, and is not written when not declared.
+  assertEqual(CapArg.fromJSON(JSON.parse(JSON.stringify(benchmark.toJSON()))).accepts, series, 'accepts round-trips');
+  assert(!('accepts' in declared.toJSON()), 'accepts is written only when declared');
+  assertEqual(benchmark.toJSON().name, 'benchmark', 'the name is written');
+
+  // The main input accepts, and is delivered under, its stdin URN.
+  const main = stdinArg('media:enc=utf-8;file-path', 'path', series);
+  assertEqual(main.acceptedUrn(), series, 'the main input accepts its stdin URN');
+  assertEqual(main.streamUrn(), series, 'and is delivered under it');
+  // What it is piped is what it accepts, whatever else it says (and saying
+  // both is refused, below).
+  assertEqual(main.accepting('media:other').acceptedUrn(), series, 'a stdin source is what the arg accepts');
+
+  // An arg with neither accepts its own URN.
+  const plain = flagArg(MEDIA_INTEGER, 'window', '--window');
+  assertEqual(plain.acceptedUrn(), MEDIA_INTEGER, 'its own URN');
+  assertEqual(plain.streamUrn(), MEDIA_INTEGER, 'its own URN');
+
+  const urn = `cap:in="${series}";compare;out="media:record"`;
+  validateCapArgs(capWithArgs(urn, [main, benchmark]));
+
+  // `accepts` beside a stdin source says it twice.
+  const err = capIssue(() => validateCapArgs(capWithArgs(urn, [main.accepting(series)])));
+  assert(err.includes('RULE18') && err.includes('media:enc=utf-8;file-path'), err);
+}
+
+function capWithOutputs(outSpec, outputs) {
+  const cap = new Cap(CapUrn.fromString(`cap:in="media:enc=utf-8";test;out="${outSpec}"`), 'Test', ['cmd']);
+  cap.setOutputs(outputs);
+  return cap;
+}
+
+// TEST12708: RULE19, RULE20 - outputs have well-formed, distinct names and
+// distinct media URNs, compared as URNs.
+function test12708_rule19Rule20OutputNamesAndIdentities() {
+  const FIT = 'media:fmt=json;record;regression';
+  const RESIDUALS = 'media:fmt=json;list;record;residual';
+  const fit = () => new CapOutput(FIT, 'fit', 'the fit');
+  validateCapOutputs(capWithOutputs(FIT, [fit(), new CapOutput(RESIDUALS, 'residuals', '')]));
+
+  const refused = outputs => capIssue(() => validateCapOutputs(capWithOutputs(FIT, outputs)));
+  let err = refused([fit(), new CapOutput(RESIDUALS, '', '')]);
+  assert(err.includes('RULE19') && err.includes('has no name'), err);
+  err = refused([fit(), new CapOutput(RESIDUALS, 'null', '')]);
+  assert(err.includes('RULE19') && err.includes('not a valid name'), err);
+  err = refused([fit(), new CapOutput(RESIDUALS, 'fit', '')]);
+  assert(err.includes('RULE19') && err.includes("share the name 'fit'"), err);
+  // The same URN with its tags in another order is the same output.
+  err = refused([fit(), new CapOutput('media:regression;record;fmt=json', 'again', '')]);
+  assert(err.includes('RULE20'), err);
+  err = refused([fit(), new CapOutput('not a urn', 'broken', '')]);
+  assert(err.includes('RULE20') && err.includes('not a media URN'), err);
+}
+
+// TEST12709: RULE21 - exactly one output is the main one, the cap's `out=`;
+// a cap whose `out=` is void declares none.
+function test12709_rule21ExactlyOneMainOutput() {
+  const FIT = 'media:fmt=json;record;regression';
+  let err = capIssue(() => validateCapOutputs(
+    capWithOutputs(FIT, [new CapOutput('media:fmt=json;list;record;residual', 'residuals', '')])
+  ));
+  assert(err.includes('RULE21') && err.includes('0 outputs'), err);
+  assert(capIssue(() => validateCapOutputs(capWithOutputs(FIT, []))).includes('RULE21'), 'no output at all');
+
+  const one = capWithOutputs(FIT, [new CapOutput('media:regression;fmt=json;record', 'fit', '')]);
+  validateCapOutputs(one);  // the main output is found by URN equivalence
+  assertEqual(one.mainOutput().name, 'fit', 'the main output');
+  assertEqual(one.outputNamed('fit'), one.mainOutput(), 'and it is the one of that name');
+  assertEqual(one.outputNamed('other'), null, 'no output of another name');
+  assertEqual(one.outputByUrn('not a urn'), null, 'what is no URN identifies no output');
+  // The main output is the one `out=` names, wherever it is declared.
+  const second = capWithOutputs(FIT, [
+    new CapOutput('media:fmt=json;list;record;residual', 'residuals', ''),
+    new CapOutput(FIT, 'fit', ''),
+  ]);
+  validateCapOutputs(second);
+  assertEqual(second.mainOutput().name, 'fit', 'the main output is found by its URN, not its place');
+
+  const empty = capWithOutputs('media:void', []);
+  validateCapOutputs(empty);
+  assertEqual(empty.mainOutput(), null, 'a void cap has no main output');
+  err = capIssue(() => validateCapOutputs(
+    capWithOutputs('media:void', [new CapOutput('media:enc=utf-8', 'text', '')])
+  ));
+  assert(err.includes('RULE21') && err.includes('media:void'), err);
+}
+
+// TEST12710: RULE22 - only a non-main output of a cap that takes an input
+// may carry that input's type.
+function test12710_rule22WhatAnOutputCarries() {
+  const KEPT = 'media:enc=utf-8;kept';
+  const dropped = new CapOutput('media:enc=utf-8;dropped', 'no', '').asOptional(true).carryingInput();
+  assertEqual(dropped.carries, OUTPUT_CARRIES_INPUT, 'it carries the input');
+  assertEqual(dropped.optional, true, 'and stays optional');
+  // In the other order too: each keeps what the other declared.
+  const reversed = new CapOutput('media:enc=utf-8;dropped', 'no', '').carryingInput().asOptional(true);
+  assertEqual(reversed.carries, OUTPUT_CARRIES_INPUT, 'declared optional, it still carries the input');
+  assertEqual(reversed.optional, true, 'and is optional');
+  validateCapOutputs(capWithOutputs(KEPT, [new CapOutput(KEPT, 'yes', '').asOptional(true), dropped]));
+  // What an output carries and whether it is optional are part of its JSON.
+  const written = dropped.toJSON();
+  assertEqual(written.carries, 'input', 'carries is written');
+  assertEqual(written.optional, true, 'optional is written');
+  assertEqual(new CapOutput(KEPT, 'yes', '').toJSON().optional, false, 'optional is written when false too');
+  assert(!('carries' in new CapOutput(KEPT, 'yes', '').toJSON()), 'carries is written only when declared');
+  const back = CapOutput.fromJSON(JSON.parse(JSON.stringify(written)));
+  assertEqual(back.carries, 'input', 'carries round-trips');
+  assertEqual(back.optional, true, 'optional round-trips');
+  assertThrowsMessage(
+    () => CapOutput.fromJSON({ media_urn: KEPT, name: 'yes', output_description: '', carries: 'output' }),
+    'carries', 'an output carries its own type or the input'
+  );
+
+  let err = capIssue(() => validateCapOutputs(
+    capWithOutputs(KEPT, [new CapOutput(KEPT, 'yes', '').carryingInput()])
+  ));
+  assert(err.includes('RULE22') && err.includes('main output'), err);
+
+  const source = new Cap(CapUrn.fromString('cap:in="media:void";now;out="media:enc=utf-8;stamp"'), 'Now', ['now']);
+  source.setOutputs([
+    new CapOutput('media:enc=utf-8;stamp', 'stamp', ''),
+    new CapOutput('media:enc=utf-8;echo', 'echo', '').carryingInput(),
+  ]);
+  err = capIssue(() => validateCapOutputs(source));
+  assert(err.includes('RULE22') && err.includes('takes none'), err);
+}
+
+function convertCap(complete) {
+  const cap = new Cap(CapUrn.fromString(test6204_Urn('convert')), 'Convert', ['convert']);
+  if (complete) cap.addOutput(new CapOutput(MEDIA_OBJECT, 'record', 'The record'));
+  return cap;
+}
+
+function manifestWith(groups) {
+  return new CapManifest('TestCartridge', '1.0.0', 'release', null, 'Test', groups);
+}
+
+// TEST12711: validate() holds every definition in the manifest to the
+// definition rules: a cap in any group that breaks one is refused, naming
+// the cap and the rule. Identity alone being present is not enough.
+function test12711_validateRefusesAnInvalidDefinition() {
+  const withCap = cap => manifestWith([
+    new CapGroup('default', [identityCap()]),
+    new CapGroup('second', [cap]),
+  ]);
+  withCap(convertCap(true)).validate();
+
+  // No output although `out=` is not void.
+  assertThrowsMessage(() => withCap(convertCap(false)).validate(), 'RULE21', 'a cap without its output');
+  assertThrowsMessage(() => withCap(convertCap(false)).validate(), 'convert', 'the cap is named');
+
+  // Two arguments under one name.
+  const twins = convertCap(true);
+  twins.addArg(flagArg('media:enc=utf-8', 'same', '--a'));
+  twins.addArg(flagArg('media:integer', 'same', '--b'));
+  assertThrowsMessage(() => withCap(twins).validate(), 'RULE17', 'two arguments under one name');
+
+  // A manifest of valid definitions that lacks identity is refused too.
+  assertThrowsMessage(
+    () => manifestWith([new CapGroup('default', [convertCap(true)])]).validate(),
+    'CAP_IDENTITY', 'identity is required'
+  );
+}
+
+// TEST12712: the host holds the definitions a cartridge advertises to the
+// definition rules. A manifest that parses, declares identity, and carries a
+// cap that breaks a rule is refused, naming the cap and the rule — the host
+// does not route by a definition nobody checked.
+function test12712_advertisedCapGroupsRejectAnInvalidDefinition() {
+  const identity = identityCap().toJSON();
+  const manifestJson = cap => JSON.stringify({
+    name: 'Test', version: '1.0', channel: 'release', registry_url: null, description: 'Test',
+    cap_groups: [{ name: 'default', caps: [identity, cap], adapter_urns: [] }],
+  });
+  const urn = 'cap:in="media:enc=utf-8";compare;out="media:record"';
+  const arg = (media, name, source) => ({ media_urn: media, name, required: true, sources: [source] });
+  const output = { media_urn: 'media:record', name: 'result', output_description: 'The result' };
+
+  const good = {
+    urn, title: 'Compare', aliases: ['compare'],
+    args: [arg('media:enc=utf-8', 'left', { stdin: 'media:enc=utf-8' })],
+    outputs: [output],
+  };
+  const groups = advertisedCapGroups(manifestJson(good));
+  assertEqual(groups[0].caps.length, 2, 'a complete definition is accepted');
+  // The same manifest as bytes.
+  assertEqual(advertisedCapGroups(new TextEncoder().encode(manifestJson(good)))[0].caps.length, 2, 'bytes are read too');
+
+  const refused = cap => {
+    let error = null;
+    try { advertisedCapGroups(manifestJson(cap)); } catch (e) { error = e; }
+    assert(error instanceof ManifestLoadError, 'an invalid definition must be rejected: ' + (error && error.message));
+    assert(error.unparseable === false, 'it parsed: what it carries is invalid');
+    assert(error.message.includes('compare'), 'the cap is named: ' + error.message);
+    return error.message;
+  };
+  // Two arguments claim the main input.
+  let text = refused({
+    urn, title: 'Compare', aliases: ['compare'],
+    args: [
+      arg('media:enc=utf-8', 'left', { stdin: 'media:enc=utf-8' }),
+      arg('media:enc=utf-8;other', 'right', { stdin: 'media:enc=utf-8' }),
+    ],
+    outputs: [output],
+  });
+  assert(text.includes('RULE3'), text);
+  // The output the cap URN states is not declared.
+  text = refused({
+    urn, title: 'Compare', aliases: ['compare'],
+    args: [arg('media:enc=utf-8', 'left', { stdin: 'media:enc=utf-8' })],
+  });
+  assert(text.includes('RULE21'), text);
+}
+
+// TEST12713: every definition this library builds in passes the rules it
+// holds everyone else's definitions to.
+function test12713_builtInDefinitionsPassTheDefinitionRules() {
+  const identity = identityCap();
+  validateCapDefinition(identity);
+  // Identity's `out=` is not void, so it declares its one output.
+  assertEqual(identity.mainOutput().getName(), 'output', 'identity declares its output');
+  assertEqual(identity.argNamed('input').getName(), 'input', 'and its input');
+  assertEqual(identity.argNamed('output'), null, 'an output is no argument');
+  assertEqual(JSON.stringify(identity.aliases), '["identity"]', 'under the alias every implementation gives it');
+  assert(identity.urn.isEquivalent(CapUrn.fromString(CAP_IDENTITY)), 'it is the identity cap');
+}
+
+// TEST12717: a manifest read from another program's bytes is parsed and
+// held to the definition rules in one step, and the two refusals are told
+// apart: bytes that are no manifest, and a manifest with a definition that
+// breaks a rule.
+function test12717_anAdvertisedManifestIsParsedAndChecked() {
+  const bytesOf = cap => new TextEncoder().encode(JSON.stringify(
+    manifestWith([new CapGroup('default', [identityCap(), cap])]).toJSON()
+  ));
+
+  const taken = CapManifest.fromAdvertised(bytesOf(convertCap(true)));
+  assertEqual(taken.allCaps().length, 2, 'both caps are taken');
+  const record = taken.allCaps()[1].outputNamed('record');
+  assert(record instanceof CapOutput, 'the output is read as an output');
+  assertEqual(record.media_urn, MEDIA_OBJECT, 'with its media URN');
+
+  const load = fn => {
+    try { fn(); } catch (e) {
+      assert(e instanceof ManifestLoadError, 'a ManifestLoadError: ' + e.message);
+      return e;
+    }
+    throw new Error('Assertion failed: the manifest must be refused');
+  };
+  const invalid = load(() => CapManifest.fromAdvertised(bytesOf(convertCap(false))));
+  assertEqual(invalid.unparseable, false, 'it parsed: what it carries is invalid');
+  assert(invalid.reason.includes('RULE21') && invalid.reason.includes('convert'), invalid.reason);
+  assert(invalid.message.includes('invalid cap definition'), invalid.message);
+
+  for (const notAManifest of ['{not json', '[]', '{"name":"x"}', new Uint8Array([0xff, 0xfe])]) {
+    const unparseable = load(() => CapManifest.fromAdvertised(notAManifest));
+    assertEqual(unparseable.unparseable, true, 'bytes that are no manifest');
+    assert(unparseable.message.includes('not a manifest'), unparseable.message);
+  }
+  // JSON that is no object is said to be that, not reported by a field.
+  for (const notAnObject of ['[]', 'null', '7', '"manifest"']) {
+    const refused = load(() => CapManifest.fromAdvertised(notAnObject));
+    assert(refused.unparseable && refused.reason.includes('must be a JSON object'), `${notAnObject}: ${refused.reason}`);
+  }
 }
 
 // TEST567: N/A for JS (conforms_to_str/accepts_str not in JS CapUrn)
@@ -4600,7 +4983,7 @@ function test6467_Machine_capRegistryEntry_construction() {
     command: 'extract',
     cap_description: 'Extracts text from PDF',
     args: [{ media_urn: 'media:document;ext=pdf', required: true }],
-    output: { media_urn: 'media:enc=utf-8;ext=txt', output_description: 'Digitized text' },
+    outputs: [{ media_urn: 'media:enc=utf-8;ext=txt', name: 'text', output_description: 'Digitized text' }],
     media_defs: [],
     urn_tags: { op: 'extract' },
     in_spec: 'media:document;ext=pdf',
@@ -4724,7 +5107,7 @@ function test6473_Renderer_cardinalityFromCap_findsStdinArgNotFirstArg() {
         sources: [{ stdin: {} }],
       },
     ],
-    output: { is_sequence: false },
+    outputs: [{ media_urn: 'media:enc=utf-8', is_sequence: false }],
   };
   assertEqual(rendererCardinalityFromCap(cap), 'n\u21921',
     'must pick the arg that has a stdin source, not args[0]');
@@ -4745,8 +5128,20 @@ function test6475_Renderer_cardinalityFromCap_outputOnlySequence() {
   const cap = {
     urn: 'cap:in="media:enc=utf-8";generate;out="media:enc=utf-8;list"',
     args: [{ sources: [{ stdin: {} }], is_sequence: false }],
-    output: { is_sequence: true },
+    // The main output is the one whose URN is `out=`, wherever it is listed
+    // and however its tags are ordered; another output's cardinality is not
+    // the cap's.
+    outputs: [
+      { media_urn: 'media:enc=utf-8;rest', is_sequence: false },
+      { media_urn: 'media:list;enc=utf-8', is_sequence: true },
+    ],
   };
+  const otherIsTheSequence = { ...cap, outputs: [
+    { media_urn: 'media:enc=utf-8;rest', is_sequence: true },
+    { media_urn: 'media:list;enc=utf-8', is_sequence: false },
+  ] };
+  assertEqual(rendererCardinalityFromCap(otherIsTheSequence), '1→1',
+    'a sequence on another output is not the main output\'s cardinality');
   assertEqual(rendererCardinalityFromCap(cap), '1\u2192n',
     'scalar stdin with sequence output must yield 1→n');
 }
@@ -4759,7 +5154,7 @@ function test6476_Renderer_cardinalityFromCap_rejectsStringIsSequence() {
   const cap = {
     urn: 'cap:in="media:";x;out="media:"',
     args: [{ sources: [{ stdin: {} }], is_sequence: 'true' }],
-    output: { is_sequence: 'true' },
+    outputs: [{ media_urn: 'media:', is_sequence: 'true' }],
   };
   assertEqual(rendererCardinalityFromCap(cap), '1\u21921',
     'string "true" must not be treated as boolean true');
@@ -6856,7 +7251,7 @@ function test1848_capVersionNonZeroOnWire() {
 // TEST7100: streamUrn() returns the stdin source's URN when it differs from the declared slot media_urn — the stdin URN, not the slot URN, is what the runtime demuxes the arg's input stream by.
 function test7100_streamUrnReturnsStdinSourceUrnWhenItDiffersFromSlotUrn() {
   const arg = new CapArg(
-    'media:enc=utf-8;file-path',
+    'media:enc=utf-8;file-path', 'enc',
     true,
     [new ArgSource({ stdin: 'media:document;ext=pdf;pdf-stream' })]
   );
@@ -6869,7 +7264,7 @@ function test7100_streamUrnReturnsStdinSourceUrnWhenItDiffersFromSlotUrn() {
 // TEST7101: streamUrn() falls back to the declared slot media_urn when the arg declares no stdin source — a producer-fed arg may be delivered by its declared URN without ever appearing on stdin.
 function test7101_streamUrnFallsBackToDeclaredMediaUrnWithoutStdinSource() {
   const arg = new CapArg(
-    'media:enc=utf-8;system-prompt',
+    'media:enc=utf-8;system-prompt', 'enc',
     true,
     [new ArgSource({ cli_flag: '--system-prompt' })]
   );
@@ -6881,7 +7276,7 @@ function test7101_streamUrnFallsBackToDeclaredMediaUrnWithoutStdinSource() {
 function test7102_isMainInputTrueOnTagOrderInsensitiveEquivalenceToInSpec() {
   const inSpec = MediaUrn.fromString('media:document;ext=pdf;pdf-stream');
   const arg = new CapArg(
-    'media:enc=utf-8;file-path',
+    'media:enc=utf-8;file-path', 'enc',
     true,
     [new ArgSource({ stdin: 'media:pdf-stream;document;ext=pdf' })] // same tags, different order
   );
@@ -6898,21 +7293,21 @@ function test7103_isMainInputFalseWithoutEquivalentStdinSource() {
   const inSpec = MediaUrn.fromString('media:document;ext=pdf;pdf-stream');
 
   const cliFlagOnly = new CapArg(
-    'media:document;ext=pdf;pdf-stream', // slot URN even matches in= — irrelevant
+    'media:document;ext=pdf;pdf-stream', 'document', // slot URN even matches in= — irrelevant
     true,
     [new ArgSource({ cli_flag: '--input' })]
   );
   assert(!cliFlagOnly.isMainInput(inSpec), 'cli_flag-only arg is never the main input');
 
   const positionOnly = new CapArg(
-    'media:document;ext=pdf;pdf-stream',
+    'media:document;ext=pdf;pdf-stream', 'document2',
     true,
     [new ArgSource({ position: 0 })]
   );
   assert(!positionOnly.isMainInput(inSpec), 'position-only arg is never the main input');
 
   const nonEquivalentStdin = new CapArg(
-    'media:enc=utf-8;system-prompt',
+    'media:enc=utf-8;system-prompt', 'enc',
     false,
     [new ArgSource({ stdin: 'media:enc=utf-8;system-prompt' })]
   );
@@ -6926,31 +7321,31 @@ function test7104_multiArgCapExactlyOneMainInputAndPartitionOfRest() {
 
   const args = [
     new CapArg(
-      'media:enc=utf-8;file-path',
+      'media:enc=utf-8;file-path', 'enc',
       true,
       // Main input may ALSO be delivered by cli-flag; stdin is the
       // defining route.
       [new ArgSource({ stdin: 'media:pdf-stream;document;ext=pdf' }), new ArgSource({ cli_flag: '--input' })]
     ),
     new CapArg(
-      'media:enc=utf-8;question',
+      'media:enc=utf-8;question', 'enc2',
       true,
       [new ArgSource({ cli_flag: '--question' })]
     ),
     new CapArg(
-      'media:max-tokens;numeric',
+      'media:max-tokens;numeric', 'max-tokens',
       false,
       [new ArgSource({ cli_flag: '--max-tokens' })],
       { default_value: 1024 }
     ),
     new CapArg(
-      'media:numeric;temperature',
+      'media:numeric;temperature', 'numeric',
       false,
       [new ArgSource({ cli_flag: '--temperature' })],
       { default_value: 0.7 }
     ),
     new CapArg(
-      'media:enc=utf-8;system-prompt',
+      'media:enc=utf-8;system-prompt', 'enc3',
       false,
       [new ArgSource({ cli_flag: '--system-prompt' })],
       { default_value: 'You are a helpful assistant.' }
@@ -7559,12 +7954,24 @@ async function runTests() {
   runTest('TEST1306: are_compatible', test564_areCompatible);
   runTest('TEST1307: with_tag_rejects_structural_keys', test566_withTagRejectsStructuralKeys);
   runTest('TEST1308: builder_rejects_structural_keys', test6544_builderRejectsStructuralKeys);
-  runTest('TEST1294: rule11_void_input_with_stdin_rejected', test1294_rule11VoidInputWithStdinRejected);
-  runTest('TEST1295: rule11_non_void_input_without_stdin_rejected', test1295_rule11NonVoidInputWithoutStdinRejected);
-  runTest('TEST1296: rule11_void_input_cli_flag_only', test1296_rule11VoidInputCliFlagOnly);
-  runTest('TEST1297: rule11_non_void_input_with_stdin', test1297_rule11NonVoidInputWithStdin);
+  runTest('TEST1294: rule15_void_input_with_stdin_rejected', test1294_rule15VoidInputWithStdinRejected);
+  runTest('TEST1295: rule15_non_void_input_without_stdin_rejected', test1295_rule15NonVoidInputWithoutStdinRejected);
+  runTest('TEST1296: rule15_void_input_cli_flag_only', test1296_rule15VoidInputCliFlagOnly);
+  runTest('TEST1297: rule15_non_void_input_with_stdin', test1297_rule15NonVoidInputWithStdin);
   runTest('TEST1953: rule14_streaming_only_on_main_input', test1953_rule14StreamingOnlyOnMainInput);
   runTest('TEST1964: unknown_definition_field_is_refused', test1964_unknownDefinitionFieldIsRefused);
+  runTest('TEST580: rule3_two_stdin_args_rejected', test580_rule3TwoStdinArgsRejected);
+  runTest('TEST581: rule3_identical_stdin_urns_are_still_two_main_inputs', test581_rule3IdenticalStdinUrnsAreStillTwoMainInputs);
+  runTest('TEST12705: rule15_the_stdin_argument_is_the_caps_input', test12705_rule15TheStdinArgumentIsTheCapsInput);
+  runTest('TEST12706: rule17_argument_names', test12706_rule17ArgumentNames);
+  runTest('TEST12707: rule18_accepts_and_the_two_urns_of_an_argument', test12707_rule18AcceptsAndTheTwoUrnsOfAnArgument);
+  runTest('TEST12708: rule19_rule20_output_names_and_identities', test12708_rule19Rule20OutputNamesAndIdentities);
+  runTest('TEST12709: rule21_exactly_one_main_output', test12709_rule21ExactlyOneMainOutput);
+  runTest('TEST12710: rule22_what_an_output_carries', test12710_rule22WhatAnOutputCarries);
+  runTest('TEST12711: validate_refuses_an_invalid_definition', test12711_validateRefusesAnInvalidDefinition);
+  runTest('TEST12712: advertised_cap_groups_reject_an_invalid_definition', test12712_advertisedCapGroupsRejectAnInvalidDefinition);
+  runTest('TEST12713: built_in_definitions_pass_the_definition_rules', test12713_builtInDefinitionsPassTheDefinitionRules);
+  runTest('TEST12717: an_advertised_manifest_is_parsed_and_checked', test12717_anAdvertisedManifestIsParsedAndChecked);
 
   // cap_urn.rs: TEST639-TEST653 (Cap URN wildcard tests)
   console.log('\n--- cap_urn.rs (wildcard tests) ---');

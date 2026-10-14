@@ -2617,9 +2617,11 @@ class ArgSource {
 }
 
 /** The definition's argument keys — what every capdag mirror's CapArg carries. */
-const CAP_ARG_KEYS = Object.freeze(['media_urn', 'required', 'sources', 'arg_description', 'default_value', 'metadata', 'is_sequence', 'streaming']);
+const CAP_ARG_KEYS = Object.freeze(['media_urn', 'name', 'accepts', 'required', 'sources', 'arg_description', 'default_value', 'metadata', 'is_sequence', 'streaming']);
 /** The definition's output keys — what every capdag mirror's CapOutput carries. */
-const CAP_OUTPUT_KEYS = Object.freeze(['media_urn', 'output_description', 'metadata', 'is_sequence', 'streaming']);
+const CAP_OUTPUT_KEYS = Object.freeze(['media_urn', 'name', 'output_description', 'optional', 'carries', 'metadata', 'is_sequence', 'streaming']);
+/** What an output carries when it carries the main input's type unchanged. */
+const OUTPUT_CARRIES_INPUT = 'input';
 
 function refuseUnknownDefinitionKeys(json, known, what) {
   const unknown = Object.keys(json).filter(key => !known.includes(key)).sort();
@@ -2632,18 +2634,56 @@ function refuseUnknownDefinitionKeys(json, known, what) {
 }
 
 /**
+ * A definition without its name is not a definition this capdag reads: the
+ * name is how a machine says which arg or output it means.
+ */
+function requireDefinitionName(json, what) {
+  if (typeof json.name !== 'string') {
+    throw new Error(`${what} is missing field \`name\``);
+  }
+}
+
+/**
+ * Whether `name` can name an argument or an output (RULE17, RULE19): the
+ * lexical form of a notation alias, and none of the words notation reads as
+ * constants.
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isValidDefinitionName(name) {
+  if (typeof name !== 'string') return false;
+  if (name === 'true' || name === 'false' || name === 'null') return false;
+  return /^[A-Za-z_][A-Za-z0-9_-]*$/.test(name);
+}
+
+/**
  * Cap argument definition - media_urn is the unique identifier
  */
 class CapArg {
   /**
    * Create a new CapArg
    * @param {string} mediaUrn - The unique media URN for this argument
+   * @param {string} name - The label a machine selects this arg by: unique
+   *   among the cap's args (RULE17). A label only — the arg is identified by
+   *   its media URN, and nothing of the URN can be read from the name.
    * @param {boolean} required - Whether this argument is required
    * @param {Array<ArgSource>} sources - How this argument can be provided
-   * @param {Object} options - Optional fields: arg_description, default_value, metadata
+   * @param {Object} options - Optional fields: arg_description, default_value, metadata, accepts
    */
-  constructor(mediaUrn, required, sources, options = {}) {
+  constructor(mediaUrn, name, required, sources, options = {}) {
+    if (typeof name !== 'string') {
+      throw new Error(`a cap argument's name is a string, not ${JSON.stringify(name)}`);
+    }
+    if (typeof required !== 'boolean') {
+      throw new Error(`a cap argument's required flag is a boolean, not ${JSON.stringify(required)}`);
+    }
     this.media_urn = mediaUrn;
+    this.name = name;
+    // The media type a value bound to this arg must conform to, when that is
+    // not the arg's own URN: two args may then accept one type and stay two
+    // args. An arg with a stdin source says what it accepts there, and
+    // declares none (RULE18).
+    this.accepts = (options.accepts !== undefined && options.accepts !== null) ? options.accepts : null;
     this.required = required;
     this.is_sequence = options.is_sequence || false;
     // Consumed WITHOUT a length promise (a feed): the cap processes items as
@@ -2669,17 +2709,20 @@ class CapArg {
     // `streaming` argument once went out as bounded); it is refused, named.
     // Mirrors Rust `deny_unknown_fields`.
     refuseUnknownDefinitionKeys(json, CAP_ARG_KEYS, 'cap argument');
+    requireDefinitionName(json, 'cap argument');
     const sources = (json.sources || []).map(s => ArgSource.fromJSON(s));
     return new CapArg(
       json.media_urn,
-      json.required,
+      json.name,
+      json.required === true,
       sources,
       {
         is_sequence: json.is_sequence,
         streaming: json.streaming,
         arg_description: json.arg_description,
         default_value: json.default_value,
-        metadata: json.metadata
+        metadata: json.metadata,
+        accepts: json.accepts
       }
     );
   }
@@ -2691,9 +2734,11 @@ class CapArg {
   toJSON() {
     const result = {
       media_urn: this.media_urn,
-      required: this.required,
-      sources: this.sources.map(s => s.toJSON())
+      name: this.name
     };
+    if (this.accepts !== null) result.accepts = this.accepts;
+    result.required = this.required;
+    result.sources = this.sources.map(s => s.toJSON());
     if (this.is_sequence) result.is_sequence = true;
     if (this.streaming) result.streaming = true;
     if (this.arg_description !== null && this.arg_description !== undefined) {
@@ -2709,7 +2754,49 @@ class CapArg {
   }
 
   /**
-   * Check if this argument has a stdin source
+   * The label a machine selects this arg by.
+   * @returns {string}
+   */
+  getName() {
+    return this.name;
+  }
+
+  /**
+   * This arg, declaring the type it accepts (see `accepts`). The arg it is
+   * made from is not changed.
+   * @param {string} accepts - The media URN a value bound to it must conform to
+   * @returns {CapArg}
+   */
+  accepting(accepts) {
+    return new CapArg(this.media_urn, this.name, this.required, this.sources, {
+      is_sequence: this.is_sequence,
+      streaming: this.streaming,
+      arg_description: this.arg_description,
+      default_value: this.default_value,
+      metadata: this.metadata,
+      accepts
+    });
+  }
+
+  /**
+   * The media URN a value bound to this arg must conform to: its stdin
+   * source's URN when it declares one (the main input), else what it says it
+   * accepts, else its own media URN. This is what matching reads. It is not
+   * what the stream is delivered under — that is `streamUrn()`, which for an
+   * arg with `accepts` is its own URN, so two args accepting one type stay
+   * distinct on the wire.
+   * @returns {string}
+   */
+  acceptedUrn() {
+    const stdinSource = this.sources.find(s => s.stdin !== null);
+    if (stdinSource) return stdinSource.stdin;
+    if (this.accepts !== null) return this.accepts;
+    return this.media_urn;
+  }
+
+  /**
+   * Check if this argument has a stdin source: it is then the cap's main
+   * input (RULE3, RULE15).
    * @returns {boolean} True if has stdin source
    */
   hasStdinSource() {
@@ -2801,6 +2888,111 @@ class CapArg {
 }
 
 /**
+ * One output of a cap. A cap declares one per value it produces; exactly one
+ * is the main one, whose media URN is the cap URN's `out=` (RULE21).
+ */
+class CapOutput {
+  /**
+   * @param {string} mediaUrn - The output's media URN: its identity
+   * @param {string} name - The label a machine takes this output by: unique
+   *   among the cap's outputs (RULE19). A label only.
+   * @param {string} outputDescription - What the output is
+   * @param {Object} options - Optional fields: metadata, is_sequence, streaming, optional, carries
+   */
+  constructor(mediaUrn, name, outputDescription, options = {}) {
+    if (typeof name !== 'string') {
+      throw new Error(`a cap output's name is a string, not ${JSON.stringify(name)}`);
+    }
+    this.media_urn = mediaUrn;
+    this.name = name;
+    this.output_description = (typeof outputDescription === 'string') ? outputDescription : '';
+    this.metadata = options.metadata !== undefined ? options.metadata : null;
+    this.is_sequence = options.is_sequence === true;
+    // MAY be emitted without a length promise (unbounded).
+    this.streaming = options.streaming === true;
+    // The cap may end without producing this output. What needs it is then
+    // skipped.
+    this.optional = options.optional === true;
+    // What the output carries when that is not its own media URN:
+    // OUTPUT_CARRIES_INPUT or null. Only an output other than the main one,
+    // of a cap that takes an input, may declare it (RULE22).
+    const carries = (options.carries !== undefined && options.carries !== null) ? options.carries : null;
+    if (carries !== null && carries !== OUTPUT_CARRIES_INPUT) {
+      throw new Error(
+        `cap output carries ${JSON.stringify(carries)}: an output carries its own type, or '${OUTPUT_CARRIES_INPUT}'`
+      );
+    }
+    this.carries = carries;
+  }
+
+  /**
+   * Parse from JSON, refusing unknown keys for the same reason as
+   * `CapArg.fromJSON`: an unknown key is a newer fabric.
+   * @param {Object} json
+   * @returns {CapOutput}
+   */
+  static fromJSON(json) {
+    refuseUnknownDefinitionKeys(json, CAP_OUTPUT_KEYS, 'cap output');
+    requireDefinitionName(json, 'cap output');
+    return new CapOutput(json.media_urn, json.name, json.output_description, {
+      metadata: json.metadata,
+      is_sequence: json.is_sequence,
+      streaming: json.streaming,
+      optional: json.optional,
+      carries: json.carries
+    });
+  }
+
+  toJSON() {
+    const result = {
+      media_urn: this.media_urn,
+      name: this.name,
+      output_description: this.output_description,
+      optional: this.optional
+    };
+    if (this.carries !== null) result.carries = this.carries;
+    if (this.metadata !== null && this.metadata !== undefined) result.metadata = this.metadata;
+    if (this.is_sequence) result.is_sequence = true;
+    if (this.streaming) result.streaming = true;
+    return result;
+  }
+
+  /** The label a machine takes this output by. */
+  getName() {
+    return this.name;
+  }
+
+  _with(changes) {
+    return new CapOutput(this.media_urn, this.name, this.output_description, {
+      metadata: this.metadata,
+      is_sequence: this.is_sequence,
+      streaming: this.streaming,
+      optional: this.optional,
+      carries: this.carries,
+      ...changes
+    });
+  }
+
+  /**
+   * This output, declared optional or not. The output it is made from is not
+   * changed.
+   * @param {boolean} optional
+   * @returns {CapOutput}
+   */
+  asOptional(optional) {
+    return this._with({ optional: optional === true });
+  }
+
+  /**
+   * This output, declared to carry the main input's type unchanged.
+   * @returns {CapOutput}
+   */
+  carryingInput() {
+    return this._with({ carries: OUTPUT_CARRIES_INPUT });
+  }
+}
+
+/**
  * Capability definition class
  */
 class Cap {
@@ -2834,7 +3026,10 @@ class Cap {
     this.documentation = documentation;
     this.metadata = metadata || {};
     this.args = [];  // Array of CapArg - unified argument format
-    this.output = null;
+    // Every output the cap declares (Array of CapOutput). Exactly one is the
+    // main one, whose media URN is the cap URN's `out=`; a cap whose `out=`
+    // is media:void declares none (RULE21).
+    this.outputs = [];
     this.metadata_json = metadataJson;
     this.registered_by = null;  // Registration attribution
     this.supported_model_types = [];  // Model types this cap supports (omitted when empty)
@@ -2995,11 +3190,80 @@ class Cap {
   }
 
   /**
-   * Set the output definition
-   * @param {Object} output - The output definition
+   * The argument a machine names (`name = source`).
+   * @param {string} name
+   * @returns {CapArg|null}
    */
-  setOutput(output) {
-    this.output = output;
+  argNamed(name) {
+    return this.args.find(arg => arg.name === name) || null;
+  }
+
+  /**
+   * Every output the cap declares.
+   * @returns {Array<CapOutput>}
+   */
+  getOutputs() {
+    return this.outputs;
+  }
+
+  /**
+   * The main output: the one whose media URN is the cap URN's `out=`, by
+   * tagged-URN equivalence. Null for a cap whose `out=` is media:void, which
+   * declares none (RULE21).
+   * @returns {CapOutput|null}
+   */
+  mainOutput() {
+    return this.outputByUrn(this.urn.getOutSpec());
+  }
+
+  /**
+   * The output a media URN identifies, by tagged-URN equivalence.
+   * @param {string} mediaUrn
+   * @returns {CapOutput|null}
+   */
+  outputByUrn(mediaUrn) {
+    let wanted;
+    try {
+      wanted = MediaUrn.fromString(mediaUrn);
+    } catch (_) {
+      return null;
+    }
+    for (const output of this.outputs) {
+      try {
+        if (MediaUrn.fromString(output.media_urn).isEquivalent(wanted)) return output;
+      } catch (_) {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The output a machine names (`name = node`).
+   * @param {string} name
+   * @returns {CapOutput|null}
+   */
+  outputNamed(name) {
+    return this.outputs.find(output => output.name === name) || null;
+  }
+
+  /**
+   * Replace the outputs this cap declares.
+   * @param {Array<CapOutput>} outputs
+   */
+  setOutputs(outputs) {
+    this.outputs = [...outputs];
+  }
+
+  /**
+   * Declare one more output.
+   * @param {CapOutput} output
+   */
+  addOutput(output) {
+    if (!(output instanceof CapOutput)) {
+      throw new Error('an output of a cap is a CapOutput');
+    }
+    this.outputs.push(output);
   }
 
   /**
@@ -3044,7 +3308,7 @@ class Cap {
            this.documentation === other.documentation &&
            JSON.stringify(this.metadata) === JSON.stringify(other.metadata) &&
            JSON.stringify(this.args.map(a => a.toJSON())) === JSON.stringify(other.args.map(a => a.toJSON())) &&
-           JSON.stringify(this.output) === JSON.stringify(other.output) &&
+           JSON.stringify(this.outputs.map(o => o.toJSON())) === JSON.stringify(other.outputs.map(o => o.toJSON())) &&
            JSON.stringify(this.metadata_json) === JSON.stringify(other.metadata_json) &&
            JSON.stringify(this.registered_by) === JSON.stringify(other.registered_by) &&
            JSON.stringify(this.supported_model_types) === JSON.stringify(other.supported_model_types) &&
@@ -3063,7 +3327,7 @@ class Cap {
       cap_description: this.cap_description,
       metadata: this.metadata,
       args: this.args.map(a => a.toJSON()),
-      output: this.output
+      outputs: this.outputs.map(o => o.toJSON())
     };
 
     if (this.version !== 0) {
@@ -3124,10 +3388,12 @@ class Cap {
     } else {
       cap.args = [];
     }
-    if (json.output !== undefined && json.output !== null) {
-      refuseUnknownDefinitionKeys(json.output, CAP_OUTPUT_KEYS, 'cap output');
+    if (json.outputs !== undefined && json.outputs !== null) {
+      if (!Array.isArray(json.outputs)) {
+        throw new Error(`cap '${json.urn}': 'outputs' is a list of outputs`);
+      }
+      cap.outputs = json.outputs.map(o => CapOutput.fromJSON(o));
     }
-    cap.output = json.output;
     cap.registered_by = json.registered_by ? RegisteredBy.fromJSON(json.registered_by) : null;
     cap.supported_model_types = Array.isArray(json.supported_model_types) ? json.supported_model_types : [];
     cap.default_model_spec = (typeof json.default_model_spec === 'string') ? json.default_model_spec : null;
@@ -3214,6 +3480,51 @@ class CapGroup {
  * identity — each (registry, channel) pair is an independent namespace.
  * Mirrors CSCapManifest / capdag::cap_manifest::CapManifest.
  */
+/**
+ * The cap groups of a manifest a cartridge advertised, as it wrote them. The
+ * definitions a host is about to route by are held to the definition rules
+ * here, not taken on the cartridge's word: a manifest that is no manifest, or
+ * that carries a definition breaking a rule, is refused.
+ * @param {string|Uint8Array|Buffer} data - The manifest's JSON text or bytes
+ * @returns {Array<Object>} The manifest's cap_groups
+ * @throws {ManifestLoadError}
+ */
+function advertisedCapGroups(data) {
+  CapManifest.fromAdvertised(data);
+  const text = (typeof data === 'string') ? data : new TextDecoder('utf-8', { fatal: true }).decode(data);
+  return JSON.parse(text).cap_groups;
+}
+
+/**
+ * The canonical Identity cap definition: the one every cartridge advertises.
+ * @returns {Cap}
+ */
+function identityCap() {
+  const cap = new Cap(
+    CapUrn.fromString(CAP_IDENTITY),
+    'Identity',
+    ['identity'],
+    'The categorical identity morphism. Echoes input as output unchanged. Mandatory in every capability set.'
+  );
+  cap.addArg(new CapArg('media:', 'input', true, [new ArgSource({ stdin: 'media:' })]));
+  cap.addOutput(new CapOutput('media:', 'output', 'The input data, unchanged'));
+  return cap;
+}
+
+/**
+ * Why a manifest another program advertised was not taken: its bytes are not
+ * a manifest (`unparseable`), or it parsed and a cap definition in it breaks a
+ * definition rule.
+ */
+class ManifestLoadError extends Error {
+  constructor(unparseable, reason) {
+    super(unparseable ? `not a manifest: ${reason}` : `invalid cap definition: ${reason}`);
+    this.name = 'ManifestLoadError';
+    this.unparseable = unparseable;
+    this.reason = reason;
+  }
+}
+
 class CapManifest {
   /**
    * @param {string} name - Component name
@@ -3259,6 +3570,54 @@ class CapManifest {
   }
 
   /**
+   * Hold every definition in the manifest to the definition rules
+   * (RULE1-RULE22). Throws naming the cap and the rule.
+   */
+  validateDefinitions() {
+    for (const cap of this.allCaps()) {
+      validateCapDefinition(cap);
+    }
+  }
+
+  /**
+   * Validate this manifest: it has CAP_IDENTITY, and every definition in it,
+   * in any group, passes the definition rules. Identity alone being present
+   * is not enough. Throws naming what is wrong.
+   */
+  validate() {
+    const identity = CapUrn.fromString(CAP_IDENTITY);
+    if (!this.allCaps().some(cap => identity.conformsTo(cap.urn))) {
+      throw new Error(`Manifest missing required CAP_IDENTITY (${CAP_IDENTITY})`);
+    }
+    this.validateDefinitions();
+  }
+
+  /**
+   * Take a manifest another program advertised: parse it and hold every
+   * definition in it to the definition rules, in one step. The two refusals
+   * are told apart (`ManifestLoadError.unparseable`): bytes that are no
+   * manifest, and a manifest with a definition that breaks a rule.
+   * @param {string|Uint8Array|Buffer} data - The manifest's JSON text or bytes
+   * @returns {CapManifest}
+   * @throws {ManifestLoadError}
+   */
+  static fromAdvertised(data) {
+    let manifest;
+    try {
+      const text = (typeof data === 'string') ? data : new TextDecoder('utf-8', { fatal: true }).decode(data);
+      manifest = CapManifest.fromJSON(JSON.parse(text));
+    } catch (error) {
+      throw new ManifestLoadError(true, error.message);
+    }
+    try {
+      manifest.validateDefinitions();
+    } catch (error) {
+      throw new ManifestLoadError(false, error.message);
+    }
+    return manifest;
+  }
+
+  /**
    * Create a CapManifest from JSON / dictionary representation.
    *
    * `registry_url` must be present as a key; it may be `null` (dev build)
@@ -3270,6 +3629,7 @@ class CapManifest {
    * @throws {Error} If required fields are missing or invalid
    */
   static fromJSON(json) {
+    if (json === null || typeof json !== 'object' || Array.isArray(json)) throw new Error('CapManifest must be a JSON object');
     if (!Object.prototype.hasOwnProperty.call(json, 'name')) throw new Error('CapManifest missing required field: name');
     if (!Object.prototype.hasOwnProperty.call(json, 'version')) throw new Error('CapManifest missing required field: version');
     if (!Object.prototype.hasOwnProperty.call(json, 'channel')) throw new Error('CapManifest missing required field: channel');
@@ -3420,7 +3780,129 @@ class ValidationError extends Error {
 }
 
 /**
- * Validate cap args against the 12 validation rules
+ * Hold a whole definition to the definition rules (RULE1-RULE22): its
+ * arguments, then its outputs. A definition is held to them wherever it
+ * crosses from one program to another.
+ * @param {Cap} cap - The capability to validate
+ * @throws {ValidationError} If any rule is broken
+ */
+function validateCapDefinition(cap) {
+  validateCapArgs(cap);
+  validateCapOutputs(cap);
+}
+
+/**
+ * Enforce the rules on a cap's outputs.
+ *
+ * - RULE19: Output names: required, well-formed, unique
+ * - RULE20: No duplicate output media_urns
+ * - RULE21: Exactly one main output, matching out= (none when out= is media:void)
+ * - RULE22: What an output carries
+ * @param {Cap} cap - The capability to validate
+ * @throws {ValidationError} If any rule is broken
+ */
+function validateCapOutputs(cap) {
+  const capUrn = cap.urnString();
+  const refuse = issue => new ValidationError('InvalidCapSchema', capUrn, { issue });
+
+  const voidMedia = MediaUrn.fromString(MEDIA_VOID);
+  let outMedia;
+  try {
+    outMedia = MediaUrn.fromString(cap.urn.getOutSpec());
+  } catch (e) {
+    throw refuse(`RULE21: Failed to parse out= spec: ${e.message}`);
+  }
+  let inMedia;
+  try {
+    inMedia = MediaUrn.fromString(cap.urn.getInSpec());
+  } catch (e) {
+    throw refuse(`RULE22: Failed to parse in= spec: ${e.message}`);
+  }
+  const outIsVoid = outMedia.isEquivalent(voidMedia);
+  const inIsVoid = inMedia.isEquivalent(voidMedia);
+  const outputs = cap.getOutputs();
+
+  // RULE19: names
+  const named = [];
+  for (const output of outputs) {
+    if (!output.name) {
+      throw refuse(`RULE19: Output '${output.media_urn}' has no name`);
+    }
+    if (!isValidDefinitionName(output.name)) {
+      throw refuse(`RULE19: Output name '${output.name}' is not a valid name`);
+    }
+    const seen = named.find(other => other.name === output.name);
+    if (seen) {
+      throw refuse(
+        `RULE19: Outputs '${seen.media_urn}' and '${output.media_urn}' share the name '${output.name}'`
+      );
+    }
+    named.push(output);
+  }
+
+  // RULE20: identities, compared as media URNs (tag order is not identity)
+  const identities = [];
+  for (const output of outputs) {
+    let outputUrn;
+    try {
+      outputUrn = MediaUrn.fromString(output.media_urn);
+    } catch (e) {
+      throw refuse(`RULE20: Output media_urn '${output.media_urn}' is not a media URN: ${e.message}`);
+    }
+    if (identities.some(seen => seen.isEquivalent(outputUrn))) {
+      throw refuse(`RULE20: Duplicate output media_urn '${output.media_urn}'`);
+    }
+    identities.push(outputUrn);
+  }
+
+  // RULE21: the main output
+  if (outIsVoid) {
+    if (outputs.length > 0) {
+      throw refuse(`RULE21: out= is 'media:void' but ${outputs.length} output(s) are declared`);
+    }
+    return;
+  }
+  const main = [];
+  identities.forEach((identity, index) => {
+    if (identity.isEquivalent(outMedia)) main.push(index);
+  });
+  if (main.length !== 1) {
+    throw refuse(
+      `RULE21: out= is '${cap.urn.getOutSpec()}' but ${main.length} outputs are equivalent to it; exactly one must be`
+    );
+  }
+
+  // RULE22: what an output carries
+  outputs.forEach((output, index) => {
+    if (output.carries === null) return;
+    if (index === main[0]) {
+      throw refuse(`RULE22: The main output '${output.media_urn}' declares carries`);
+    }
+    if (inIsVoid) {
+      throw refuse(`RULE22: Output '${output.media_urn}' carries the input but the cap takes none`);
+    }
+  });
+}
+
+/**
+ * Enforce structural rules on a cap's argument definitions. Every rule is
+ * raised under the number the reference raises it under: a number names one
+ * rule.
+ *
+ * - RULE1: No duplicate media_urns
+ * - RULE2: sources must not be empty
+ * - RULE3: At most one arg declares a stdin source
+ * - RULE4: No arg may specify same source type more than once
+ * - RULE5: No two args may have same position
+ * - RULE6: Positions must be sequential (0-based, no gaps)
+ * - RULE7: No arg may have both position and cli_flag
+ * - RULE9: No two args may have same cli_flag
+ * - RULE10: Reserved cli_flags cannot be used
+ * - RULE14: Only the main input argument may declare streaming=true
+ * - RULE15: The main input matches in= (void input declares no stdin; any
+ *   other declares one, equivalent to in=)
+ * - RULE17: Argument names: required, well-formed, unique
+ * - RULE18: `accepts` only without a stdin source
  * @param {Cap} cap - The capability to validate
  * @throws {ValidationError} If any validation rule is violated
  */
@@ -3497,33 +3979,78 @@ function validateCapArgs(cap) {
     }
   }
 
-  // RULE3: If multiple args have stdin source, stdin media_urns must be identical
-  if (stdinUrns.length > 1) {
-    const firstStdin = stdinUrns[0];
-    for (let i = 1; i < stdinUrns.length; i++) {
-      if (stdinUrns[i] !== firstStdin) {
-        throw new ValidationError('InvalidCapSchema', capUrn, {
-          issue: `RULE3: Multiple args have different stdin media_urns: '${firstStdin}' vs '${stdinUrns[i]}'`
-        });
-      }
+  // RULE3: At most one arg declares a stdin source. `stdin` is a command
+  // line's one piped input, and the arg that declares it is the main input.
+  const stdinArgs = args.filter(arg => arg.hasStdinSource()).map(arg => arg.media_urn);
+  if (stdinArgs.length > 1) {
+    throw new ValidationError('InvalidCapSchema', capUrn, {
+      issue: `RULE3: Arguments '${stdinArgs[0]}' and '${stdinArgs[1]}' both declare a stdin source; a cap has one main input`
+    });
+  }
+
+  // RULE17: names
+  const named = [];
+  for (const arg of args) {
+    if (!arg.name) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE17: Argument '${arg.media_urn}' has no name`
+      });
+    }
+    if (!isValidDefinitionName(arg.name)) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE17: Argument name '${arg.name}' is not a valid name`
+      });
+    }
+    const seen = named.find(other => other.name === arg.name);
+    if (seen) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE17: Arguments '${seen.media_urn}' and '${arg.media_urn}' share the name '${arg.name}'`
+      });
+    }
+    named.push(arg);
+  }
+
+  // RULE18: an arg says what it accepts in one place.
+  for (const arg of args) {
+    if (arg.accepts !== null && arg.hasStdinSource()) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE18: Argument '${arg.media_urn}' declares both a stdin source and accepts`
+      });
     }
   }
 
-  // RULE11: Stdin source consistency with in= spec
-  // If in= is media:void, no args may have stdin sources.
-  // If in= is anything other than media:void, at least one arg must have a stdin source.
-  const inMediaUrn = cap.urn.inMediaUrn();
+  // RULE15: The main input matches in=. If in= is media:void, no arg may
+  // have a stdin source (the cap takes no data-flow input). Otherwise exactly
+  // one does (RULE3 caps it at one), and its URN is in= — compared as tagged
+  // URNs, never as strings.
+  let inMediaUrn;
+  try {
+    inMediaUrn = cap.urn.inMediaUrn();
+  } catch (e) {
+    throw new ValidationError('InvalidCapSchema', capUrn, {
+      issue: `RULE15: Failed to parse in= spec: ${e.message}`
+    });
+  }
   const voidUrn = MediaUrn.fromString(MEDIA_VOID);
   const inIsVoid = inMediaUrn.isEquivalent(voidUrn);
   if (inIsVoid && stdinUrns.length > 0) {
     throw new ValidationError('InvalidCapSchema', capUrn, {
-      issue: `RULE11: Cap has in="${MEDIA_VOID}" but argument(s) declare stdin source`
+      issue: `RULE15: in= is 'media:void' but ${stdinUrns.length} arg(s) declare a stdin source`
     });
   }
-  if (!inIsVoid && stdinUrns.length === 0 && args.length > 0) {
-    throw new ValidationError('InvalidCapSchema', capUrn, {
-      issue: `RULE11: Cap has non-void in= spec but no argument declares a stdin source`
-    });
+  if (!inIsVoid) {
+    const isIn = stdin => {
+      try {
+        return MediaUrn.fromString(stdin).isEquivalent(inMediaUrn);
+      } catch (_) {
+        return false;
+      }
+    };
+    if (!stdinUrns.some(isIn)) {
+      throw new ValidationError('InvalidCapSchema', capUrn, {
+        issue: `RULE15: in= is '${cap.urn.getInSpec()}' but no arg declares a stdin source equivalent to it`
+      });
+    }
   }
 
   // RULE14: Only the main input may stream. `streaming: true` declares that
@@ -3902,7 +4429,7 @@ class OutputValidator {
    *   threaded through to `resolveMediaUrn` for schema resolution.
    */
   static validateOutput(cap, output, mediaDefs = []) {
-    const outputDef = cap.output;
+    const outputDef = cap.mainOutput();
 
     if (!outputDef) return; // No output definition to validate against
 
@@ -3922,12 +4449,7 @@ class OutputValidator {
   static validateOutputType(cap, outputDef, value, mediaDefs = []) {
     const capUrn = cap.urnString();
 
-    // Get mediaUrn field (now contains a media URN)
-    const mediaUrn = outputDef.mediaUrn || outputDef.media_urn;
-    if (!mediaUrn) {
-      // No media_urn - skip validation
-      return null;
-    }
+    const mediaUrn = outputDef.media_urn;
 
     // Resolve media URN to MediaDef - FAIL HARD if unresolvable
     let mediaDef;
@@ -4080,9 +4602,9 @@ class CapValidator {
     }
 
     // Validate output structure
-    if (cap.output && typeof cap.output !== 'object') {
+    if (!Array.isArray(cap.outputs) || cap.outputs.some(output => !(output instanceof CapOutput))) {
       throw new ValidationError('InvalidCapSchema', capUrn, {
-        issue: 'Cap output must be an object'
+        issue: 'Cap outputs must be a list of outputs'
       });
     }
   }
@@ -6567,7 +7089,9 @@ function unixSecondsNow() {
 }
 
 // Default protocol limits / version, mirroring capdag::bifaci::frame.
-const BIFACI_PROTOCOL_VERSION = 4;
+// Protocol 5: a cap may answer with one stream per declared output, each
+// stream other than the main output's naming the output it is.
+const BIFACI_PROTOCOL_VERSION = 5;
 const BIFACI_DEFAULT_MAX_FRAME = 3670016;
 const BIFACI_DEFAULT_MAX_CHUNK = 262144;
 const BIFACI_DEFAULT_MAX_REORDER_BUFFER = 64;
@@ -6838,14 +7362,14 @@ function probeCartridgeCapGroups(entryPath) {
         finish(new Error(`cartridge ${entryPath} HELLO failed: Cartridge HELLO missing required manifest`));
         return;
       }
-      let manifest;
+      let capGroups;
       try {
-        manifest = JSON.parse(Buffer.from(manifestVal.__bytes).toString('utf8'));
+        capGroups = advertisedCapGroups(Buffer.from(manifestVal.__bytes));
       } catch (e) {
         finish(new Error(`cartridge ${entryPath} invalid manifest: ${e.message}`));
         return;
       }
-      finish(null, Array.isArray(manifest.cap_groups) ? manifest.cap_groups : []);
+      finish(null, capGroups);
     };
 
     child.stdout.on('data', (chunk) => {
@@ -8150,7 +8674,7 @@ class FabricRegistryEntry {
     this.isAbstract = data.abstract === true;
     this.description = data.cap_description || '';
     this.args = data.args || [];
-    this.output = data.output || null;
+    this.outputs = data.outputs || [];
     this.urnTags = data.urn_tags || {};
     this.inSpec = data.in_spec || '';
     this.outSpec = data.out_spec || '';
@@ -8635,6 +9159,8 @@ export {
   CapGroup,
   CapManifest,
   CapArg,
+  CapOutput,
+  OUTPUT_CARRIES_INPUT,
   ArgSource,
   RegisteredBy,
   createCap,
@@ -8646,6 +9172,12 @@ export {
   OutputValidator,
   CapValidator,
   validateCapArgs,
+  validateCapOutputs,
+  validateCapDefinition,
+  isValidDefinitionName,
+  ManifestLoadError,
+  advertisedCapGroups,
+  identityCap,
   RESERVED_CLI_FLAGS,
   MediaDef,
   MediaDefError,

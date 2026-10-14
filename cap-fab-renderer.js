@@ -72,10 +72,27 @@ function cardinalityLabel(input_is_sequence, output_is_sequence) {
   return `${lhs}\u2192${rhs}`;
 }
 
+// The main output of a cap as it appears in the /api/capabilities JSON: the
+// one of its `outputs` whose media URN is the cap URN's `out=`, compared as
+// media URNs. Null for a cap that declares none (its `out=` is media:void).
+function mainOutputOf(cap) {
+  const outputs = cap.outputs || [];
+  if (!Array.isArray(outputs)) {
+    throw new Error('CapFabRenderer: a cap\'s outputs are a list');
+  }
+  if (outputs.length === 0) return null;
+  const outSpec = MediaUrn.fromString(CapUrn.fromString(cap.urn).getOutSpec());
+  const main = outputs.find(output =>
+    output && typeof output.media_urn === 'string' &&
+    MediaUrn.fromString(output.media_urn).isEquivalent(outSpec)
+  );
+  return main || null;
+}
+
 // Compute the cardinality marker for a cap as it appears in the
 // /api/capabilities JSON. The main input arg is the one whose sources
-// include a stdin source. Matches core Rust `CapArg.is_sequence` and
-// `CapOutput.is_sequence` names exactly.
+// include a stdin source; the output is the cap's MAIN output. Matches core
+// Rust `CapArg.is_sequence` and `CapOutput.is_sequence` names exactly.
 function cardinalityFromCap(cap) {
   if (!cap || typeof cap !== 'object') {
     throw new Error('CapFabRenderer: cardinalityFromCap requires a cap object');
@@ -85,7 +102,8 @@ function cardinalityFromCap(cap) {
     arg && arg.sources && arg.sources.some(src => src && src.stdin !== undefined)
   );
   const input_is_sequence = mainArg ? (mainArg.is_sequence === true) : false;
-  const output_is_sequence = (cap.output && cap.output.is_sequence === true) || false;
+  const mainOutput = mainOutputOf(cap);
+  const output_is_sequence = mainOutput !== null && mainOutput.is_sequence === true;
   return cardinalityLabel(input_is_sequence, output_is_sequence);
 }
 
