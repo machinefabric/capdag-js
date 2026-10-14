@@ -3217,6 +3217,17 @@ class Cap {
   }
 
   /**
+   * The main input argument: the one whose stdin source is equivalent to the
+   * cap URN's `in=`. Null for a void-input or argless cap.
+   * Mirrors Rust: Cap::main_input_arg
+   * @returns {CapArg|null}
+   */
+  mainInputArg() {
+    const inSpec = MediaUrn.fromString(this.urn.getInSpec());
+    return this.args.find(arg => arg.isMainInput(inSpec)) || null;
+  }
+
+  /**
    * The output a media URN identifies, by tagged-URN equivalence.
    * @param {string} mediaUrn
    * @returns {CapOutput|null}
@@ -10938,10 +10949,10 @@ Machine.prototype.toRenderPayloadJson = function toRenderPayloadJson(definitions
     if (found === null || typeof found.title !== 'string') throw abstractionError.uncachedMediaDef(urn);
     return found.title;
   };
-  const capTitle = urn => {
+  const capDefinition = urn => {
     const found = definitions.capDefinition(urn);
     if (found === null || typeof found.title !== 'string') throw abstractionError.uncachedCap(urn);
-    return found.title;
+    return found;
   };
   const text = value => JSON.stringify(value);
   const listed = items => `[${items.join(',')}]`;
@@ -10950,16 +10961,25 @@ Machine.prototype.toRenderPayloadJson = function toRenderPayloadJson(definitions
     const nodes = strand.nodes().map((urn, id) =>
       `{"id":${text(plan.nodeNames[id])},"urn":${text(urn.toString())},"title":${text(mediaTitle(urn.toString()))}}`);
     const edges = strand.edges().map((edge, index) => {
+      const definition = capDefinition(edge.capUrn.toString());
+      // A binding and an output carry the name the resolver read from this
+      // same definition, where a name is unique: the definition's main arg
+      // and main output are found by it.
+      const mainArg = definition.mainInputArg();
+      const mainOutput = definition.mainOutput();
       const assignment = edge.assignment.map(binding => {
         const fed = binding.source.isConstant
           ? `"constant":${constantText(binding.source.constant)}`
           : `"source_node":${text(plan.nodeNames[binding.source.node])}`;
-        return `{"cap_arg_media_urn":${text(binding.capArgMediaUrn.toString())},"arg_name":${text(binding.argName)},${fed}}`;
+        const main = mainArg !== null && mainArg.name === binding.argName;
+        return `{"cap_arg_media_urn":${text(binding.capArgMediaUrn.toString())},"arg_name":${text(binding.argName)},"is_main_input":${main},${fed}}`;
       });
-      const outputs = edge.outputs.map(output =>
-        `{"output_media_urn":${text(output.outputMediaUrn.toString())},"output_name":${text(output.outputName)},"node":${text(plan.nodeNames[output.node])}}`);
+      const outputs = edge.outputs.map(output => {
+        const main = mainOutput !== null && mainOutput.name === output.outputName;
+        return `{"output_media_urn":${text(output.outputMediaUrn.toString())},"output_name":${text(output.outputName)},"is_main_output":${main},"node":${text(plan.nodeNames[output.node])}}`;
+      });
       return `{"alias":${text(plan.edgeTokens[index])},"cap_urn":${text(edge.capUrn.toString())}` +
-        `,"title":${text(capTitle(edge.capUrn.toString()))}` +
+        `,"title":${text(definition.title)}` +
         `,"is_loop":${edge.isLoop ? 'true' : 'false'},"retry":${edge.policy.retry},"on_error":${text(edge.policy.onError)}` +
         // The machine steps the step was included through, outermost first:
         // what a view groups the steps of an included machine by.

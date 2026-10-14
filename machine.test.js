@@ -944,6 +944,24 @@ function test12743_renderPayloadCarriesNamesConstantsAndOutputs() {
   assertEqual(new Machine([]).toRenderPayloadJson(definitionsOf([])), '{"strands":[]}', 'an empty machine');
 }
 
+// TEST12867: the render payload says which binding feeds a step's main input
+// and which output is its main one, by the step's definition, so a view can
+// draw the main wires plain and name the others.
+function test12867_renderPayloadMarksTheMainInputAndOutput() {
+  const machine = machineOf('[(path, benchmark=bench) -> compare -> (result, residuals=res)]');
+  const edge = JSON.parse(machine.toRenderPayloadJson(titledDefinitions())).strands[0].edges[0];
+  assertEqual(
+    edge.assignment.map(binding => [binding.arg_name, binding.is_main_input]).sort(),
+    [['benchmark', false], ['series', true]],
+    'the main input is marked, the named argument is not',
+  );
+  assertEqual(
+    edge.outputs.map(output => [output.output_name, output.is_main_output]).sort(),
+    [['comparison', true], ['residuals', false]],
+    'the main output is marked, the other output is not',
+  );
+}
+
 // TEST12833: an output that carries the input holds the input's type, not the
 // URN that names it: a router's branches are typed by what was routed, so a
 // step that takes that type can be wired to one. Which branch a wiring takes
@@ -2608,6 +2626,7 @@ function runTests() {
   runTest('TEST12741: canonical_notation_round_trips', test12741_canonicalNotationRoundTrips);
   runTest('TEST12742: a_machine_reference_needs_a_source', test12742_aMachineReferenceNeedsASource);
   runTest('TEST12743: render_payload_carries_names_constants_and_outputs', test12743_renderPayloadCarriesNamesConstantsAndOutputs);
+  runTest('TEST12867: render_payload_marks_the_main_input_and_output', test12867_renderPayloadMarksTheMainInputAndOutput);
   runTest('TEST12833: a_carried_output_holds_the_inputs_type', test12833_aCarriedOutputHoldsTheInputsType);
   runTest('TEST12834: a_node_stands_for_one_node', test12834_aNodeStandsForOneNode);
   runTest('TEST12838: urns_are_ordered_by_their_parts_not_their_text', test12838_urnsAreOrderedByTheirPartsNotTheirText);
