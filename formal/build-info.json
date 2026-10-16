@@ -30,9 +30,9 @@
     "../../tagged-urn/formal/TaggedUrn/Urn.lean": "6c1905639773812f839ae25bcf12b4efcc653a342e3419938b25f04b0c0ff342",
     "../../tagged-urn/formal/lakefile.toml": "d84612abc4598b3b2ed8436aaa4ffe8f3b5cf85caf44866489a482be4e558501",
     "CapDAG/Bifaci/Credit.lean": "aca7f1c2904127a3b4c626fd5f366c4dd84dddc0348c68864d9871ac212723ad",
-    "CapDAG/Bifaci/Flow.lean": "cb536115a4d43d34c307683077a8a43ac48e41fb45f6bc1e36db327495da41a8",
+    "CapDAG/Bifaci/Flow.lean": "9252bdf3800a983cc9419bf1d477b73e8295067414b7dbe507c62c771e7ec8bf",
     "CapDAG/Bifaci/Laws/Credit.lean": "e8bd24a084bdb3355242148bdfc3d79b1c1e7846689d7902f6638f080ba2dd3b",
-    "CapDAG/Bifaci/Laws/Flow.lean": "49c84fe3beb939468670887649a3f3019cdd2db559d90f587f3627e96c7afb25",
+    "CapDAG/Bifaci/Laws/Flow.lean": "894cdeaaf2d4c55cd3d5fd3490b606b51607ae578489400d8bb574e6c8abae99",
     "CapDAG/Bifaci/Laws/Pools.lean": "dcff57786f8cafa72ef6869a69520dd7ae831843f017e46643b06c818c394828",
     "CapDAG/Bifaci/Laws/Request.lean": "3d11731a0c4057d9554c859484372d761d6b2bfbd80fc48d80c87dd266ed87b0",
     "CapDAG/Bifaci/Pools.lean": "d908a12c733e27c4801581bedae058898e702ea27ad9e597a28cd123a94c8ace",
@@ -49,9 +49,9 @@
   "project": "formal",
   "link_directives": [],
   "output_digests": {
-    "assurance.json": "926f196f624e32523680d18450352d4974c5c8b6874d94cdf43f32049d653d9b",
-    "index.d.ts": "bcab6176303bd8e8f8023f3a9d348a9146ac736726a1933b4144ca180ff85e45",
-    "index.js": "9286dda5f2500f59e38740cd79aa46816b3469f9dedcacc9a1cf96266de07249"
+    "assurance.json": "de220978d62a1b2ba6ab18a2fe173235caad0c47c5642477cd3c4452e44811a2",
+    "index.d.ts": "93c83fa02e49fb2a7087d2cee496fbfd226209a503d89bb23ffd6df0034b4ade",
+    "index.js": "fb9c4ab46a76cdbfa4359027aef7291e7515823f46cdc88b6c7687b8b26c0d95"
   },
   "platform_products": [
     "program.wasm"

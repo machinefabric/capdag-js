@@ -54,6 +54,7 @@ export type FrameType =
   | { readonly kind: "cancel" }
   | { readonly kind: "credit" }
   | { readonly kind: "closeStream" }
+  | { readonly kind: "policy" }
 ;
 export function frameTypeType(): L.Type<FrameType>;
 

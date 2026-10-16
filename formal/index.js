@@ -179,6 +179,9 @@ export function frameTypeType() {
         case "closeStream":
           w.u32(13);
           return;
+        case "policy":
+          w.u32(14);
+          return;
         default:
           throw new L.MalformedError(`${String(v.kind)} is not a constructor of CapDAG.Bifaci.Flow.FrameType`);
       }
@@ -200,6 +203,7 @@ export function frameTypeType() {
         case 11: return ({ kind: "cancel" });
         case 12: return ({ kind: "credit" });
         case 13: return ({ kind: "closeStream" });
+        case 14: return ({ kind: "policy" });
         default: throw new L.MalformedError(`constructor index ${c} of CapDAG.Bifaci.Flow.FrameType`);
       }
     },
@@ -1931,7 +1935,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "3416fe0fb612031c735d28ffe3232cd7c421d38c6548589244d093cd4f96fe00",
+      "fingerprint": "61f18f50e82168d95c4b84bca9e27b8c325d0c08ccfb48206e26e6c7f95593eb",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Flow.lean",
@@ -1941,7 +1945,7 @@ export const ASSURANCE = L.parseAssurance({
         },
         "end": {
           "line": 20,
-          "column": 34
+          "column": 42
         }
       }
     },
@@ -1952,7 +1956,7 @@ export const ASSURANCE = L.parseAssurance({
         "CapDAG.Bifaci.Flow.FrameType.isFlow"
       ],
       "specifications": [],
-      "statement": "CapDAG.Bifaci.Flow.FrameType.credit.isFlow = false ∧\n  CapDAG.Bifaci.Flow.FrameType.cancel.isFlow = false ∧ CapDAG.Bifaci.Flow.FrameType.closeStream.isFlow = false",
+      "statement": "CapDAG.Bifaci.Flow.FrameType.credit.isFlow = false ∧\n  CapDAG.Bifaci.Flow.FrameType.cancel.isFlow = false ∧\n    CapDAG.Bifaci.Flow.FrameType.closeStream.isFlow = false ∧ CapDAG.Bifaci.Flow.FrameType.policy.isFlow = false",
       "status": "proved",
       "evidence_trust": {
         "axioms": [
@@ -1962,7 +1966,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "255124cf9d730687b5d5961cbcba30fd20b13205582ee6f7f578163690ae0b93",
+      "fingerprint": "db92a9763d6232bdba0d20b8d45dc4d308166d7208f91716cd7c36929024cebb",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Flow.lean",
@@ -1971,8 +1975,8 @@ export const ASSURANCE = L.parseAssurance({
           "column": 1
         },
         "end": {
-          "line": 31,
-          "column": 62
+          "line": 32,
+          "column": 23
         }
       }
     },
@@ -1999,11 +2003,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Flow.lean",
         "start": {
-          "line": 146,
+          "line": 147,
           "column": 1
         },
         "end": {
-          "line": 178,
+          "line": 179,
           "column": 93
         }
       }
@@ -2031,11 +2035,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Flow.lean",
         "start": {
-          "line": 210,
+          "line": 211,
           "column": 1
         },
         "end": {
-          "line": 214,
+          "line": 215,
           "column": 68
         }
       }
@@ -2063,11 +2067,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Flow.lean",
         "start": {
-          "line": 180,
+          "line": 181,
           "column": 1
         },
         "end": {
-          "line": 208,
+          "line": 209,
           "column": 30
         }
       }
@@ -2088,7 +2092,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "28a0cb39df7eb4601607dc3356ec2ac304b0e7cccdc2348d0f58769d6c4d02fe",
+      "fingerprint": "b7eaadade382a099eb2badc8986778e43d946a1ed9f3d38c60e28ec6a5546a8e",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Flow.lean",
@@ -2125,11 +2129,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Flow.lean",
         "start": {
-          "line": 128,
+          "line": 129,
           "column": 1
         },
         "end": {
-          "line": 129,
+          "line": 130,
           "column": 82
         }
       }
@@ -2157,11 +2161,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Flow.lean",
         "start": {
-          "line": 131,
+          "line": 132,
           "column": 1
         },
         "end": {
-          "line": 144,
+          "line": 145,
           "column": 80
         }
       }
@@ -2184,7 +2188,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "2f52e6f54a4e3af769844029c62856c59571051eaf96a81781ceeebaaab61f73",
+      "fingerprint": "805ee681f6d27c85a91f2d26eb1c0a5a34798539598ff7776fa926b91565950e",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Flow.lean",
@@ -3139,7 +3143,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "118d27bff3424f936547e81b0d2047420fdff1bdf9e4d6195e5d613ee52c9c8c",
+      "fingerprint": "95a3ffb1b53e6621e98ddfcbb183e3b8a43bfd2cef9f70fc0853b149e95b1917",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Request.lean",
@@ -3170,7 +3174,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "bd8fc089e5bf29d23267081e971948e0cc54571b3a7e8f59b0ee141c0cf6e540",
+      "fingerprint": "f5d8f79ec578577a5f9909b551c536edb73541737a27786c09be570cc2580c6f",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Request.lean",
@@ -3230,7 +3234,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "e64d865ff161b892d4509d2714dfffc80a06e91b34e8df662f0dae3789c75abd",
+      "fingerprint": "8763bce7d09446554ab3c970063b7d44865a05fdb4543ab7ee109030ffd9ef77",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Request.lean",
@@ -3292,7 +3296,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "dc0cf212e47fde776cddf1e867ff47d20d463e6adeba6f7263bae80dab0da368",
+      "fingerprint": "e97e9dec8f9f8d67167db078c37a10100a9d05e46590a2b8207d577062d6fbc5",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Request.lean",
@@ -3323,7 +3327,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "dd44e9c397ddf1fe7e868527d78f78a43cb342fc297570770b38c0500b7f9d69",
+      "fingerprint": "88f1922967746d705264fc5663d503d113f767257d9297de6b3aa54d6742d785",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Request.lean",
@@ -3385,7 +3389,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "57ba5a4e9af824bca24c21b10644eaf8c55f074032e3a955b39bec7c65cda1d1",
+      "fingerprint": "01c6277aba7bdacef12a2c61b7347dff4ff83b41b82c3a4d45e6b77df892d01c",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Request.lean",
@@ -3416,7 +3420,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "b016e74db42af462982c9cdd358be7a18d2fd6eb56c357bd633694398ead5301",
+      "fingerprint": "7e304b23dbbadfbfc5cbd3acd616ffee82569113296acaac81e653d88c438594",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Laws/Request.lean",
@@ -4929,12 +4933,12 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Flow.lean",
         "start": {
-          "line": 37,
+          "line": 38,
           "column": 1
         },
         "end": {
-          "line": 52,
-          "column": 23
+          "line": 54,
+          "column": 18
         }
       }
     },
@@ -4962,11 +4966,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Flow.lean",
         "start": {
-          "line": 72,
+          "line": 75,
           "column": 1
         },
         "end": {
-          "line": 76,
+          "line": 79,
           "column": 14
         }
       }
@@ -4994,11 +4998,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Flow.lean",
         "start": {
-          "line": 78,
+          "line": 81,
           "column": 1
         },
         "end": {
-          "line": 81,
+          "line": 84,
           "column": 15
         }
       }
@@ -5027,11 +5031,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Flow.lean",
         "start": {
-          "line": 54,
+          "line": 56,
           "column": 1
         },
         "end": {
-          "line": 70,
+          "line": 73,
           "column": 14
         }
       }
@@ -5065,11 +5069,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Flow.lean",
         "start": {
-          "line": 124,
+          "line": 127,
           "column": 1
         },
         "end": {
-          "line": 132,
+          "line": 135,
           "column": 59
         }
       }
@@ -5095,11 +5099,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Bifaci/Flow.lean",
         "start": {
-          "line": 92,
+          "line": 95,
           "column": 1
         },
         "end": {
-          "line": 93,
+          "line": 96,
           "column": 39
         }
       }
@@ -6584,7 +6588,7 @@ export const leanTypes = Object.freeze({
   "CapDAG.Bifaci.Credit.Window": Object.freeze({ fingerprint: "28df89763b22214ef57dfd7f1a3c0da786ff78af9768fe453cd451870749b6fe", type: windowType }),
   "CapDAG.Bifaci.Credit.Arrival": Object.freeze({ fingerprint: "940f01cf50eb8b763b9f44cc84753fcdbc65fbc0f816ab279408e74208649797", type: creditArrivalType }),
   "CapDAG.Bifaci.Credit.Granted": Object.freeze({ fingerprint: "47f8d3e63e9aaf7c4b602f781afce57fc832e3d4d645c6adabd25c461abed233", type: grantedType }),
-  "CapDAG.Bifaci.Flow.FrameType": Object.freeze({ fingerprint: "3d6742b864aeb68cf6add586acfcd1a9663a3816d718f8d8aadc3c5e3dab3e2f", type: frameTypeType }),
+  "CapDAG.Bifaci.Flow.FrameType": Object.freeze({ fingerprint: "ef92a191779a89ce9c1e60a09202ebd3d2de8fdf006f505bb4d1a8522287248e", type: frameTypeType }),
   "CapDAG.Bifaci.Flow.Reorder": Object.freeze({ fingerprint: "d1e8b655f24db5e8b2348d6d41084a5c454346eb0a81fcf11b671432e72291bf", type: reorderType }),
   "CapDAG.Bifaci.Flow.Accepted": Object.freeze({ fingerprint: "a821d7a044f52a71dfd932fff60d2f3560ce5197658283853a56fb54aa96b69b", type: acceptedType }),
   "CapDAG.Bifaci.Pools.State": Object.freeze({ fingerprint: "20f7299c188d09234cda39e9cc356242e2b5bc56a09cf819d12d7f50fa24989b", type: stateType }),

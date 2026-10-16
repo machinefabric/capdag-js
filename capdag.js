@@ -7100,9 +7100,10 @@ function unixSecondsNow() {
 }
 
 // Default protocol limits / version, mirroring capdag::bifaci::frame.
-// Protocol 5: a cap may answer with one stream per declared output, each
-// stream other than the main output's naming the output it is.
-const BIFACI_PROTOCOL_VERSION = 5;
+// Protocol 6: the host tells its cartridges what they may do with a Policy
+// frame (15), after the handshake and on every change; version 5's streams
+// per declared output are kept.
+const BIFACI_PROTOCOL_VERSION = 6;
 const BIFACI_DEFAULT_MAX_FRAME = 3670016;
 const BIFACI_DEFAULT_MAX_CHUNK = 262144;
 const BIFACI_DEFAULT_MAX_REORDER_BUFFER = 64;
