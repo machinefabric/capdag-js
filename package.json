@@ -1,9 +1,9 @@
 {
   "author": "Bahram Joharshamshiri",
   "dependencies": {
-    "lungo-ts": "1.112.74",
+    "lungo-ts": "1.115.34",
     "peggy": "^5.1.0",
-    "tagged-urn": "^1.145.29"
+    "tagged-urn": "^1.148.14"
   },
   "description": "JavaScript implementation of Cap URN (Capability Uniform Resource Names) with strict validation and matching",
   "engines": {
@@ -50,5 +50,5 @@
     "test": "node capdag.test.js && node machine.test.js"
   },
   "type": "module",
-  "version": "1.467.11"
+  "version": "1.468.18"
 }
