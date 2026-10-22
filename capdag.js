@@ -2062,9 +2062,10 @@ class MediaDef {
    * @param {Object|null} validation - Optional validation rules (min, max, min_length, max_length, pattern, allowed_values)
    * @param {Object|null} metadata - Optional metadata (arbitrary key-value pairs for display/categorization)
    * @param {string[]} extensions - File extensions for storing this media type (e.g., ['pdf'], ['jpg', 'jpeg'])
-   * @param {string|null} documentation - Optional long-form markdown documentation. Rendered in media info panels, the cap navigator, capdag-dot-com, and anywhere else a rich-text explanation of the media def is useful.
+   * @param {string|null} documentation - Optional long-form markdown documentation. Rendered in media info panels, the cap navigator, capdag-dot-com, and anywhere else a rich-text explanation of the media def is useful. Only what is specific to this media def: what the dims it was built from mean is documented with each dim.
+   * @param {DimRef[]} dims - The dims this media def was built from, and the value chosen from each, in the order its source references them. Each dim is published on its own (`FabricRegistryClient.getDim`); a reader shows its documentation beside `documentation`. Empty when built from no dim.
    */
-  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null, validation = null, metadata = null, extensions = [], documentation = null) {
+  constructor(contentType, profile = null, schema = null, title = null, description = null, mediaUrn = null, validation = null, metadata = null, extensions = [], documentation = null, dims = []) {
     this.contentType = contentType;
     this.profile = profile;
     this.schema = schema;
@@ -2075,6 +2076,7 @@ class MediaDef {
     this.metadata = metadata;
     this.extensions = extensions;
     this.documentation = documentation;
+    this.dims = dims;
   }
 
   /**
@@ -2224,7 +2226,7 @@ function resolveMediaUrn(mediaUrn, mediaDefs = []) {
     const def = mediaDefs.find(spec => spec.urn === mediaUrn);
 
     if (def) {
-      // Object form: { urn, media_type, title, profile_uri?, schema?, description?, documentation?, validation?, metadata?, extensions? }
+      // Object form: { urn, media_type, title, profile_uri?, schema?, description?, documentation?, dims?, validation?, metadata?, extensions? }
       const mediaType = def.media_type || def.mediaType;
       const profileUri = def.profile_uri || def.profileUri || null;
       const schema = def.schema || null;
@@ -2240,6 +2242,9 @@ function resolveMediaUrn(mediaUrn, mediaDefs = []) {
       const validation = def.validation || null;
       const metadata = def.metadata || null;
       const extensions = Array.isArray(def.extensions) ? def.extensions : [];
+      // The dims it was built from, each entry held to the dim reference
+      // keys and each dim named once.
+      const dims = dimRefsFromJSON(def.dims, `media def '${mediaUrn}'`);
 
       if (!mediaType) {
         throw new MediaDefError(
@@ -2248,7 +2253,7 @@ function resolveMediaUrn(mediaUrn, mediaDefs = []) {
         );
       }
 
-      return new MediaDef(mediaType, profileUri, schema, title, description, mediaUrn, validation, metadata, extensions, documentation);
+      return new MediaDef(mediaType, profileUri, schema, title, description, mediaUrn, validation, metadata, extensions, documentation, dims);
     }
   }
 
@@ -3023,7 +3028,16 @@ class Cap {
     this.aliases = aliases;
     this.is_abstract = false;
     this.cap_description = capDescription;
+    // Only what is specific to this cap: what the dims it was built from mean
+    // is documented with each dim (see `dims`).
     this.documentation = documentation;
+    // The dims this cap was built from, and the value chosen from each
+    // (Array of DimRef), in the order its source references them. Each dim is
+    // published on its own (`FabricRegistryClient.getDim`) with its
+    // documentation and each value's; a reader shows that beside
+    // `documentation`. Empty when the cap was built from no dim. Descriptive
+    // only: matching and dispatch never read it.
+    this.dims = [];
     this.metadata = metadata || {};
     this.args = [];  // Array of CapArg - unified argument format
     // Every output the cap declares (Array of CapOutput). Exactly one is the
@@ -3317,6 +3331,7 @@ class Cap {
            this.is_abstract === other.is_abstract &&
            this.cap_description === other.cap_description &&
            this.documentation === other.documentation &&
+           JSON.stringify(this.dims.map(d => d.toJSON())) === JSON.stringify(other.dims.map(d => d.toJSON())) &&
            JSON.stringify(this.metadata) === JSON.stringify(other.metadata) &&
            JSON.stringify(this.args.map(a => a.toJSON())) === JSON.stringify(other.args.map(a => a.toJSON())) &&
            JSON.stringify(this.outputs.map(o => o.toJSON())) === JSON.stringify(other.outputs.map(o => o.toJSON())) &&
@@ -3353,6 +3368,12 @@ class Cap {
     // the Rust serializer which skips this field when None.
     if (typeof this.documentation === 'string' && this.documentation.length > 0) {
       result.documentation = this.documentation;
+    }
+
+    // Emit `dims` only when the cap was built from some; absent means none,
+    // exactly as the registry publishes it.
+    if (this.dims.length > 0) {
+      result.dims = this.dims.map(d => d.toJSON());
     }
 
     if (this.metadata_json !== null && this.metadata_json !== undefined) {
@@ -3393,6 +3414,9 @@ class Cap {
     const cap = new Cap(urn, json.title, json.aliases, json.cap_description, json.metadata, json.metadata_json, documentation);
     cap.is_abstract = json.abstract === true;
     cap.version = (typeof json.version === 'number' && json.version !== 0) ? json.version : 0;
+    // A dim is named at most once: a definition cannot have been built with
+    // two values of one dim.
+    cap.dims = dimRefsFromJSON(json.dims, `cap '${urn}'`);
     // Parse args (new format)
     if (json.args && Array.isArray(json.args)) {
       cap.args = json.args.map(a => CapArg.fromJSON(a));
@@ -5564,6 +5588,23 @@ class CartridgeSuggestion {
  * `<registryUrl>:<channel>:<id>` so the same id can independently
  * coexist across multiple registries × both channels.
  */
+/**
+ * The schema revision of the cartridge registry this build reads
+ * (`schemas/cartridge-registry/v7.json`): its cap groups carry each
+ * cartridge's cap definitions exactly as its manifest declares them,
+ * including the dims each was built from.
+ */
+const CARTRIDGE_REGISTRY_SCHEMA_VERSION = '7.0';
+
+/**
+ * The cartridge registry regime version this build speaks
+ * (`schemas/cartridge-registry/registry-version.txt`), served at
+ * `/v<version>/manifest`. v0 is the pre-versioning legacy at the bare
+ * `/manifest` path; a registry of any other version is refused, never
+ * reinterpreted.
+ */
+const CARTRIDGE_REGISTRY_VERSION = 3;
+
 class CartridgeRepoCache {
   constructor(repoUrl) {
     this.cartridges = new Map(); // "<registryUrl>:<channel>:<id>" -> CartridgeInfo
@@ -5587,7 +5628,8 @@ class CartridgeRepoClient {
   }
 
   /**
-   * Fetch a v5.0 channel-partitioned registry from a URL and flatten
+   * Fetch a channel-partitioned registry (schema
+   * CARTRIDGE_REGISTRY_SCHEMA_VERSION) from a URL and flatten
    * to a list of `CartridgeInfo`, one per `(channel, id)` pair.
    */
   async fetchRegistry(repoUrl) {
@@ -5603,14 +5645,13 @@ class CartridgeRepoClient {
     }
 
     const data = await response.json();
-    if (data.schemaVersion !== '5.0') {
-      throw new Error(`Cartridge registry from ${repoUrl} has schemaVersion '${data.schemaVersion}'; required: 5.0`);
+    if (data.schemaVersion !== CARTRIDGE_REGISTRY_SCHEMA_VERSION) {
+      throw new Error(`Cartridge registry from ${repoUrl} has schemaVersion '${data.schemaVersion}'; required: ${CARTRIDGE_REGISTRY_SCHEMA_VERSION}`);
     }
-    // Cartridge registry regime version. v0 was the pre-versioning legacy at
-    // the bare /manifest path; this speaks only v1 at /v1/manifest. A manifest
-    // from a different regime version is rejected, not reinterpreted.
-    if (data.registryVersion !== 1) {
-      throw new Error(`Cartridge registry from ${repoUrl} has registryVersion '${data.registryVersion}'; this build speaks v1`);
+    // Cartridge registry regime version (CARTRIDGE_REGISTRY_VERSION). A
+    // manifest from a different regime version is rejected, not reinterpreted.
+    if (data.registryVersion !== CARTRIDGE_REGISTRY_VERSION) {
+      throw new Error(`Cartridge registry from ${repoUrl} has registryVersion '${data.registryVersion}'; this build speaks v${CARTRIDGE_REGISTRY_VERSION}`);
     }
     // A cartridge registry must declare the fabric its caps resolve against. The
     // client cross-checks this equals its own fabric (so every registry it uses
@@ -5877,7 +5918,8 @@ function _validChannel(c) {
 }
 
 /**
- * Reads a v5.0 channel-partitioned cartridge registry. Both `release`
+ * Reads a channel-partitioned cartridge registry (schema
+ * CARTRIDGE_REGISTRY_SCHEMA_VERSION). Both `release`
  * and `nightly` channels are always present (possibly empty); every
  * `CartridgeInfo` returned carries the channel it came from so consumers
  * can render the release/nightly distinction without re-deriving.
@@ -5892,11 +5934,11 @@ class CartridgeRepoServer {
     if (!this.registry) {
       throw new Error('Registry is required');
     }
-    if (this.registry.schemaVersion !== '5.0') {
-      throw new Error(`Unsupported registry schema version: ${this.registry.schemaVersion}. Required: 5.0`);
+    if (this.registry.schemaVersion !== CARTRIDGE_REGISTRY_SCHEMA_VERSION) {
+      throw new Error(`Unsupported registry schema version: ${this.registry.schemaVersion}. Required: ${CARTRIDGE_REGISTRY_SCHEMA_VERSION}`);
     }
-    if (this.registry.registryVersion !== 1) {
-      throw new Error(`Unsupported cartridge registry version: ${this.registry.registryVersion}. This build speaks v1.`);
+    if (this.registry.registryVersion !== CARTRIDGE_REGISTRY_VERSION) {
+      throw new Error(`Unsupported cartridge registry version: ${this.registry.registryVersion}. This build speaks v${CARTRIDGE_REGISTRY_VERSION}.`);
     }
     if (typeof this.registry.fabricRegistryUrl !== 'string' || this.registry.fabricRegistryUrl.length === 0) {
       throw new Error('Registry must declare a non-empty `fabricRegistryUrl` (the fabric its caps resolve against)');
@@ -11072,7 +11114,7 @@ Machine.prototype.toMermaid = function toMermaid(aliases = null) {
 };
 
 // ============================================================================
-// The fabric registry: versioned definitions of caps, media and aliases
+// The fabric registry: versioned definitions of caps, media, aliases and dims
 // ============================================================================
 
 /**
@@ -11117,8 +11159,8 @@ const LOAD_ALL_AT_ONCE = 16;
 
 /**
  * Read a manifest as the registry serves it, refusing one that is not whole:
- * `version` and `previous` are whole numbers, and `caps`, `media` and
- * `aliases` map each name to a positive per-definition version.
+ * `version` and `previous` are whole numbers, and `caps`, `media`, `aliases`
+ * and `dims` map each name to a positive per-definition version.
  */
 function manifestFromJSON(obj, expectedVersion) {
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
@@ -11132,7 +11174,7 @@ function manifestFromJSON(obj, expectedVersion) {
     throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
       `manifest fetched as v${expectedVersion} reports version ${obj.version}`);
   }
-  for (const section of ['caps', 'media', 'aliases']) {
+  for (const section of ['caps', 'media', 'aliases', 'dims']) {
     const held = obj[section];
     if (held === null || typeof held !== 'object' || Array.isArray(held)) {
       throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `manifest v${expectedVersion} has no '${section}' map`);
@@ -11144,7 +11186,7 @@ function manifestFromJSON(obj, expectedVersion) {
       }
     }
   }
-  return new Manifest(obj.version, obj.previous, { ...obj.caps }, { ...obj.media }, { ...obj.aliases });
+  return new Manifest(obj.version, obj.previous, { ...obj.caps }, { ...obj.media }, { ...obj.aliases }, { ...obj.dims });
 }
 
 /**
@@ -11163,9 +11205,16 @@ function mediaDefFromStored(obj, expectedUrn, expectedVersion) {
     throw refused(`reports version ${JSON.stringify(obj.version)} but the manifest pins ${expectedVersion}`);
   }
   if (obj.extensions !== undefined && !Array.isArray(obj.extensions)) throw refused("has 'extensions' that are not a list");
+  let dims;
+  try {
+    dims = dimRefsFromJSON(obj.dims, `media def '${expectedUrn}'`);
+  } catch (error) {
+    throw refused(`has dims this capdag cannot hold: ${error.message}`);
+  }
   const def = new MediaDef(obj.media_type, obj.profile_uri || null, obj.schema === undefined ? null : obj.schema,
     obj.title, obj.description || null, expectedUrn, obj.validation || null, obj.metadata || null,
-    obj.extensions || [], typeof obj.documentation === 'string' && obj.documentation.length > 0 ? obj.documentation : null);
+    obj.extensions || [], typeof obj.documentation === 'string' && obj.documentation.length > 0 ? obj.documentation : null,
+    dims);
   def.version = obj.version;
   return def;
 }
@@ -11201,11 +11250,40 @@ function capFromStored(obj, expectedUrn, expectedVersion) {
 }
 
 /**
+ * A dim body as a registry served it, for the dim `name` at `defver`: parsed
+ * (unknown fields refused), named and versioned as requested, and holding
+ * (`StoredDim.validate`).
+ * @returns {StoredDim}
+ */
+function checkedDim(obj, name, defver) {
+  let dim;
+  try {
+    dim = StoredDim.fromJSON(obj);
+  } catch (error) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `Failed to parse dim '${name}': ${error.message}`);
+  }
+  if (dim.name !== name) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+      `dim object name '${dim.name}' does not match requested name '${name}'`);
+  }
+  if (dim.version !== defver) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+      `dim '${dim.name}' object reports version ${dim.version} but manifest pins defver ${defver}`);
+  }
+  try {
+    dim.validate();
+  } catch (error) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.VALIDATION, error.message);
+  }
+  return dim;
+}
+
+/**
  * A client of the fabric registry, pinned to one manifest version.
  *
- * The manifest names every cap URN, media URN and alias of its snapshot with
- * the version of each definition; each definition is one object at
- * `<base>/{caps,media,aliases}/<sha256 of its canonical name>/<version>.json`.
+ * The manifest names every cap URN, media URN, alias and dim of its snapshot
+ * with the version of each definition; each definition is one object at
+ * `<base>/{caps,media,aliases,dims}/<sha256 of its canonical name>/<version>.json`.
  * Nothing outside the pinned manifest is fetched: a URN it does not name is
  * not found, never read from another snapshot.
  *
@@ -11214,7 +11292,10 @@ function capFromStored(obj, expectedUrn, expectedVersion) {
  * parsed against (`capDefinition`, `mediaDefinition`, `aliasTarget`) and the
  * alias source a machine is written with (`displayAliasForUrn`). A cap is
  * cached only once every media URN it names is: a cap whose media cannot be
- * read is not held at all.
+ * read is not held at all. A cap or media definition is likewise cached only
+ * once every dim it names (`dims`) is, at the version the manifest pins,
+ * with the value it names — so a reader holding a definition can always
+ * read the documentation of the dims it was built from (`getCachedDim`).
  */
 class FabricRegistryClient {
   /**
@@ -11238,6 +11319,7 @@ class FabricRegistryClient {
     this._caps = new Map();
     this._media = new Map();
     this._aliases = new Map();
+    this._dims = new Map();
     // A fetch under way, by what it fetches: one asked for again while it
     // runs is the same fetch.
     this._pending = new Map();
@@ -11325,6 +11407,7 @@ class FabricRegistryClient {
       const defver = await this._defver('media', canonical, `media definition '${canonical}'`);
       const url = `${this._baseUrl}/media/${await sha256Hex(canonical)}/${defver}.json`;
       const def = mediaDefFromStored(await this._get(url, `media definition '${canonical}'`), canonical, defver);
+      await this._ensureDimsCached(`media def '${canonical}'`, def.dims);
       this._media.set(canonical, def);
       return def;
     });
@@ -11361,6 +11444,8 @@ class FabricRegistryClient {
     }
     for (const output of cap.getOutputs()) name(output.media_urn);
     for (const media of named) await this.getMediaDef(media);
+    // Every dim the cap names, at its pinned version, with the value named.
+    await this._ensureDimsCached(`cap '${canonical}'`, cap.dims);
     this._caps.set(canonical, cap);
     return cap;
   }
@@ -11398,6 +11483,88 @@ class FabricRegistryClient {
     const alias = new StoredAlias(normalized, target, defver);
     this._aliases.set(normalized, alias);
     return alias;
+  }
+
+  /**
+   * A dim's definition — its title, documentation and values, each value
+   * with its own — by name (held first, then the registry), at the version
+   * the pinned manifest names.
+   * @param {string} name
+   * @returns {Promise<StoredDim>}
+   */
+  async getDim(name) {
+    if (!isDimName(name)) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.VALIDATION, `'${name}' is not a dim name`);
+    }
+    if (this._dims.has(name)) return this._dims.get(name);
+    return this._once(`dim ${name}`, async () => this._fetchDim(name, await this._defver('dims', name, `dim '${name}'`)));
+  }
+
+  async _fetchDim(name, defver) {
+    const url = `${this._baseUrl}/dims/${await sha256Hex(name)}/${defver}.json`;
+    const dim = checkedDim(await this._get(url, `dim '${name}'`), name, defver);
+    this._dims.set(name, dim);
+    return dim;
+  }
+
+  /**
+   * The held dim of that name, or null. Every dim a held cap or media
+   * definition names is held with it.
+   * @param {string} name
+   * @returns {StoredDim|null}
+   */
+  getCachedDim(name) {
+    return this._dims.get(name) || null;
+  }
+
+  /**
+   * The version the pinned manifest names for a dim, without fetching its
+   * body.
+   * @param {string} name
+   * @returns {Promise<number>}
+   */
+  async dimDefverFor(name) {
+    return this._defver('dims', name, `dim '${name}'`);
+  }
+
+  /**
+   * Insert a dim into the cache, keyed by its name: the seam a host or a
+   * test seeds dims through without a registry behind it.
+   * @param {StoredDim} dim
+   */
+  insertCachedDimForTest(dim) {
+    this._dims.set(dim.name, dim);
+  }
+
+  /**
+   * Make sure every dim a definition names is held, fetching the ones that
+   * are not at the version the manifest pins, and that each names a value
+   * the dim declares. `owner` names the definition in errors. Nothing about
+   * the definition itself is cached here: its fetcher caches it only once
+   * this succeeds. That each dim is named once was held when the definition
+   * was parsed.
+   */
+  async _ensureDimsCached(owner, dims) {
+    for (const r of dims) {
+      let dim = this._dims.get(r.dim);
+      if (dim === undefined) {
+        const defver = (await this.manifest()).dims[r.dim];
+        if (defver === undefined) {
+          throw new FabricRegistryError(FabricRegistryErrorCodes.NOT_FOUND,
+            `${owner} names dim '${r.dim}', which is not in manifest v${this._manifestVersion}`);
+        }
+        try {
+          dim = await this._once(`dim ${r.dim}`, () => this._fetchDim(r.dim, defver));
+        } catch (error) {
+          throw new FabricRegistryError(FabricRegistryErrorCodes.NOT_FOUND,
+            `${owner} names dim '${r.dim}', which could not be fetched: ${error.message}`);
+        }
+      }
+      if (dim.value(r.value) === null) {
+        throw new FabricRegistryError(FabricRegistryErrorCodes.VALIDATION,
+          `${owner} names value '${r.value}' of dim '${r.dim}', which the dim does not declare`);
+      }
+    }
   }
 
   async _aliasTargetOfKind(name, kind) {
@@ -11500,6 +11667,7 @@ class FabricRegistryClient {
     this._caps.clear();
     this._media.clear();
     this._aliases.clear();
+    this._dims.clear();
     this._pending.clear();
   }
 }
@@ -11619,21 +11787,302 @@ class StoredAlias {
   }
 }
 
+// ===========================================================================
+// Dims (the axes definitions are built along)
+// ===========================================================================
+//
+// A dim (a language, a file type, a quantisation, …) is a fabric definition
+// like a cap, a media def or an alias: published on its own at
+// `dims/<sha256-of-name>/<defver>.json` and pinned by a manifest's `dims`
+// map. Its body says what the dim is and which values it may take, each with
+// its own documentation.
+//
+// A cap or media definition names the dims it was built from, and the value
+// chosen from each, in its `dims` (DimRef). Its own `documentation` is only
+// what is specific to it; what a dim and a value mean is read from the dim.
+// A reader shows both.
+
+const DIM_NAME_RE = /^[a-z][a-z0-9-]*$/;
+/** The keys of an entry of a definition's `dims`. */
+const DIM_REF_KEYS = Object.freeze(['dim', 'value']);
+/** The keys of a tag a dim value contributes. */
+const DIM_TAG_KEYS = Object.freeze(['key', 'value']);
+/** The keys of a dim value (fabric/dim.schema.json). */
+const DIM_VALUE_KEYS = Object.freeze(['name', 'title', 'tags', 'documentation', 'media_type', 'extensions']);
+/** The keys of a dim body (fabric/dim.schema.json). */
+const DIM_KEYS = Object.freeze(['name', 'version', 'title', 'documentation', 'values']);
+
+const isPlainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * Whether `name` is a dim name: `^[a-z][a-z0-9-]*$`.
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isDimName(name) {
+  return typeof name === 'string' && DIM_NAME_RE.test(name);
+}
+
+/**
+ * One dim a definition was built from, and the value chosen from it. The
+ * entries of a definition's `dims`, in the order its source references them.
+ *
+ * Unknown fields are refused, as for arguments and outputs: a key this
+ * library does not know would be dropped when the definition is written back
+ * out, and the copy would no longer say what the registry said.
+ */
+class DimRef {
+  /**
+   * @param {string} dim - The dim's name
+   * @param {string} value - The name of the value chosen from that dim
+   */
+  constructor(dim, value) {
+    this.dim = dim;
+    this.value = value;
+  }
+
+  toJSON() {
+    return { dim: this.dim, value: this.value };
+  }
+
+  /** @returns {DimRef} */
+  static fromJSON(json) {
+    if (!isPlainObject(json)) {
+      throw new Error(`a dim reference is an object, not ${JSON.stringify(json)}`);
+    }
+    refuseUnknownDefinitionKeys(json, DIM_REF_KEYS, 'dim reference');
+    for (const key of DIM_REF_KEYS) {
+      if (typeof json[key] !== 'string') {
+        throw new Error(`dim reference is missing field \`${key}\``);
+      }
+    }
+    return new DimRef(json.dim, json.value);
+  }
+}
+
+/**
+ * A definition's `dims` names each dim at most once, and only by dim and
+ * value names. Returns why not, naming the offending entry, or null when it
+ * holds.
+ * @param {DimRef[]} dims
+ * @returns {string|null}
+ */
+function checkDimRefs(dims) {
+  const seen = new Set();
+  for (const r of dims) {
+    if (!isDimName(r.dim)) return `'${r.dim}' is not a dim name`;
+    if (typeof r.value !== 'string' || r.value.length === 0) return `dim '${r.dim}' is named without a value`;
+    if (seen.has(r.dim)) return `dim '${r.dim}' is named more than once`;
+    seen.add(r.dim);
+  }
+  return null;
+}
+
+/**
+ * A definition's `dims` as its JSON carries them: absent is none; otherwise
+ * a list of dim references, each dim named once. `what` names the definition
+ * in the error.
+ * @returns {DimRef[]}
+ */
+function dimRefsFromJSON(json, what) {
+  if (json === undefined) return [];
+  if (!Array.isArray(json)) {
+    throw new Error(`${what}: 'dims' is a list of dim references`);
+  }
+  const dims = json.map(d => DimRef.fromJSON(d));
+  const wrong = checkDimRefs(dims);
+  if (wrong !== null) throw new Error(`${what} dims: ${wrong}`);
+  return dims;
+}
+
+/** A tag a dim value contributes to the URN of every definition built with it. `value` is `*` for a marker tag. */
+class DimTag {
+  constructor(key, value) {
+    this.key = key;
+    this.value = value;
+  }
+
+  toJSON() {
+    return { key: this.key, value: this.value };
+  }
+
+  /** @returns {DimTag} */
+  static fromJSON(json) {
+    if (!isPlainObject(json)) throw new Error(`a dim tag is an object, not ${JSON.stringify(json)}`);
+    refuseUnknownDefinitionKeys(json, DIM_TAG_KEYS, 'dim tag');
+    for (const key of DIM_TAG_KEYS) {
+      if (typeof json[key] !== 'string') throw new Error(`dim tag is missing field \`${key}\``);
+    }
+    return new DimTag(json.key, json.value);
+  }
+}
+
+/** One value a dim may take. */
+class StoredDimValue {
+  /**
+   * @param {string} name - The value's name, unique within the dim
+   * @param {string} title - Display-friendly title of the value
+   * @param {DimTag[]} tags - The tags the value contributes; at least one
+   * @param {string|null} documentation - Markdown documentation of what choosing this value means
+   * @param {string|null} mediaType - The MIME media type the value gives the media defs built with it
+   * @param {string[]} extensions - The file extensions the value gives the media defs built with it
+   */
+  constructor(name, title, tags, documentation = null, mediaType = null, extensions = []) {
+    this.name = name;
+    this.title = title;
+    this.tags = tags;
+    this.documentation = documentation;
+    this.media_type = mediaType;
+    this.extensions = extensions;
+  }
+
+  toJSON() {
+    const result = { name: this.name, title: this.title, tags: this.tags.map(t => t.toJSON()) };
+    if (this.documentation !== null) result.documentation = this.documentation;
+    if (this.media_type !== null) result.media_type = this.media_type;
+    if (this.extensions.length > 0) result.extensions = this.extensions;
+    return result;
+  }
+
+  /** @returns {StoredDimValue} */
+  static fromJSON(json) {
+    if (!isPlainObject(json)) throw new Error(`a dim value is an object, not ${JSON.stringify(json)}`);
+    refuseUnknownDefinitionKeys(json, DIM_VALUE_KEYS, 'dim value');
+    for (const key of ['name', 'title']) {
+      if (typeof json[key] !== 'string') throw new Error(`dim value is missing field \`${key}\``);
+    }
+    if (!Array.isArray(json.tags)) throw new Error(`dim value '${json.name}' is missing field \`tags\``);
+    for (const key of ['documentation', 'media_type']) {
+      if (json[key] !== undefined && typeof json[key] !== 'string') {
+        throw new Error(`dim value '${json.name}': '${key}' is a string`);
+      }
+    }
+    if (json.extensions !== undefined && !(Array.isArray(json.extensions) && json.extensions.every(e => typeof e === 'string'))) {
+      throw new Error(`dim value '${json.name}': 'extensions' is a list of strings`);
+    }
+    return new StoredDimValue(json.name, json.title, json.tags.map(t => DimTag.fromJSON(t)),
+      json.documentation === undefined ? null : json.documentation,
+      json.media_type === undefined ? null : json.media_type,
+      json.extensions === undefined ? [] : [...json.extensions]);
+  }
+}
+
+const DimErrorCodes = Object.freeze({
+  INVALID_NAME: 'InvalidName',
+  NO_VALUES: 'NoValues',
+  DUPLICATE_VALUE: 'DuplicateValue',
+  VALUE_WITHOUT_TAGS: 'ValueWithoutTags',
+});
+
+/** Why a dim body is not one this library can hold. */
+class DimError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'DimError';
+    this.code = code;
+  }
+}
+
+/**
+ * Stored dim definition. Mirrors fabric/dim.schema.json on the wire and is
+ * the body published at `dims/<sha256-of-name>/<defver>.json`.
+ */
+class StoredDim {
+  /**
+   * @param {string} name - The dim's name, unique across the snapshot
+   * @param {number} version - Per-definition version; dims exist only in the versioned regime
+   * @param {string} title - Display-friendly title of the dim
+   * @param {string} documentation - Markdown documentation of what the dim is
+   * @param {StoredDimValue[]} values - The values the dim may take, in the order the dim declares them
+   */
+  constructor(name, version, title, documentation, values) {
+    this.name = name;
+    this.version = version;
+    this.title = title;
+    this.documentation = documentation;
+    this.values = values;
+  }
+
+  /**
+   * The value named `name`, if the dim declares it.
+   * @returns {StoredDimValue|null}
+   */
+  value(name) {
+    return this.values.find(v => v.name === name) || null;
+  }
+
+  /**
+   * Hold the body to what dim.schema.json says beyond its field types: a
+   * dim name, at least one value, value names unique, every value with a tag.
+   * @throws {DimError}
+   */
+  validate() {
+    if (!isDimName(this.name)) {
+      throw new DimError(DimErrorCodes.INVALID_NAME,
+        `dim name '${this.name}' is not a dim name (lowercase letters, digits and '-', starting with a letter)`);
+    }
+    if (this.values.length === 0) {
+      throw new DimError(DimErrorCodes.NO_VALUES, `dim '${this.name}' declares no values`);
+    }
+    const seen = new Set();
+    for (const v of this.values) {
+      if (seen.has(v.name)) {
+        throw new DimError(DimErrorCodes.DUPLICATE_VALUE, `dim '${this.name}' declares value '${v.name}' more than once`);
+      }
+      seen.add(v.name);
+      if (v.tags.length === 0) {
+        throw new DimError(DimErrorCodes.VALUE_WITHOUT_TAGS, `dim '${this.name}' value '${v.name}' contributes no tag`);
+      }
+    }
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      version: this.version,
+      title: this.title,
+      documentation: this.documentation,
+      values: this.values.map(v => v.toJSON()),
+    };
+  }
+
+  /**
+   * Read a dim body, refusing a field this library does not know.
+   * @returns {StoredDim}
+   */
+  static fromJSON(json) {
+    if (!isPlainObject(json)) throw new Error(`a dim is an object, not ${JSON.stringify(json)}`);
+    refuseUnknownDefinitionKeys(json, DIM_KEYS, 'dim');
+    for (const key of ['name', 'title', 'documentation']) {
+      if (typeof json[key] !== 'string') throw new Error(`dim is missing field \`${key}\``);
+    }
+    if (!Number.isInteger(json.version) || json.version < 0) {
+      throw new Error(`dim '${json.name}' has no whole \`version\``);
+    }
+    if (!Array.isArray(json.values)) throw new Error(`dim '${json.name}' is missing field \`values\``);
+    return new StoredDim(json.name, json.version, json.title, json.documentation,
+      json.values.map(v => StoredDimValue.fromJSON(v)));
+  }
+}
+
 /**
  * A versioned registry snapshot. Mirrors fabric/manifest.schema.json:
- * { version, previous, caps, media, aliases } where each map is
- * name/urn -> defver.
+ * { version, previous, caps, media, aliases, dims } where each map is
+ * name/urn -> defver. `dims` is required: every dim a cap or media def of
+ * the snapshot names is in it, and a manifest without it is not one this
+ * library reads.
  */
 class Manifest {
-  constructor(version, previous, caps = {}, media = {}, aliases = {}) {
+  constructor(version, previous, caps = {}, media = {}, aliases = {}, dims = {}) {
     this.version = version;
     this.previous = previous;
     this.caps = caps;
     this.media = media;
     this.aliases = aliases;
+    this.dims = dims;
   }
   static empty(version) {
-    return new Manifest(version, Math.max(0, version - 1), {}, {}, {});
+    return new Manifest(version, Math.max(0, version - 1), {}, {}, {}, {});
   }
   toJSON() {
     return {
@@ -11642,15 +12091,20 @@ class Manifest {
       caps: this.caps,
       media: this.media,
       aliases: this.aliases,
+      dims: this.dims,
     };
   }
   static fromJSON(obj) {
+    if (!isPlainObject(obj.dims)) {
+      throw new Error(`manifest v${obj.version} has no 'dims' map`);
+    }
     return new Manifest(
       obj.version,
       obj.previous,
       obj.caps || {},
       obj.media || {},
       obj.aliases || {},
+      { ...obj.dims },
     );
   }
 }
@@ -11680,6 +12134,15 @@ export {
   selectDisplayAlias,
   StoredAlias,
   Manifest,
+  // Dims
+  isDimName,
+  checkDimRefs,
+  DimRef,
+  DimTag,
+  StoredDimValue,
+  StoredDim,
+  DimError,
+  DimErrorCodes,
   CapUrn,
   CapKind,
   CapEffect,

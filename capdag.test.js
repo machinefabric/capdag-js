@@ -52,6 +52,7 @@ import {
   tokenIsUrn, isAliasToken, normalizeAliasName, classifyAliasTarget,
   selectDisplayAlias,
   StoredAlias, Manifest,
+  DimRef, StoredDim,
   CapDefinitions,
   parseMachine,
   machineFromCapPath,
@@ -1917,15 +1918,15 @@ function test6269_JS_mediaDefConstruction() {
 // Cartridge Repository Tests (TEST320-TEST335)
 // =============================================================================
 
-// Sample registry for testing — v5.0 channel-partitioned schema.
+// Sample registry for testing — v7.0 channel-partitioned schema.
 //
 // Both `release` and `nightly` are always present. We populate the
 // release channel with two cartridges (pdf + txt) for the bulk of the
 // tests, and add one nightly entry so isolation tests have something
 // to assert on. Tests that need an empty channel use literals inline.
 const sampleRegistry = {
-  schemaVersion: '5.0',
-  registryVersion: 1,
+  schemaVersion: '7.0',
+  registryVersion: 3,
   lastUpdated: '2026-02-07T16:48:28Z',
   registryUrl: 'https://test.example/manifest',
   fabricRegistryUrl: 'https://fabric.test',
@@ -2143,26 +2144,38 @@ function test322_cartridgeInfoBuildForPlatform() {
   assert(noBuilds.availablePlatforms().length === 0, 'Should have no platforms');
 }
 
-// TEST323: CartridgeRepoServer requires schema 5.0 and rejects older.
+// TEST323: CartridgeRepoServer requires the schema this build reads (7.0)
+// and rejects older.
 function test323_cartridgeRepoServerValidateRegistry() {
   // Valid registry
   const server = new CartridgeRepoServer(sampleRegistry);
-  assert(server.registry.schemaVersion === '5.0', 'Should accept v5.0 registry');
+  assert(server.registry.schemaVersion === '7.0', 'Should accept v7.0 registry');
 
-  // Invalid schema version (4.0 is no longer accepted)
+  // Invalid schema version (6.0 is no longer accepted)
   let threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '4.0', channels: {release: {cartridges: {}}, nightly: {cartridges: {}}}});
+    new CartridgeRepoServer({ ...sampleRegistry, schemaVersion: '6.0' });
   } catch (e) {
     threw = true;
-    assert(e.message.includes('5.0'), 'Should reject pre-5.0 schema and mention required version');
+    assert(e.message.includes('7.0'), 'Should reject pre-7.0 schema and mention required version');
   }
-  assert(threw, 'Should throw for v4.0 schema');
+  assert(threw, 'Should throw for v6.0 schema');
+
+  // A registry of another regime version (the one before this build's) is
+  // refused, not reinterpreted.
+  threw = false;
+  try {
+    new CartridgeRepoServer({ ...sampleRegistry, registryVersion: 2 });
+  } catch (e) {
+    threw = true;
+    assert(e.message.includes('cartridge registry version') && e.message.includes('v3'), 'Should reject registry version 2 and name v3: ' + e.message);
+  }
+  assert(threw, 'Should throw for registry version 2');
 
   // Missing channels object
   threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '5.0', registryVersion: 1, fabricRegistryUrl: 'https://fabric.test', registryUrl: 'https://test.example/manifest'});
+    new CartridgeRepoServer({schemaVersion: '7.0', registryVersion: 3, fabricRegistryUrl: 'https://fabric.test', registryUrl: 'https://test.example/manifest'});
   } catch (e) {
     threw = true;
     assert(e.message.includes('channels'), 'Should reject missing channels');
@@ -2172,7 +2185,7 @@ function test323_cartridgeRepoServerValidateRegistry() {
   // Missing one of the two required channels
   threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '5.0', registryVersion: 1, fabricRegistryUrl: 'https://fabric.test', registryUrl: 'https://test.example/manifest', channels: {release: {cartridges: {}}}});
+    new CartridgeRepoServer({schemaVersion: '7.0', registryVersion: 3, fabricRegistryUrl: 'https://fabric.test', registryUrl: 'https://test.example/manifest', channels: {release: {cartridges: {}}}});
   } catch (e) {
     threw = true;
     assert(e.message.includes('nightly'), 'Should require nightly channel');
@@ -2452,7 +2465,7 @@ function test334_cartridgeRepoClientNeedsSync() {
   assert(client.needsSync(urls) === false, 'Should not need sync right after update');
 }
 
-// TEST335: Round-trip: server produces a v5.0 response, client consumes
+// TEST335: Round-trip: server produces a v7.0 response, client consumes
 // it, channel provenance is preserved end-to-end.
 function test335_cartridgeRepoServerClientIntegration() {
   // Server creates API response
@@ -3986,9 +3999,16 @@ function extractDefinitionJSON(version = 3) {
 const mediaJSON = (urn, title, version, extra = {}) =>
   Object.assign({ urn: MediaUrn.fromString(urn).toString(), media_type: 'application/json', title, version }, extra);
 
+/** The published JSON of a dim: each value contributes the tag `<dim>=<value>`. */
+const dimJSON = (name, version, values) => ({
+  name, version, title: `Title of ${name}`, documentation: `## ${name}\nWhat ${name} is.`,
+  values: values.map(v => ({ name: v, title: v.toUpperCase(), tags: [{ key: name, value: v }], documentation: `The ${v} value.` })),
+});
+
 /**
  * A registry in memory, served by URL as the publisher lays it out, with
- * every URL asked for recorded. `change` edits the objects before serving.
+ * every URL asked for recorded. `change` edits the objects before serving;
+ * `goOffline` makes every later fetch fail as an unreachable registry does.
  */
 async function fakeRegistry(change = () => {}) {
   const objects = new Map();
@@ -3999,6 +4019,7 @@ async function fakeRegistry(change = () => {}) {
     caps: { [EXTRACT_URN]: 3 },
     media: { [MediaUrn.fromString(PDF).toString()]: 1, [MediaUrn.fromString(TEXT).toString()]: 2, [MediaUrn.fromString(PAGES).toString()]: 1, [WHOLE]: 1, [MediaUrn.fromString(COUNT).toString()]: 1 },
     aliases: { extract: 1 },
+    dims: { language: 1, medium: 2 },
   };
   const served = { manifest, cap: extractDefinitionJSON(), media: {
     [PDF]: mediaJSON(PDF, 'PDF', 1),
@@ -4006,7 +4027,10 @@ async function fakeRegistry(change = () => {}) {
     [PAGES]: mediaJSON(PAGES, 'Page Limit', 1, { validation: { min: 1 }, schema: { type: 'integer' } }),
     [WHOLE]: mediaJSON(WHOLE, 'Whole Number', 1),
     [COUNT]: mediaJSON(COUNT, 'Page Count', 1),
-  }, alias: { name: 'extract', target: EXTRACT_URN, version: 1 } };
+  }, alias: { name: 'extract', target: EXTRACT_URN, version: 1 }, dims: {
+    language: dimJSON('language', 1, ['en', 'es']),
+    medium: dimJSON('medium', 2, ['document', 'text']),
+  } };
   change(served);
   objects.set(`${REGISTRY}/manifest/8.json`, served.manifest);
   await put('caps', EXTRACT_URN, 3, served.cap);
@@ -4014,14 +4038,19 @@ async function fakeRegistry(change = () => {}) {
     await put('media', MediaUrn.fromString(urn).toString(), served.manifest.media[MediaUrn.fromString(urn).toString()] || 1, body);
   }
   await put('aliases', 'extract', 1, served.alias);
+  for (const [name, body] of Object.entries(served.dims)) {
+    await put('dims', name, (served.manifest.dims || {})[name] || body.version, body);
+  }
   const asked = [];
+  let offline = false;
   const fetch = async url => {
     asked.push(url);
+    if (offline) throw new Error('offline');
     if (!objects.has(url)) return { status: 404, ok: false, json: async () => ({}) };
     const body = objects.get(url);
     return { status: 200, ok: true, json: async () => JSON.parse(JSON.stringify(body)) };
   };
-  return { client: new FabricRegistryClient(REGISTRY, 8, { fetch }), asked };
+  return { client: new FabricRegistryClient(REGISTRY, 8, { fetch }), asked, goOffline: () => { offline = true; } };
 }
 
 async function refusedRegistry(promise, code, what) {
@@ -6528,7 +6557,7 @@ function test1882_classifyAliasTargetByPrefix() {
 
 // TEST1887: the Manifest type round-trips an `aliases` map.
 function test1887_manifestSerdeRoundTripsAliases() {
-  const body = '{"version":1,"previous":0,"caps":{},"media":{},"aliases":{"pdf2text":3,"jsondoc":1}}';
+  const body = '{"version":1,"previous":0,"caps":{},"media":{},"aliases":{"pdf2text":3,"jsondoc":1},"dims":{}}';
   const m = Manifest.fromJSON(JSON.parse(body));
   assertEqual(m.aliases['pdf2text'], 3, 'pdf2text defver');
   assertEqual(m.aliases['jsondoc'], 1, 'jsondoc defver');
@@ -6598,6 +6627,192 @@ function test1896_cachedCapAliasesFiltersToCapTargets() {
   assertEqual(capAliases.length, 1, 'only the cap alias is returned');
   assertEqual(capAliases[0][0], 'int2str', 'pair name');
   assertEqual(capAliases[0][1], capTarget, 'pair target');
+}
+
+
+// ===========================================================================
+// Fabric dims (shared numbers 1966-1972)
+// ===========================================================================
+
+// TEST1966: the Manifest type round-trips a `dims` map (name -> defver), and a
+// manifest without one is refused: every manifest this library reads names
+// the dims of its snapshot. The registry client refuses a served manifest
+// without one, or with a dim pinned at no version.
+async function test1966_manifestCarriesADimsMapAndRequiresIt() {
+  const body = '{"version":11,"previous":10,"caps":{},"media":{},"aliases":{},"dims":{"language":1,"file-type":2}}';
+  const m = Manifest.fromJSON(JSON.parse(body));
+  assertEqual(m.dims['language'], 1, 'language defver');
+  assertEqual(m.dims['file-type'], 2, 'file-type defver');
+  assertEqual(JSON.parse(JSON.stringify(m.toJSON())).dims['file-type'], 2, 'round-trip file-type');
+
+  const without = '{"version":11,"previous":10,"caps":{},"media":{},"aliases":{}}';
+  assertThrowsMessage(() => Manifest.fromJSON(JSON.parse(without)), "'dims'", 'a manifest without dims is refused');
+
+  const gone = await fakeRegistry(served => { delete served.manifest.dims; });
+  const error = await refusedRegistry(gone.client.manifest(), FabricRegistryErrorCodes.PARSE, 'a served manifest without dims');
+  assert(error.message.includes("no 'dims' map"), error.message);
+  const torn = await fakeRegistry(served => { served.manifest.dims.language = 0; });
+  await refusedRegistry(torn.client.manifest(), FabricRegistryErrorCodes.PARSE, 'a dim pinned at no version');
+}
+
+// TEST1967: getDim returns a dim the registry holds; a name the pinned
+// manifest does not list is NotFound naming the manifest version, decided
+// before any fetch (the registry is offline, and the error is not the
+// offline one); a string that is no dim name is refused as such.
+async function test1967_getDimResolvesThroughTheManifest() {
+  const { client, asked, goOffline } = await fakeRegistry();
+  const got = await client.getDim('language');
+  assertEqual(got.value('es').title, 'ES', 'a value of the dim');
+  assert(client.getCachedDim('language') === got, 'held');
+  assertEqual(await client.dimDefverFor('language'), 1, 'its pinned defver');
+  client.insertCachedDimForTest(StoredDim.fromJSON(dimJSON('register', 1, ['formal'])));
+
+  goOffline();
+  const before = asked.length;
+  assert((await client.getDim('register')).value('formal') !== null, 'a held dim is answered without the registry');
+  assert((await client.getDim('language')) === got, 'and so is a fetched one');
+  const error = await refusedRegistry(client.getDim('tone'), FabricRegistryErrorCodes.NOT_FOUND, 'an unlisted dim');
+  assert(error.message.includes("dim 'tone' is not part of manifest v8"), error.message);
+  assertEqual(asked.length, before, 'nothing was fetched');
+  await refusedRegistry(client.getDim('Tone'), FabricRegistryErrorCodes.VALIDATION, 'no dim name');
+}
+
+// TEST1968: a dim is addressed at dims/<sha256-of-name>/<defver>.json on the
+// registry; a body served for it must be that dim at that version, with no
+// field this library does not know, and must hold (values present, names
+// unique). This mirror keeps no disk cache, so there is no cache path.
+async function test1968_aDimObjectIsTheDimAndVersionAskedFor() {
+  const { client, asked } = await fakeRegistry();
+  assertEqual((await client.getDim('medium')).version, 2, 'the pinned version');
+  assertEqual(asked.filter(url => url.includes('/dims/')).join(), `${REGISTRY}/dims/${await sha256OfText('medium')}/2.json`, 'its address');
+
+  for (const [what, change, code, says] of [
+    ['another name', served => { served.dims.medium.name = 'language'; }, FabricRegistryErrorCodes.PARSE, 'does not match requested name'],
+    ['another version', served => { served.dims.medium.version = 1; }, FabricRegistryErrorCodes.PARSE, 'manifest pins defver 2'],
+    ['an unknown field', served => { served.dims.medium.predicates = []; }, FabricRegistryErrorCodes.PARSE, 'predicates'],
+    ['a value twice', served => { served.dims.medium.values.push(served.dims.medium.values[0]); }, FabricRegistryErrorCodes.VALIDATION, "declares value 'document' more than once"],
+    ['no values', served => { served.dims.medium.values = []; }, FabricRegistryErrorCodes.VALIDATION, "dim 'medium' declares no values"],
+  ]) {
+    const other = await fakeRegistry(change);
+    const error = await refusedRegistry(other.client.getDim('medium'), code, what);
+    assert(error.message.includes(says), `${what}: ${error.message}`);
+    assertEqual(other.client.getCachedDim('medium'), null, `${what}: not held`);
+  }
+}
+
+// TEST1969: a cap's `dims` — the dims it was built from and the value chosen
+// from each — survive a round-trip in order, under the wire key the registry
+// publishes; a cap built from no dim carries no `dims` key; an entry with a
+// key this capdag does not know is refused like an argument's, and so is one
+// dim named twice. A cartridge re-serializes the caps it declares, so a
+// dropped `dims` would leave its copy without them.
+function test1969_capDimsRoundTripInOrderAndRefuseWhatTheyCannotHold() {
+  const json = '{"urn":"cap:ask;constrained;in=\\"media:enc=utf-8\\";language=en;out=\\"media:enc=utf-8\\"","version":3,"title":"Ask","aliases":["ask-en"],"documentation":"Only about asking.","dims":[{"dim":"constrained","value":"constrained"},{"dim":"language","value":"en"}]}';
+  const expected = '[{"dim":"constrained","value":"constrained"},{"dim":"language","value":"en"}]';
+  const cap = Cap.fromJSON(JSON.parse(json));
+  assert(cap.dims.every(d => d instanceof DimRef), 'dim references');
+  assertEqual(JSON.stringify(cap.dims), expected, 'in order');
+  const back = JSON.parse(JSON.stringify(cap.toJSON()));
+  assertEqual(JSON.stringify(back.dims), expected, 'serialized under `dims`');
+  const again = Cap.fromJSON(back);
+  assertEqual(JSON.stringify(again.dims), expected, 'parsed again');
+  assert(again.equals(cap), 'the same cap');
+
+  const bare = new Cap(CapUrn.fromString('cap:effect=none'), 'Identity', ['identity']);
+  assert(!('dims' in bare.toJSON()), 'no `dims` key when built from no dim');
+
+  const extra = json.replace('{"dim":"language","value":"en"}', '{"dim":"language","value":"en","version":1}');
+  assertThrowsMessage(() => Cap.fromJSON(JSON.parse(extra)), 'version', 'an unknown dims key is refused');
+  const twice = json.replace('{"dim":"constrained","value":"constrained"}', '{"dim":"language","value":"es"}');
+  assertThrowsMessage(() => Cap.fromJSON(JSON.parse(twice)), "dim 'language' is named more than once", 'one dim named twice is refused');
+}
+
+// TEST1970: a media def's `dims` survive from the registry body to the
+// MediaDef, in order — read through the registry client and resolved from a
+// media-definition list alike; a media def built from no dim has none; an
+// entry with a key this capdag does not know is refused. (This mirror's
+// MediaDef has no JSON form of its own, so there is no write-back leg.)
+async function test1970_mediaDefDimsSurviveAndRefuseUnknownKeys() {
+  const expected = '[{"dim":"medium","value":"document"},{"dim":"language","value":"en"}]';
+  const { client } = await fakeRegistry(served => { served.media[PDF].dims = JSON.parse(expected); });
+  const read = await client.getMediaDef(PDF);
+  assert(read.dims.every(d => d instanceof DimRef), 'dim references');
+  assertEqual(JSON.stringify(read.dims), expected, 'read from the registry, in order');
+
+  const body = { urn: 'media:document;ext=pdf', version: 2, media_type: 'application/pdf', title: 'PDF Document', documentation: 'Only about PDFs.',
+    dims: [{ dim: 'file-type', value: 'pdf' }, { dim: 'medium', value: 'document' }], extensions: ['pdf'] };
+  const resolved = resolveMediaUrn(body.urn, [body]);
+  assertEqual(JSON.stringify(resolved.dims), '[{"dim":"file-type","value":"pdf"},{"dim":"medium","value":"document"}]', 'resolved from a list');
+  const bare = resolveMediaUrn('media:void', [{ urn: 'media:void', media_type: 'application/x-void', title: 'Void' }]);
+  assertEqual(bare.dims.length, 0, 'built from no dim');
+
+  const extra = JSON.parse(JSON.stringify(body));
+  extra.dims[0].title = 'PDF';
+  assertThrowsMessage(() => resolveMediaUrn(extra.urn, [extra]), 'title', 'an unknown dims key is refused');
+  const served = await fakeRegistry(s => { s.media[PDF].dims = [{ dim: 'medium', value: 'document', title: 'Document' }]; });
+  const error = await refusedRegistry(served.client.getMediaDef(PDF), FabricRegistryErrorCodes.PARSE, 'an unknown dims key from the registry');
+  assert(error.message.includes('title'), error.message);
+}
+
+// TEST1971: what the client holds is held only as the pinned manifest names
+// it. This mirror keeps no disk cache to hydrate from — a client reads one
+// manifest and holds what it fetched in memory — so the rule is held where a
+// definition enters the cache: a dim served at another version than the
+// manifest pins is not held, and the definition naming it is not held
+// either; forgetting the cache forgets the dims with the definitions; and
+// there is no client at v0, so no dims there.
+async function test1971_definitionsAreHeldOnlyWithTheirPinnedDims() {
+  const naming = served => { served.cap.dims = [{ dim: 'language', value: 'en' }]; };
+  const stale = await fakeRegistry(served => { naming(served); served.dims.language.version = 2; });
+  const error = await refusedRegistry(stale.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.NOT_FOUND, 'a cap whose dim is at another version');
+  assert(error.message.includes(`cap '${EXTRACT_URN}' names dim 'language', which could not be fetched`) && error.message.includes('manifest pins defver 1'), error.message);
+  assertEqual(stale.client.getCachedDim('language'), null, 'the dim at another version is not held');
+  assertEqual(stale.client.capDefinition(EXTRACT_URN), null, 'nor the cap naming it');
+
+  const staleMedia = await fakeRegistry(served => { served.media[TEXT].dims = [{ dim: 'medium', value: 'text' }]; served.dims.medium.version = 1; });
+  await refusedRegistry(staleMedia.client.getMediaDef(TEXT), FabricRegistryErrorCodes.NOT_FOUND, 'a media def whose dim is at another version');
+  assertEqual(staleMedia.client.mediaDefinition(TEXT), null, 'nor the media def naming it');
+
+  const { client } = await fakeRegistry(naming);
+  await client.getCap(EXTRACT_URN);
+  assert(client.capDefinition(EXTRACT_URN) !== null && client.getCachedDim('language') !== null, 'held together');
+  client.invalidate();
+  assertEqual(client.getCachedDim('language'), null, 'forgotten with the cap');
+  assertThrowsMessage(() => new FabricRegistryClient(REGISTRY, 0), 'manifest version', 'no client at v0');
+}
+
+// TEST1972: a definition is cached only once every dim it names is held,
+// with the value it names. A dim the manifest does not list is refused
+// naming the definition, the dim and the manifest version, before any fetch
+// of a dim; a value the dim does not declare is refused naming all three;
+// one dim named twice is refused.
+async function test1972_aDefinitionNeedsEveryDimItNames() {
+  const held = await fakeRegistry(served => { served.cap.dims = [{ dim: 'language', value: 'en' }, { dim: 'medium', value: 'text' }, { dim: 'register', value: 'formal' }]; });
+  held.client.insertCachedDimForTest(StoredDim.fromJSON(dimJSON('register', 1, ['formal'])));
+  await held.client.getCap(EXTRACT_URN);
+  assert(held.client.capDefinition(EXTRACT_URN) !== null, 'a cap whose dims and values are held is held');
+  for (const name of ['language', 'medium']) assert(held.client.getCachedDim(name) !== null, `with ${name}`);
+  assertEqual(held.asked.filter(url => url.includes('/dims/')).length, 2, 'a held dim is not fetched');
+
+  const fr = await fakeRegistry(served => { served.cap.dims = [{ dim: 'language', value: 'fr' }]; });
+  let error = await refusedRegistry(fr.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.VALIDATION, 'a value the dim lacks');
+  assertEqual(error.message, `cap '${EXTRACT_URN}' names value 'fr' of dim 'language', which the dim does not declare`, 'names all three');
+  assertEqual(fr.client.capDefinition(EXTRACT_URN), null, 'not held');
+
+  const tone = await fakeRegistry(served => { served.cap.dims = [{ dim: 'tone', value: 'formal' }]; });
+  error = await refusedRegistry(tone.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.NOT_FOUND, 'a dim the manifest lacks');
+  assertEqual(error.message, `cap '${EXTRACT_URN}' names dim 'tone', which is not in manifest v8`, 'names the definition, the dim and the manifest');
+  assert(!tone.asked.some(url => url.includes('/dims/')), 'no dim fetched');
+  assertEqual(tone.client.capDefinition(EXTRACT_URN), null, 'not held');
+
+  const media = await fakeRegistry(served => { served.media[PDF].dims = [{ dim: 'language', value: 'fr' }]; });
+  error = await refusedRegistry(media.client.getMediaDef(PDF), FabricRegistryErrorCodes.VALIDATION, 'a media def with a value the dim lacks');
+  assertEqual(error.message, `media def '${MediaUrn.fromString(PDF).toString()}' names value 'fr' of dim 'language', which the dim does not declare`, 'a media def alike');
+  assertEqual(media.client.mediaDefinition(PDF), null, 'the media def is not held');
+
+  const twice = await fakeRegistry(served => { served.cap.dims = [{ dim: 'language', value: 'en' }, { dim: 'language', value: 'en' }]; });
+  error = await refusedRegistry(twice.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.PARSE, 'one dim named twice');
+  assert(error.message.includes("dim 'language' is named more than once"), error.message);
 }
 
 // ============================================================================
@@ -7228,6 +7443,15 @@ async function runTests() {
   runTest('TEST1894: select_display_alias_ordering',         test1894_selectDisplayAliasOrdering);
   runTest('TEST1895: display_alias_for_urn',                 test1895_displayAliasForUrn);
   runTest('TEST1896: cached_cap_aliases_filters_to_cap',     test1896_cachedCapAliasesFiltersToCapTargets);
+
+  console.log('\n--- fabric dims (test1966–test1972) ---');
+  await runTest('TEST1966: manifest_carries_a_dims_map_and_requires_it', test1966_manifestCarriesADimsMapAndRequiresIt);
+  await runTest('TEST1967: get_dim_resolves_through_the_manifest', test1967_getDimResolvesThroughTheManifest);
+  await runTest('TEST1968: a_dim_object_is_the_dim_and_version_asked_for', test1968_aDimObjectIsTheDimAndVersionAskedFor);
+  runTest('TEST1969: cap_dims_round_trip_in_order_and_refuse_what_they_cannot_hold', test1969_capDimsRoundTripInOrderAndRefuseWhatTheyCannotHold);
+  await runTest('TEST1970: media_def_dims_survive_and_refuse_unknown_keys', test1970_mediaDefDimsSurviveAndRefuseUnknownKeys);
+  await runTest('TEST1971: definitions_are_held_only_with_their_pinned_dims', test1971_definitionsAreHeldOnlyWithTheirPinnedDims);
+  await runTest('TEST1972: a_definition_needs_every_dim_it_names', test1972_aDefinitionNeedsEveryDimItNames);
 
   // planner.js: unified plan-space vocabulary
   console.log('--- planner.js ---');

@@ -86,6 +86,12 @@ const machine = parseMachine(
 );
 ```
 
+A cap or media definition names the dims it was built from, and the value
+chosen from each, in its `dims`; its own `documentation` is only what is
+specific to it. A definition is held only together with every dim it names,
+so `fabric.getCachedDim(name)` gives the dim's title and documentation and
+those of each of its values (`getDim(name)` fetches one by name).
+
 `parseMachineWithAST` also returns every statement with where each part of it
 stands in the text, and the name the text gave each node. A machine that names
 other machines in step position is read with a `MachineSource`
