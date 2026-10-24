@@ -1962,29 +1962,8 @@ function modelPathUrn() {
 // SCHEMA URL CONFIGURATION
 // =============================================================================
 
+/** Base URL for capdag schemas. */
 const DEFAULT_SCHEMA_BASE = 'https://capdag.com/schema';
-
-/**
- * Get the schema base URL from environment variables or default
- *
- * Checks in order:
- * 1. CDG_SCHEMA_BASE_URL environment variable
- * 2. CDG_FABRIC_REGISTRY_URL environment variable + "/schema"
- * 3. Default: "https://capdag.com/schema"
- *
- * @returns {string} The schema base URL
- */
-function getSchemaBaseURL() {
-  if (typeof process !== 'undefined' && process.env) {
-    if (process.env.CDG_SCHEMA_BASE_URL) {
-      return process.env.CDG_SCHEMA_BASE_URL;
-    }
-    if (process.env.CDG_FABRIC_REGISTRY_URL) {
-      return process.env.CDG_FABRIC_REGISTRY_URL + '/schema';
-    }
-  }
-  return DEFAULT_SCHEMA_BASE;
-}
 
 /**
  * Get a profile URL for the given profile name
@@ -1993,7 +1972,7 @@ function getSchemaBaseURL() {
  * @returns {string} The full profile URL
  */
 function getProfileURL(profileName) {
-  return `${getSchemaBaseURL()}/${profileName}`;
+  return `${DEFAULT_SCHEMA_BASE}/${profileName}`;
 }
 
 /**
@@ -5209,69 +5188,408 @@ class CartridgeCapGroup {
 }
 
 // =============================================================================
-// Cartridge registry slug
+// Registry charters
 // =============================================================================
 //
-// Deterministic mapping from a registry URL to a top-level folder
-// name under the cartridges install root. Mirrors
-// capdag::cartridge_slug byte-for-byte: SHA-256 of the URL bytes,
-// lowercase hex, first 16 chars. The literal string "dev" is
-// reserved for dev cartridges that have no registry.
+// What makes a URL a MachineFabric registry. Mirrors Rust
+// `bifaci/charter.rs`.
 //
-// JS uses Web Crypto's SubtleCrypto for SHA-256. The function is
-// async because `crypto.subtle.digest` returns a Promise; consumers
-// in synchronous contexts must await.
+// A registry — of cartridges, of fabric definitions, or of app releases — is
+// named by its ANCHOR, which may be any URL. The one convention anywhere is
+// that `<anchor>/charter.json` and `<anchor>/charter.json.sig` exist.
+// Everything else is read from the charter, never derived from the shape of a
+// URL: the registry's slug (its folder on disk), its kind, the environment its
+// contents are signed under, the locations of its manifests, and for a
+// cartridge registry the fabric its caps resolve against.
+//
+// This reads a charter and holds it to its shape, to the folder it is stored
+// in and to the anchor its cartridges record. It does NOT verify the
+// signature: this mirror carries no chain verification (`release_cert.rs` and
+// `charter.rs` in the Rust library are the only implementation of it), and a
+// mirror that stubbed one would be worse than a mirror that has none. The
+// browser reads slugs only from charters it is given; it derives none.
 
-const DEV_SLUG = "dev";
+/** The format discriminator inside every charter body. */
+const CHARTER_FORMAT = 'machinefabric-registry-charter/1';
+/** The charter's file name under its anchor and in a registry's folder. */
+const CHARTER_FILE = 'charter.json';
+/** The charter signature's file name. */
+const CHARTER_SIG_FILE = 'charter.json.sig';
+/**
+ * The reserved folder name of cartridges built with no registry. No charter
+ * may claim it.
+ */
+const DEV_SLUG = 'dev';
+
+/** The three kinds of registry. */
+const RegistryKind = Object.freeze({
+  CARTRIDGES: 'cartridges',
+  FABRIC: 'fabric',
+  RELEASES: 'releases',
+});
 
 /**
- * The authority (host[:port]) of a registry URL: after `://` up to the next
- * `/`, `?`, or `#` (path/query/fragment discarded).
+ * Per kind, the locations a charter must declare, each with the placeholders
+ * its template must use — all of them and no others.
  */
-function authorityOfRegistryUrl(url) {
-  const i = url.indexOf("://");
-  const afterScheme = i >= 0 ? url.slice(i + 3) : url;
-  const m = afterScheme.search(/[/?#]/);
-  return m >= 0 ? afterScheme.slice(0, m) : afterScheme;
-}
+const REGISTRY_LOCATIONS = Object.freeze({
+  [RegistryKind.CARTRIDGES]: { manifest: ['registry_version'] },
+  [RegistryKind.FABRIC]: { manifest: ['manifest_version'], latest: [], definition: ['kind', 'urn_hash', 'version'] },
+  [RegistryKind.RELEASES]: { manifest: ['app_id'] },
+});
 
-/**
- * Compute the on-disk slug for a registry URL. Mirrors
- * capdag::cartridge_slug::slug_for byte-for-byte: `DEV_SLUG` for null/undefined,
- * otherwise a path-safe transform of the URL's authority (host[:port]) —
- * ASCII-lowercased, every character outside `[a-z0-9.-]` replaced by `-`.
- * Depends ONLY on the authority; path/version/query/trailing-slash/host-case
- * do not change it.
- *
- * @param {string|null|undefined} registryUrl
- * @returns {string}
- */
-function slugForRegistryUrlSync(registryUrl) {
-  if (registryUrl === null || registryUrl === undefined) {
-    return DEV_SLUG;
+const CHARTER_FIELDS = ['format', 'anchor', 'kind', 'slug', 'environment', 'experiment', 'locations', 'fabric', 'issued_at', 'not_after'];
+const CHARTER_REQUIRED_FIELDS = ['format', 'anchor', 'kind', 'slug', 'environment', 'locations', 'issued_at', 'not_after'];
+
+/** Why a charter could not be had or used. */
+const CharterErrorKind = Object.freeze({
+  /** The bytes are not a charter document, or it breaks its shape. */
+  MALFORMED: 'malformed',
+  /** A charter that reads, and is not the one asked for. */
+  REFUSED: 'refused',
+  /** A stored charter could not be read from disk. */
+  UNREADABLE: 'unreadable',
+  /** Nothing is at `<anchor>/charter.json`: the URL is not a MachineFabric registry. */
+  UNCHARTERED: 'unchartered',
+  /** The anchor answered with an HTTP error other than 404. */
+  HTTP: 'http',
+  /** The anchor could not be reached. */
+  UNREACHABLE: 'unreachable',
+});
+
+class CharterError extends Error {
+  constructor(kind, message) {
+    super(message);
+    this.name = 'CharterError';
+    this.kind = kind;
   }
-  let out = "";
-  for (const ch of authorityOfRegistryUrl(registryUrl)) {
-    const lc = ch >= "A" && ch <= "Z" ? ch.toLowerCase() : ch;
-    out += (lc >= "a" && lc <= "z") || (lc >= "0" && lc <= "9") || lc === "." || lc === "-" ? lc : "-";
-  }
-  return out;
 }
 
-/**
- * Async wrapper retained for callers that `await` the slug. The computation is
- * synchronous (no hashing) — the authority transform needs no crypto.
- * @returns {Promise<string>}
- */
-async function slugForRegistryUrl(registryUrl) {
-  return slugForRegistryUrlSync(registryUrl);
-}
+const malformedCharter = (message) => new CharterError(CharterErrorKind.MALFORMED, message);
 
+/** Whether `s` can be a registry slug: `[a-z0-9][a-z0-9.-]{0,62}`, and not the reserved "dev". */
 function isRegistrySlug(s) {
-  return typeof s === "string"
-      && s.length > 0
-      && s !== DEV_SLUG
-      && /^[a-z0-9.-]+$/.test(s);
+  return typeof s === 'string' && s !== DEV_SLUG && /^[a-z0-9][a-z0-9.-]{0,62}$/.test(s);
+}
+
+/** Whether `s` can be a lab experiment id: `[a-z0-9][a-z0-9-]{0,39}`. */
+function isExperimentId(s) {
+  return typeof s === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test(s);
+}
+
+function checkHttps(what, url) {
+  const i = url.indexOf('://');
+  const rest = i >= 0 ? url.slice(i + 3) : '';
+  if (i < 0 || url.slice(0, i) !== 'https' || rest.length === 0 || rest.startsWith('/')) {
+    throw malformedCharter(`${what} '${url}' is not an https URL`);
+  }
+  if (/[?#]/.test(url)) {
+    throw malformedCharter(`${what} '${url}' carries a query or fragment`);
+  }
+}
+
+/**
+ * The {name} placeholders a template uses, in order of first use. A stray
+ * brace is an error rather than literal text.
+ */
+function placeholdersIn(template) {
+  const out = [];
+  let rest = template;
+  for (;;) {
+    const at = rest.search(/[{}]/);
+    if (at < 0) return out;
+    if (rest[at] === '}') throw malformedCharter(`'${template}' has an unmatched '}'`);
+    const after = rest.slice(at + 1);
+    const end = after.indexOf('}');
+    if (end < 0) throw malformedCharter(`'${template}' has an unclosed '{'`);
+    const name = after.slice(0, end);
+    if (!/^[a-z_]+$/.test(name)) {
+      throw malformedCharter(`'${template}' has a placeholder '{${name}}' that is not a name`);
+    }
+    if (!out.includes(name)) out.push(name);
+    rest = after.slice(end + 1);
+  }
+}
+
+const isTime = (value) => Number.isInteger(value) && value >= 0;
+
+/** A charter body, as signed. */
+class Charter {
+  /**
+   * A charter's fields, each of the type a charter has; no field a charter
+   * does not have. The shape rules are `validate`'s.
+   * @param {Object} obj
+   * @returns {Charter}
+   */
+  static fromObject(obj) {
+    const notACharter = (why) => malformedCharter(`the charter is not a charter document: ${why}`);
+    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) throw notACharter('not a JSON object');
+    for (const key of Object.keys(obj).sort()) {
+      if (!CHARTER_FIELDS.includes(key)) throw notACharter(`unknown field '${key}'`);
+    }
+    for (const key of CHARTER_REQUIRED_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(obj, key)) throw notACharter(`no '${key}'`);
+    }
+    for (const key of ['format', 'anchor', 'kind', 'slug', 'environment']) {
+      if (typeof obj[key] !== 'string') throw notACharter(`'${key}' is not a string`);
+    }
+    for (const key of ['experiment', 'fabric']) {
+      if (obj[key] !== undefined && obj[key] !== null && typeof obj[key] !== 'string') {
+        throw notACharter(`'${key}' is not a string`);
+      }
+    }
+    if (!Object.values(RegistryKind).includes(obj.kind)) throw notACharter(`kind '${obj.kind}' is not a kind of registry`);
+    const locations = obj.locations;
+    if (locations === null || typeof locations !== 'object' || Array.isArray(locations)
+        || !Object.values(locations).every(v => typeof v === 'string')) {
+      throw notACharter('locations are not templates by name');
+    }
+    if (!isTime(obj.issued_at)) throw notACharter(`'issued_at' is not a time`);
+    if (obj.not_after !== null && !isTime(obj.not_after)) throw notACharter(`'not_after' is not a time`);
+    const charter = new Charter();
+    charter.format = obj.format;
+    charter.anchor = obj.anchor;
+    charter.kind = obj.kind;
+    charter.slug = obj.slug;
+    charter.environment = obj.environment;
+    charter.experiment = obj.experiment === undefined ? null : obj.experiment;
+    charter.locations = { ...locations };
+    charter.fabric = obj.fabric === undefined ? null : obj.fabric;
+    charter.issuedAt = obj.issued_at;
+    charter.notAfter = obj.not_after;
+    return charter;
+  }
+
+  /**
+   * A charter's JSON, read: the format first, then the fields, then the shape.
+   * @param {Object} obj - The parsed JSON body
+   * @returns {Charter}
+   */
+  static parse(obj) {
+    if (obj === null || typeof obj !== 'object' || obj.format === undefined) {
+      throw malformedCharter('the charter is not a charter document: no format');
+    }
+    if (obj.format !== CHARTER_FORMAT) {
+      throw malformedCharter(`the charter declares format '${obj.format}' (this build reads '${CHARTER_FORMAT}')`);
+    }
+    const charter = Charter.fromObject(obj);
+    try {
+      charter.validate();
+    } catch (e) {
+      throw malformedCharter(`the charter is not a charter document: ${e.message}`);
+    }
+    return charter;
+  }
+
+  /** The charter as its JSON object. */
+  toObject() {
+    const out = {
+      format: this.format, anchor: this.anchor, kind: this.kind, slug: this.slug, environment: this.environment,
+    };
+    if (this.experiment !== null) out.experiment = this.experiment;
+    out.locations = { ...this.locations };
+    if (this.fabric !== null) out.fabric = this.fabric;
+    out.issued_at = this.issuedAt;
+    out.not_after = this.notAfter;
+    return out;
+  }
+
+  /** Hold the charter to the shape every charter must have, whoever signed it. */
+  validate() {
+    if (this.format !== CHARTER_FORMAT) throw malformedCharter(`format '${this.format}' is not '${CHARTER_FORMAT}'`);
+    checkHttps('anchor', this.anchor);
+    if (this.anchor.endsWith('/')) throw malformedCharter(`anchor '${this.anchor}' ends with '/'`);
+    if (!isRegistrySlug(this.slug)) {
+      throw malformedCharter(`slug '${this.slug}' is not a registry slug ([a-z0-9][a-z0-9.-]{0,62}, not '${DEV_SLUG}')`);
+    }
+    if (!/^[a-z0-9-]+$/.test(this.environment)) {
+      throw malformedCharter(`environment '${this.environment}' is not a label ([a-z0-9-]+)`);
+    }
+    if (this.experiment !== null && !isExperimentId(this.experiment)) {
+      throw malformedCharter(`experiment '${this.experiment}' is not an experiment id ([a-z0-9][a-z0-9-]{0,39})`);
+    }
+    const required = REGISTRY_LOCATIONS[this.kind];
+    for (const name of Object.keys(this.locations)) {
+      if (!(name in required)) throw malformedCharter(`location '${name}' is not one a ${this.kind} registry has`);
+    }
+    for (const name of Object.keys(required).sort()) {
+      const template = this.locations[name];
+      if (template === undefined) throw malformedCharter(`a ${this.kind} registry must declare location '${name}'`);
+      checkHttps(`location '${name}'`, template);
+      const used = placeholdersIn(template);
+      for (const placeholder of used) {
+        if (!required[name].includes(placeholder)) {
+          throw malformedCharter(`location '${name}' uses '{${placeholder}}', which it does not take`);
+        }
+      }
+      for (const placeholder of required[name]) {
+        if (!used.includes(placeholder)) throw malformedCharter(`location '${name}' must use '{${placeholder}}'`);
+      }
+    }
+    if (this.kind === RegistryKind.CARTRIDGES) {
+      if (this.fabric === null) throw malformedCharter('a cartridges registry must name its fabric');
+      checkHttps('fabric', this.fabric);
+      if (this.fabric.endsWith('/')) throw malformedCharter(`fabric '${this.fabric}' ends with '/'`);
+    } else if (this.fabric !== null) {
+      throw malformedCharter(`only a cartridges registry names a fabric, and this is a ${this.kind} registry`);
+    }
+    if (this.notAfter !== null && this.notAfter <= this.issuedAt) {
+      throw malformedCharter(`not_after ${this.notAfter} is not after issued_at ${this.issuedAt}`);
+    }
+  }
+
+  /**
+   * One location with its placeholders filled. Every placeholder the template
+   * uses must be given, and nothing else may be.
+   * @param {string} name
+   * @param {Object<string, string|number>} values
+   * @returns {string}
+   */
+  location(name, values) {
+    const template = this.locations[name];
+    if (template === undefined) {
+      throw malformedCharter(`the ${this.kind} registry at ${this.anchor} has no location '${name}'`);
+    }
+    const used = placeholdersIn(template);
+    for (const key of Object.keys(values)) {
+      if (!used.includes(key)) throw malformedCharter(`location '${name}' does not take '${key}'`);
+    }
+    let out = template;
+    for (const placeholder of used) {
+      if (!(placeholder in values)) throw malformedCharter(`location '${name}' needs '${placeholder}'`);
+      out = out.split(`{${placeholder}}`).join(String(values[placeholder]));
+    }
+    return out;
+  }
+}
+
+/**
+ * The charter at `<anchor>/charter.json`, read and held to the anchor and kind
+ * asked. The signature beside it is the Rust host's to verify (see above); a
+ * client of this mirror reads the charter's locations and nothing more.
+ *
+ * @param {string} anchor
+ * @param {string} kind - A RegistryKind
+ * @param {function(string): Promise<{status: number, ok: boolean, json: function(): Promise<*>}>} fetchIt
+ * @returns {Promise<Charter>}
+ */
+async function fetchCharter(anchor, kind, fetchIt) {
+  const url = `${anchor}/${CHARTER_FILE}`;
+  let response;
+  try {
+    response = await fetchIt(`${url}?cb=${Date.now()}`);
+  } catch (e) {
+    throw new CharterError(CharterErrorKind.UNREACHABLE, `cannot reach ${url}: ${e.message}`);
+  }
+  if (response.status === 404) {
+    throw new CharterError(CharterErrorKind.UNCHARTERED, `${anchor} has no charter (${url} answered 404) — it is not a MachineFabric registry`);
+  }
+  if (!response.ok) {
+    throw new CharterError(CharterErrorKind.HTTP, `${url} answered HTTP ${response.status}`);
+  }
+  const refused = (why) => new CharterError(CharterErrorKind.REFUSED, `the charter of ${anchor} was refused: ${why}`);
+  let charter;
+  try {
+    charter = Charter.parse(await response.json());
+  } catch (e) {
+    throw refused(e.message);
+  }
+  if (charter.anchor !== anchor) throw refused(`it is the charter of ${charter.anchor}`);
+  if (charter.kind !== kind) throw refused(`it charters a ${charter.kind} registry, not a ${kind} one`);
+  return charter;
+}
+
+/**
+ * The charter stored in a registry's folder, held to its shape and its kind,
+ * and the folder to its slug. Node only.
+ * @param {string} folder
+ * @param {string} kind - A RegistryKind
+ * @returns {Charter}
+ */
+function readStoredCharter(folder, kind) {
+  const { fs, path } = nodeModules('reading a stored charter');
+  const file = path.join(folder, CHARTER_FILE);
+  let body;
+  try {
+    body = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    throw new CharterError(CharterErrorKind.UNREADABLE, `cannot read ${file}: ${e.message}`);
+  }
+  if (!fs.existsSync(path.join(folder, CHARTER_SIG_FILE))) {
+    throw new CharterError(CharterErrorKind.UNREADABLE, `the charter in ${folder} has no signature beside it`);
+  }
+  let json;
+  try {
+    json = JSON.parse(body);
+  } catch (e) {
+    throw malformedCharter(`the charter is not a charter document: ${e.message}`);
+  }
+  const charter = Charter.parse(json);
+  if (charter.kind !== kind) {
+    throw new CharterError(CharterErrorKind.REFUSED, `the charter is for a ${charter.kind} registry, not a ${kind} one`);
+  }
+  if (path.basename(folder) !== charter.slug) {
+    throw new CharterError(CharterErrorKind.REFUSED,
+      `the charter for '${charter.anchor}' names slug '${charter.slug}', but it is stored in a folder named '${path.basename(folder)}'`);
+  }
+  return charter;
+}
+
+/**
+ * Among the registry folders under `root`, the one whose stored charter is of
+ * `kind` and for `anchor`: `{folder, charter}`, or null. A folder whose
+ * charter does not read is passed over. Node only.
+ */
+function storedCharterFor(root, anchor, kind) {
+  const { fs, path } = nodeModules('finding a stored charter');
+  let names;
+  try {
+    names = fs.readdirSync(root).sort();
+  } catch (_e) {
+    return null;
+  }
+  for (const name of names) {
+    const folder = path.join(root, name);
+    if (!fs.existsSync(path.join(folder, CHARTER_FILE))) continue;
+    let charter;
+    try {
+      charter = readStoredCharter(folder, kind);
+    } catch (e) {
+      console.warn(`[capdag] the charter stored in ${folder} is not used: ${e.message}`);
+      continue;
+    }
+    if (charter.anchor === anchor) return { folder, charter };
+  }
+  return null;
+}
+
+/**
+ * What one top-level folder of a cartridge tree holds: the cartridges built
+ * with no registry, or a chartered registry's — named by the charter stored
+ * in it, never by its own name.
+ */
+class RegistryFolder {
+  /** @param {Charter|null} charter - null for the reserved dev folder */
+  constructor(charter) {
+    this.charter = charter;
+  }
+
+  /** Open a top-level folder: "dev" by its reserved name, any other by the cartridges charter stored in it. Node only. */
+  static open(folder) {
+    const { path } = nodeModules('opening a registry folder');
+    if (path.basename(folder) === DEV_SLUG) return new RegistryFolder(null);
+    return new RegistryFolder(readStoredCharter(folder, RegistryKind.CARTRIDGES));
+  }
+
+  /** The folder's name. */
+  get slug() {
+    return this.charter === null ? DEV_SLUG : this.charter.slug;
+  }
+
+  /** The anchor every cartridge in the folder must record: null for dev. */
+  get anchor() {
+    return this.charter === null ? null : this.charter.anchor;
+  }
 }
 
 // =============================================================================
@@ -5590,20 +5908,19 @@ class CartridgeSuggestion {
  */
 /**
  * The schema revision of the cartridge registry this build reads
- * (`schemas/cartridge-registry/v7.json`): its cap groups carry each
+ * (`schemas/cartridge-registry/v8.json`): its cap groups carry each
  * cartridge's cap definitions exactly as its manifest declares them,
  * including the dims each was built from.
  */
-const CARTRIDGE_REGISTRY_SCHEMA_VERSION = '7.0';
+const CARTRIDGE_REGISTRY_SCHEMA_VERSION = '8.0';
 
 /**
  * The cartridge registry regime version this build speaks
- * (`schemas/cartridge-registry/registry-version.txt`), served at
- * `/v<version>/manifest`. v0 is the pre-versioning legacy at the bare
- * `/manifest` path; a registry of any other version is refused, never
- * reinterpreted.
+ * (`schemas/cartridge-registry/registry-version.txt`): the
+ * `{registry_version}` a registry charter's manifest location is filled
+ * with. A registry of any other version is refused, never reinterpreted.
  */
-const CARTRIDGE_REGISTRY_VERSION = 3;
+const CARTRIDGE_REGISTRY_VERSION = 4;
 
 class CartridgeRepoCache {
   constructor(repoUrl) {
@@ -5622,18 +5939,53 @@ function _cacheKey(registryUrl, channel, id) {
  * Cartridge repository client - fetches and caches cartridge registry
  */
 class CartridgeRepoClient {
-  constructor(cacheTtlSeconds = 3600) {
+  /**
+   * @param {number} [cacheTtlSeconds]
+   * @param {Object} [options]
+   * @param {function(string): Promise<Response>} [options.fetch] - How a URL
+   *   is fetched (the runtime's `fetch` when not given)
+   */
+  constructor(cacheTtlSeconds = 3600, options = {}) {
     this.caches = new Map(); // repo_url -> CartridgeRepoCache
     this.cacheTtl = cacheTtlSeconds * 1000; // Convert to milliseconds
+    this._fetch = options.fetch || ((url) => globalThis.fetch(url));
+    // The charter of every registry synced, by anchor.
+    this._charters = new Map();
+  }
+
+  /** The charter of a registry this client has synced, by anchor, or null. */
+  charter(anchor) {
+    return this._charters.get(anchor) || null;
   }
 
   /**
-   * Fetch a channel-partitioned registry (schema
-   * CARTRIDGE_REGISTRY_SCHEMA_VERSION) from a URL and flatten
-   * to a list of `CartridgeInfo`, one per `(channel, id)` pair.
+   * Fetch a registry's charter from its anchor, then the channel-partitioned
+   * manifest (schema CARTRIDGE_REGISTRY_SCHEMA_VERSION) from where the
+   * charter says it is, and flatten it to a list of `CartridgeInfo`, one per
+   * `(channel, id)` pair.
+   *
+   * The charter comes first and decides everything after it: a URL with no
+   * charter, or one whose charter is not this registry's, is never asked for
+   * a manifest. The manifest must name the anchor as its registry and the
+   * fabric the charter names as its fabric.
    */
   async fetchRegistry(repoUrl) {
-    const response = await fetch(repoUrl);
+    const charter = await fetchCharter(repoUrl, RegistryKind.CARTRIDGES, this._fetch);
+    const manifestUrl = charter.location('manifest', { registry_version: CARTRIDGE_REGISTRY_VERSION });
+    // A SLUG IS ONE REGISTRY'S: charters are unique by slug where they are
+    // issued, so a second anchor whose charter names a slug another
+    // registry's charter already holds is an invalid state, and is refused
+    // rather than given that registry's folder.
+    for (const [heldAnchor, held] of this._charters) {
+      if (heldAnchor !== repoUrl && held.slug === charter.slug) {
+        throw new CharterError(CharterErrorKind.REFUSED,
+          `the charter of ${repoUrl} names the slug '${charter.slug}', which the charter of ${heldAnchor} already holds`);
+      }
+    }
+    this._charters.set(repoUrl, charter);
+    // The manifest is mutable; a CDN may hold an older publish. A fresh
+    // cache-bust token forces one origin read per sync.
+    const response = await this._fetch(`${manifestUrl}?cb=${Date.now()}`);
     if (response.status === 404) {
       // Manifest not published yet — return an empty list so the
       // caller's cache reflects "no cartridges available" without
@@ -5653,25 +6005,23 @@ class CartridgeRepoClient {
     if (data.registryVersion !== CARTRIDGE_REGISTRY_VERSION) {
       throw new Error(`Cartridge registry from ${repoUrl} has registryVersion '${data.registryVersion}'; this build speaks v${CARTRIDGE_REGISTRY_VERSION}`);
     }
-    // A cartridge registry must declare the fabric its caps resolve against. The
-    // client cross-checks this equals its own fabric (so every registry it uses
-    // shares one fabric); here we require it is at least present.
-    if (typeof data.fabricRegistryUrl !== 'string' || data.fabricRegistryUrl.length === 0) {
-      throw new Error(`Cartridge registry from ${repoUrl}: missing required 'fabricRegistryUrl' (the fabric its caps resolve against)`);
-    }
-    // Self-referential check: the manifest declares its own URL via
-    // `registryUrl`. It must match the URL we just fetched from
-    // byte-for-byte — a mismatch is a manifest-corruption signal
-    // (publisher wrote the wrong URL, or manifest is being served
-    // from an unexpected mirror). Identity downstream depends on
-    // this string; refuse to ingest on mismatch.
+    // The manifest names its registry by anchor, and its fabric as the
+    // charter does — byte-for-byte. A mismatch is a manifest published for
+    // another registry, or served under the wrong one; identity downstream
+    // depends on these strings, so nothing of it is ingested.
     if (typeof data.registryUrl !== 'string' || data.registryUrl.length === 0) {
       throw new Error(`Cartridge registry from ${repoUrl}: missing required top-level 'registryUrl' field`);
     }
     if (data.registryUrl !== repoUrl) {
       throw new Error(
         `Cartridge registry from ${repoUrl}: declared registryUrl '${data.registryUrl}' ` +
-        `does not match the URL it was fetched from. These must match byte-for-byte.`
+        `is not the registry's anchor. These must match byte-for-byte.`
+      );
+    }
+    if (data.fabricRegistryUrl !== charter.fabric) {
+      throw new Error(
+        `Cartridge registry from ${repoUrl}: declared fabricRegistryUrl '${data.fabricRegistryUrl}', ` +
+        `and its charter names the fabric '${charter.fabric}'`
       );
     }
     if (!data.channels || typeof data.channels !== 'object') {
@@ -6170,6 +6520,11 @@ const RELEASE_KEY_CERT_FORMAT = 'machinefabric-release-key-cert/1';
  *  Mirrors Rust `MANIFEST_SIG_FORMAT`. */
 const MANIFEST_SIG_FORMAT = 'machinefabric-manifest-sig/1';
 
+/** Format discriminator for charter signature envelopes — its own word, so no
+ *  signed manifest can be passed off as a charter. Mirrors Rust
+ *  `CHARTER_SIG_FORMAT`. */
+const CHARTER_SIG_FORMAT = 'machinefabric-charter-sig/1';
+
 /**
  * What a consumer concluded about a cartridge registry.
  * Mirrors Rust `RegistryVerdictState` (bifaci/registry_verdict.rs).
@@ -6178,7 +6533,7 @@ const MANIFEST_SIG_FORMAT = 'machinefabric-manifest-sig/1';
  * every cartridge that claims provenance from it. The vocabulary separates the
  * two things a consumer can conclude — that it could not get an answer
  * (OFFLINE, UNREACHABLE, HTTP_ERROR, MALFORMED) and that it got one and refused
- * it (UNSIGNED, UNTRUSTED, UNVERIFIABLE) — because those have opposite
+ * it (UNCHARTERED, UNSIGNED, UNTRUSTED, UNVERIFIABLE) — because those have opposite
  * remedies.
  */
 const RegistryVerdictState = Object.freeze({
@@ -6197,6 +6552,10 @@ const RegistryVerdictState = Object.freeze({
   HTTP_ERROR: 'http_error',
   // The registry answered with a body this build cannot read as a manifest.
   MALFORMED: 'malformed',
+  // Nothing is at `<anchor>/charter.json` — the URL is not a registry
+  // MachineFabric chartered, and nothing it serves is used. A charter that IS
+  // there and is refused is UNTRUSTED or UNVERIFIABLE, with a charter_ reason.
+  UNCHARTERED: 'unchartered',
   // No signature sidecar where one is required.
   UNSIGNED: 'unsigned',
   // The chain was evaluated and REJECTED — the registry's problem.
@@ -6250,6 +6609,7 @@ const _REGISTRY_REMEDY_BY_STATE = Object.freeze({
   unreachable: RegistryRemedy.CHECK_NETWORK,
   http_error: RegistryRemedy.RETRY_LATER,
   malformed: RegistryRemedy.RETRY_LATER,
+  unchartered: RegistryRemedy.DO_NOT_PROCEED,
   unsigned: RegistryRemedy.DO_NOT_PROCEED,
   untrusted: RegistryRemedy.DO_NOT_PROCEED,
   unverifiable: RegistryRemedy.UPDATE_CLIENT,
@@ -6279,6 +6639,30 @@ const ChainFailureReason = Object.freeze({
   KEY_ID_MISMATCH: 'key_id_mismatch',
   NO_AUTHORIZING_CERTIFICATE: 'no_authorizing_certificate',
   MANIFEST_SIGNATURE_INVALID: 'manifest_signature_invalid',
+  // The registry's charter is not a charter document, or breaks its shape.
+  CHARTER_MALFORMED: 'charter_malformed',
+  // The charter declares a format this build does not read.
+  CHARTER_UNSUPPORTED_FORMAT: 'charter_unsupported_format',
+  // The charter's signature does not verify over its bytes.
+  CHARTER_SIGNATURE_INVALID: 'charter_signature_invalid',
+  // The charter is for another anchor than the one asked.
+  CHARTER_ANCHOR_MISMATCH: 'charter_anchor_mismatch',
+  // The charter is for another kind of registry.
+  CHARTER_KIND_MISMATCH: 'charter_kind_mismatch',
+  // The charter's registry is signed under another environment than this build verifies.
+  CHARTER_ENVIRONMENT_MISMATCH: 'charter_environment_mismatch',
+  // The cartridge registry's charter names another fabric than this client's.
+  CHARTER_FABRIC_MISMATCH: 'charter_fabric_mismatch',
+  // The charter is issued in the future.
+  CHARTER_NOT_YET_VALID: 'charter_not_yet_valid',
+  // The charter's own validity has ended.
+  CHARTER_EXPIRED: 'charter_expired',
+  // A stored charter is in a folder not named for its slug.
+  CHARTER_FOLDER_MISMATCH: 'charter_folder_mismatch',
+  // The charter names a slug another registry's charter already holds.
+  // Charters are unique by slug where they are issued; two with one slug is
+  // an invalid state, and neither is given the other's folder.
+  CHARTER_SLUG_TAKEN: 'charter_slug_taken',
 });
 
 const REGISTRY_VERDICT_STATES = Object.freeze(Object.values(RegistryVerdictState));
@@ -6292,6 +6676,8 @@ const UNEVALUABLE_CHAIN_FAILURES = Object.freeze([
   ChainFailureReason.MALFORMED_CERTIFICATE,
   ChainFailureReason.UNSUPPORTED_CERTIFICATE_FORMAT,
   ChainFailureReason.EMPTY_CERTIFICATE_LIST,
+  ChainFailureReason.CHARTER_MALFORMED,
+  ChainFailureReason.CHARTER_UNSUPPORTED_FORMAT,
 ]);
 
 /**
@@ -6325,7 +6711,8 @@ function registryVerdictIsTrustFailure(state) {
   if (!REGISTRY_VERDICT_STATES.includes(state)) {
     throw new Error(`unknown registry verdict state '${state}'`);
   }
-  return state === RegistryVerdictState.UNSIGNED
+  return state === RegistryVerdictState.UNCHARTERED
+    || state === RegistryVerdictState.UNSIGNED
     || state === RegistryVerdictState.UNTRUSTED
     || state === RegistryVerdictState.UNVERIFIABLE;
 }
@@ -6376,7 +6763,7 @@ class RegistryVerdict {
     return new RegistryVerdict(registryUrl, RegistryVerdictState.PENDING, '', null, null, 0);
   }
 
-  /** A state carrying only a detail line: OFFLINE, UNREACHABLE, MALFORMED, UNSIGNED. */
+  /** A state carrying only a detail line: OFFLINE, UNREACHABLE, MALFORMED, UNCHARTERED, UNSIGNED. */
   static stated(registryUrl, state, detail, checkedAtUnixSeconds) {
     return new RegistryVerdict(registryUrl, state, detail, null, null, checkedAtUnixSeconds);
   }
@@ -6497,7 +6884,7 @@ const CartridgeAttachmentErrorKind = Object.freeze({
   ENTRY_POINT_MISSING: 'entry_point_missing',
   QUARANTINED: 'quarantined',
   // On-disk install context disagrees with the cartridge.json the cartridge
-  // declares — the slug folder doesn't match slug_for(registry_url), the
+  // declares — its registry folder's charter names another registry, the
   // channel folder doesn't match the manifest's channel, or a bundled-cartridge
   // integrity proof failed. Structurally well-formed but cannot be trusted
   // because its placement on disk does not match what it claims to be.
@@ -6703,29 +7090,14 @@ class InstalledCartridgeRecord {
 // ============================================================================
 //
 // Mirrors capdag::cartridge_discovery plus its dependencies
-// capdag::bifaci::cartridge_json (CartridgeJson, validate_registry_url_scheme,
-// hash_cartridge_directory) and the synchronous slug helper from
-// capdag::bifaci::cartridge_slug::slug_for.
+// capdag::bifaci::cartridge_json (CartridgeJson, hash_cartridge_directory) and
+// the registry folders of capdag::bifaci::charter.
 //
 // This is the single source of truth for classifying each installed cartridge
 // version directory as attachable (`directory`) or `incompatible`. Node
 // built-ins (`fs`, `path`, `crypto`, `child_process`) are required lazily
 // inside the functions so the browser bundle — which never performs disk
 // discovery — never references them.
-
-/**
- * Synchronous on-disk slug for a registry URL. Mirrors
- * capdag::bifaci::cartridge_slug::slug_for byte-for-byte: `null`/`undefined`
- * (a dev cartridge) → the literal `DEV_SLUG`; otherwise a path-safe transform
- * of the URL's authority (host[:port]). Identical output to the async
- * `slugForRegistryUrl` above — no hashing, so both are trivially in sync.
- *
- * @param {string|null|undefined} registryUrl
- * @returns {string}
- */
-function slugForSync(registryUrl) {
-  return slugForRegistryUrlSync(registryUrl);
-}
 
 /**
  * How a cartridge was installed. Exactly ONE value is semantic: BUNDLE
@@ -6743,53 +7115,9 @@ const CartridgeInstallSource = Object.freeze({
 });
 
 /**
- * Verdict from `validateRegistryUrlScheme`. Mirrors Rust
- * RegistryUrlSchemeResult: distinguishes OK from each rejection reason so
- * callers can render an actionable message. `kind` is one of `ok`,
- * `not_a_url`, `non_https`.
- */
-const RegistryUrlSchemeResultKind = Object.freeze({
-  OK: 'ok',
-  NOT_A_URL: 'not_a_url',
-  NON_HTTPS: 'non_https',
-});
-
-/**
- * Validate that a non-null `registry_url` uses the `https` scheme — UNLESS
- * `devMode` is set, in which case any well-formed URL is accepted (so
- * developers can point at `http://localhost:port` during integration
- * testing). Mirrors capdag::bifaci::cartridge_json::validate_registry_url_scheme.
- *
- * Cheap parse: split once on `://`. The rule is "scheme must be the literal
- * bytes `https`" (case-insensitive); full URL validation is the caller's job.
- *
- * @param {string} url
- * @param {boolean} devMode
- * @returns {{kind: string, url?: string, scheme?: string}}
- */
-function validateRegistryUrlScheme(url, devMode) {
-  const idx = url.indexOf('://');
-  if (idx < 0) {
-    return { kind: RegistryUrlSchemeResultKind.NOT_A_URL, url };
-  }
-  const scheme = url.slice(0, idx);
-  const rest = url.slice(idx + 3);
-  if (rest.length === 0) {
-    return { kind: RegistryUrlSchemeResultKind.NOT_A_URL, url };
-  }
-  if (devMode) {
-    return { kind: RegistryUrlSchemeResultKind.OK };
-  }
-  if (scheme.toLowerCase() === 'https') {
-    return { kind: RegistryUrlSchemeResultKind.OK };
-  }
-  return { kind: RegistryUrlSchemeResultKind.NON_HTTPS, scheme };
-}
-
-/**
  * Error kinds for CartridgeJson reading/validation. Mirrors the variants of
- * Rust CartridgeJsonError. `RegistrySlugMismatch` is the three-place
- * consistency failure that discovery maps to MISPLACED.
+ * Rust CartridgeJsonError. `REGISTRY_FOLDER_MISMATCH` is the charter-rule
+ * failure that discovery maps to MISPLACED.
  */
 const CartridgeJsonErrorKind = Object.freeze({
   NOT_FOUND: 'not_found',
@@ -6798,12 +7126,12 @@ const CartridgeJsonErrorKind = Object.freeze({
   ENTRY_POINT_MISSING: 'entry_point_missing',
   ENTRY_POINT_NOT_EXECUTABLE: 'entry_point_not_executable',
   ENTRY_PATH_ESCAPE: 'entry_path_escape',
-  REGISTRY_SLUG_MISMATCH: 'registry_slug_mismatch',
+  REGISTRY_FOLDER_MISMATCH: 'registry_folder_mismatch',
 });
 
 /**
  * Error thrown by CartridgeJson.readFromDir. Carries a structured `kind` so
- * discovery can map a slug mismatch to MISPLACED and everything else
+ * discovery can map a folder mismatch to MISPLACED and everything else
  * to MANIFEST_INVALID. Mirrors Rust CartridgeJsonError.
  */
 class CartridgeJsonError extends Error {
@@ -6897,19 +7225,20 @@ class CartridgeJson {
 
   /**
    * Read and validate a `cartridge.json` from a version directory, enforcing
-   * the three-place rule against `expectedSlug` (the slug folder the host
-   * walked through). Mirrors CartridgeJson::read_from_dir.
+   * the charter rule against `folder` (the registry folder the host walked
+   * through, already opened). Mirrors CartridgeJson::read_from_dir.
    *
-   * Validates: file exists and is valid JSON; the declared registry_url
-   * hashes to `expectedSlug` (else RegistrySlugMismatch); the entry point
-   * exists, does not escape the version directory, and is executable.
+   * Validates: file exists and is valid JSON; the declared registry_url is
+   * the folder's anchor, or null in dev (else REGISTRY_FOLDER_MISMATCH); the
+   * entry point exists, does not escape the version directory, and is
+   * executable.
    *
    * @param {string} versionDir - Absolute path to the version directory.
-   * @param {string} expectedSlug - The on-disk slug folder name.
+   * @param {RegistryFolder} folder - The registry folder it sits in.
    * @returns {CartridgeJson}
    * @throws {CartridgeJsonError}
    */
-  static readFromDir(versionDir, expectedSlug) {
+  static readFromDir(versionDir, folder) {
     const { fs, path } = nodeModules('reading cartridge.json');
     const jsonPath = path.join(versionDir, 'cartridge.json');
 
@@ -6932,15 +7261,18 @@ class CartridgeJson {
     }
     const cj = CartridgeJson.fromObject(parsed);
 
-    // Three-place consistency rule (places 1 + 2): the folder slug must match
-    // the slug derived from the provenance's registry_url. None+`dev` and
-    // Some(url)+slug(url) are the only valid pairings.
-    const derivedSlug = slugForSync(cj.registryUrl);
-    if (derivedSlug !== expectedSlug) {
+    // The charter rule (places 1 + 2): the cartridge records exactly the
+    // anchor its folder's charter states, or no registry in dev. Any other
+    // pairing — null in a registry's folder, a URL in dev, or another
+    // registry's anchor — is an installer bug or a tampered tree.
+    if (cj.registryUrl !== folder.anchor) {
+      const holds = folder.anchor === null
+        ? 'the cartridges built with no registry'
+        : `the registry chartered for ${folder.anchor}`;
       throw new CartridgeJsonError(
-        CartridgeJsonErrorKind.REGISTRY_SLUG_MISMATCH,
-        `cartridge.json at ${jsonPath}: registry slug mismatch — registry_url=${JSON.stringify(cj.registryUrl)} ` +
-        `hashes to slug='${derivedSlug}' but the directory tree placed it under '${expectedSlug}'`
+        CartridgeJsonErrorKind.REGISTRY_FOLDER_MISMATCH,
+        `cartridge.json at ${jsonPath}: registry_url=${JSON.stringify(cj.registryUrl)}, ` +
+        `but it sits in the folder '${folder.slug}', which holds ${holds}`
       );
     }
 
@@ -6979,11 +7311,6 @@ class CartridgeJson {
   /** True when installed as a dev build (no registry URL). */
   isDevInstall() {
     return this.registryUrl === null || this.registryUrl === undefined;
-  }
-
-  /** The on-disk slug this provenance must live under. */
-  registrySlug() {
-    return slugForSync(this.registryUrl);
   }
 
   /**
@@ -7112,11 +7439,6 @@ class DiscoveryIdentity {
     this.registryUrl = registryUrl !== undefined ? registryUrl : null;
     this.fabricManifestVersion = fabricManifestVersion;
     this.cartridgeRegistryVersion = cartridgeRegistryVersion;
-  }
-
-  /** This host's own baked-registry slug (`dev` when registryUrl is null). */
-  slug() {
-    return slugForSync(this.registryUrl);
   }
 }
 
@@ -7438,10 +7760,11 @@ function probeCartridgeCapGroups(entryPath) {
 
 /**
  * Discover every cartridge under `{cartridgesRoot}/{slug}/{channel}/`. Scans
- * EVERY slug folder present on disk (full parity) — the host's baked
- * `identity.registryUrl` does NOT restrict which slugs are scanned; each
- * cartridge is validated in place against the slug folder it sits under (the
- * three-place rule in `CartridgeJson.readFromDir`). The channel folder IS
+ * EVERY registry folder present on disk (full parity) — the host's baked
+ * `identity.registryUrl` does NOT restrict which folders are scanned; each
+ * cartridge is validated in place against the registry folder it sits under,
+ * as the charter stored there names it (the charter rule in
+ * `CartridgeJson.readFromDir`). The channel folder IS
  * pinned to the host's channel. An empty/absent scan root yields an empty
  * roster; a real IO failure reading an existing root is an error.
  *
@@ -7473,14 +7796,24 @@ async function discoverCartridges(cartridgesRoot, identity) {
       // directories belong here. Skipped (logged in the reference).
       continue;
     }
-    const expectedSlug = slugEntry.name;
+    // The folder is what its stored charter names, never what its own name
+    // says. A folder whose charter is missing or refused still has its
+    // cartridges surfaced — each as misplaced, with the reason — so the
+    // operator sees what is there and why none of it runs.
+    let folder = null;
+    let folderError = null;
+    try {
+      folder = RegistryFolder.open(slugDir);
+    } catch (e) {
+      folderError = e;
+    }
     // {slug}/v{cartridgeRegistryVersion}/{channel}/… — the registry regime
     // version is a path level pinned to the host's version (like the channel).
     const scanRoot = path.join(slugDir, `v${identity.cartridgeRegistryVersion}`, identity.channel);
     let scanStat;
     try { scanStat = fs.statSync(scanRoot); } catch (_e) { continue; }
     if (!scanStat.isDirectory()) continue;
-    await scanChannelRoot(scanRoot, expectedSlug, identity, discovered);
+    await scanChannelRoot(scanRoot, slugDir, folder, folderError, identity, discovered);
   }
 
   return discovered;
@@ -7488,10 +7821,11 @@ async function discoverCartridges(cartridgesRoot, identity) {
 
 /**
  * Scan one `{slug}/{channel}/` root: classify each cartridge name directory's
- * newest version against the host identity and the slug folder it sits under.
- * Mirrors capdag::cartridge_discovery::scan_channel_root.
+ * newest version against the host identity and the registry folder it sits
+ * under — opened through the charter stored in it, or `folderError` why it
+ * could not be. Mirrors capdag::cartridge_discovery::scan_channel_root.
  */
-async function scanChannelRoot(scanRoot, expectedSlug, identity, discovered) {
+async function scanChannelRoot(scanRoot, slugDir, folder, folderError, identity, discovered) {
   const { fs, path } = nodeModules('discovering cartridges');
 
   let nameEntries;
@@ -7530,15 +7864,33 @@ async function scanChannelRoot(scanRoot, expectedSlug, identity, discovered) {
     const pathDerivedVersion = path.basename(versionDir);
     const detectedAt = unixSecondsNow();
 
-    // read_from_dir enforces the three-place rule against the ACTUAL slug
-    // folder (expectedSlug): the cartridge's declared registry_url must hash
-    // to it. A slug mismatch is a BadInstallation; an unreadable/garbage
-    // cartridge.json is ManifestInvalid. Both surfaced, never hosted.
+    // A folder with no charter that reads makes every cartridge in it
+    // misplaced, for the charter's reason.
+    if (folder === null) {
+      discovered.push(DiscoveredCartridge.incompatible({
+        version_dir: versionDir,
+        id: pathDerivedName,
+        channel: identity.channel,
+        registry_url: identity.registryUrl,
+        version: pathDerivedVersion,
+        error: new CartridgeAttachmentError(
+          CartridgeAttachmentErrorKind.MISPLACED,
+          `the registry folder ${slugDir} has no charter that reads: ${folderError.message}`,
+          detectedAt
+        ),
+      }));
+      continue;
+    }
+
+    // read_from_dir enforces the charter rule against the folder the cartridge
+    // ACTUALLY sits in: its declared registry_url must be the folder's anchor.
+    // A folder mismatch is misplaced; an unreadable/garbage cartridge.json is
+    // ManifestInvalid. Both surfaced, never hosted.
     let cj;
     try {
-      cj = CartridgeJson.readFromDir(versionDir, expectedSlug);
+      cj = CartridgeJson.readFromDir(versionDir, folder);
     } catch (e) {
-      const kind = (e instanceof CartridgeJsonError && e.kind === CartridgeJsonErrorKind.REGISTRY_SLUG_MISMATCH)
+      const kind = (e instanceof CartridgeJsonError && e.kind === CartridgeJsonErrorKind.REGISTRY_FOLDER_MISMATCH)
         ? CartridgeAttachmentErrorKind.MISPLACED
         : CartridgeAttachmentErrorKind.MANIFEST_INVALID;
       discovered.push(DiscoveredCartridge.incompatible({
@@ -7549,7 +7901,7 @@ async function scanChannelRoot(scanRoot, expectedSlug, identity, discovered) {
         version: pathDerivedVersion,
         error: new CartridgeAttachmentError(
           kind,
-          `cartridge.json failed to load under slug '${expectedSlug}': ${e.message}`,
+          `cartridge.json failed to load in the registry folder '${folder.slug}': ${e.message}`,
           detectedAt
         ),
       }));
@@ -7570,42 +7922,6 @@ async function scanChannelRoot(scanRoot, expectedSlug, identity, discovered) {
         ),
       }));
       continue;
-    }
-
-    // Scheme check is per-cartridge: a dev cartridge (null registry_url) never
-    // reaches here; a registry cartridge must use https (devMode=false).
-    if (cj.registryUrl !== null && cj.registryUrl !== undefined) {
-      const res = validateRegistryUrlScheme(cj.registryUrl, false);
-      if (res.kind === RegistryUrlSchemeResultKind.NON_HTTPS) {
-        discovered.push(DiscoveredCartridge.incompatible({
-          version_dir: versionDir,
-          id: cj.name,
-          channel: cj.channel,
-          registry_url: cj.registryUrl,
-          version: cj.version,
-          error: new CartridgeAttachmentError(
-            CartridgeAttachmentErrorKind.INCOMPATIBLE,
-            `registry_url uses '${res.scheme}' scheme, must be https in non-dev builds. Rebuild the cartridge with an https registry URL.`,
-            detectedAt
-          ),
-        }));
-        continue;
-      }
-      if (res.kind === RegistryUrlSchemeResultKind.NOT_A_URL) {
-        discovered.push(DiscoveredCartridge.incompatible({
-          version_dir: versionDir,
-          id: cj.name,
-          channel: cj.channel,
-          registry_url: cj.registryUrl,
-          version: cj.version,
-          error: new CartridgeAttachmentError(
-            CartridgeAttachmentErrorKind.INCOMPATIBLE,
-            `registry_url '${res.url}' is not a well-formed URL.`,
-            detectedAt
-          ),
-        }));
-        continue;
-      }
     }
 
     if (cj.fabricManifestVersion !== identity.fabricManifestVersion) {
@@ -11141,6 +11457,8 @@ const FabricRegistryErrorCodes = Object.freeze({
   PARSE: 'Parse',
   /** What the registry served breaks a definition rule. */
   VALIDATION: 'Validation',
+  /** The registry's charter could not be had, or was refused: nothing it serves is used. */
+  CHARTER: 'Charter',
 });
 
 /** Why the fabric registry did not give a definition. */
@@ -11283,7 +11601,8 @@ function checkedDim(obj, name, defver) {
  *
  * The manifest names every cap URN, media URN, alias and dim of its snapshot
  * with the version of each definition; each definition is one object at
- * `<base>/{caps,media,aliases,dims}/<sha256 of its canonical name>/<version>.json`.
+ * the charter's `definition` location — `<anchor>/{caps,media,aliases,dims}/<sha256
+ * of its canonical name>/<version>.json` in the publisher's layout.
  * Nothing outside the pinned manifest is fetched: a URN it does not name is
  * not found, never read from another snapshot.
  *
@@ -11299,20 +11618,22 @@ function checkedDim(obj, name, defver) {
  */
 class FabricRegistryClient {
   /**
-   * @param {string} baseUrl - The registry's base URL
+   * @param {string} anchor - The anchor the registry is chartered at; where
+   *   its manifests and definitions are is read from its charter
    * @param {number} manifestVersion - The manifest this client reads
    * @param {Object} [options]
    * @param {function(string): Promise<Response>} [options.fetch] - How a URL
    *   is fetched (the runtime's `fetch` when not given)
    */
-  constructor(baseUrl, manifestVersion, options = {}) {
-    if (typeof baseUrl !== 'string' || baseUrl.length === 0) {
-      throw new Error('a fabric registry client is given the registry URL');
+  constructor(anchor, manifestVersion, options = {}) {
+    if (typeof anchor !== 'string' || anchor.length === 0) {
+      throw new Error('a fabric registry client is given the registry anchor');
     }
     if (!isPositiveWhole(manifestVersion)) {
       throw new Error(`a fabric registry client reads a manifest version from 1 up, not ${JSON.stringify(manifestVersion)}`);
     }
-    this._baseUrl = baseUrl.replace(/\/$/, '');
+    this._anchor = anchor;
+    this._charter = null;
     this._manifestVersion = manifestVersion;
     this._fetch = options.fetch || ((url) => globalThis.fetch(url));
     this._manifest = null;
@@ -11327,20 +11648,47 @@ class FabricRegistryClient {
 
   /**
    * A client pinned to the manifest the registry has promoted as its latest
-   * (`<base>/manifest/latest.json`): for a host that follows the fabric
+   * (the charter's `latest` location): for a host that follows the fabric
    * rather than one snapshot of it.
-   * @param {string} baseUrl
+   * @param {string} anchor
    * @param {Object} [options] - As for the constructor
    * @returns {Promise<FabricRegistryClient>}
    */
-  static async latest(baseUrl, options = {}) {
-    const probe = new FabricRegistryClient(baseUrl, 1, options);
-    const url = `${probe._baseUrl}/manifest/latest.json`;
+  static async latest(anchor, options = {}) {
+    const probe = new FabricRegistryClient(anchor, 1, options);
+    const charter = await probe.charter();
+    const url = charter.location('latest', {});
     const latest = await probe._get(url, 'the latest manifest');
     if (latest === null || typeof latest !== 'object' || !isPositiveWhole(latest.version)) {
       throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `${url} does not name a manifest version`);
     }
-    return new FabricRegistryClient(baseUrl, latest.version, options);
+    const client = new FabricRegistryClient(anchor, latest.version, options);
+    client._charter = charter;
+    return client;
+  }
+
+  /**
+   * The registry's charter, fetched once from `<anchor>/charter.json`.
+   * Everything this client fetches is where the charter's locations say.
+   * @returns {Promise<Charter>}
+   */
+  async charter() {
+    if (this._charter !== null) return this._charter;
+    return this._once('charter', async () => {
+      try {
+        this._charter = await fetchCharter(this._anchor, RegistryKind.FABRIC, this._fetch);
+      } catch (error) {
+        throw new FabricRegistryError(FabricRegistryErrorCodes.CHARTER,
+          `the fabric registry ${this._anchor} has no charter this client can use: ${error.message}`);
+      }
+      return this._charter;
+    });
+  }
+
+  /** The URL of one definition: `kind` is caps, media, aliases or dims; `name` what it hashes. */
+  async _definitionUrl(kind, name, version) {
+    const charter = await this.charter();
+    return charter.location('definition', { kind, urn_hash: await sha256Hex(name), version });
   }
 
   /** The manifest version this client reads. */
@@ -11372,7 +11720,7 @@ class FabricRegistryClient {
   async manifest() {
     if (this._manifest !== null) return this._manifest;
     return this._once('manifest', async () => {
-      const url = `${this._baseUrl}/manifest/${this._manifestVersion}.json`;
+      const url = (await this.charter()).location('manifest', { manifest_version: this._manifestVersion });
       this._manifest = manifestFromJSON(await this._get(url, `manifest v${this._manifestVersion}`), this._manifestVersion);
       return this._manifest;
     });
@@ -11405,7 +11753,7 @@ class FabricRegistryClient {
     if (this._media.has(canonical)) return this._media.get(canonical);
     return this._once(`media ${canonical}`, async () => {
       const defver = await this._defver('media', canonical, `media definition '${canonical}'`);
-      const url = `${this._baseUrl}/media/${await sha256Hex(canonical)}/${defver}.json`;
+      const url = await this._definitionUrl('media', canonical, defver);
       const def = mediaDefFromStored(await this._get(url, `media definition '${canonical}'`), canonical, defver);
       await this._ensureDimsCached(`media def '${canonical}'`, def.dims);
       this._media.set(canonical, def);
@@ -11427,7 +11775,7 @@ class FabricRegistryClient {
 
   async _fetchCap(canonical) {
     const defver = await this._defver('caps', canonical, `cap '${canonical}'`);
-    const url = `${this._baseUrl}/caps/${await sha256Hex(canonical)}/${defver}.json`;
+    const url = await this._definitionUrl('caps', canonical, defver);
     const cap = capFromStored(await this._get(url, `cap '${canonical}'`), canonical, defver);
     // Every media URN the cap names, the bare `media:` aside (it is the
     // universal type, not a definition).
@@ -11463,7 +11811,7 @@ class FabricRegistryClient {
 
   async _fetchAlias(normalized) {
     const defver = await this._defver('aliases', normalized, `alias '${normalized}'`);
-    const url = `${this._baseUrl}/aliases/${await sha256Hex(normalized)}/${defver}.json`;
+    const url = await this._definitionUrl('aliases', normalized, defver);
     const obj = await this._get(url, `alias '${normalized}'`);
     if (obj === null || typeof obj !== 'object' || typeof obj.name !== 'string' || typeof obj.target !== 'string') {
       throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE, `the registry's alias '${normalized}' is not an alias`);
@@ -11501,7 +11849,7 @@ class FabricRegistryClient {
   }
 
   async _fetchDim(name, defver) {
-    const url = `${this._baseUrl}/dims/${await sha256Hex(name)}/${defver}.json`;
+    const url = await this._definitionUrl('dims', name, defver);
     const dim = checkedDim(await this._get(url, `dim '${name}'`), name, defver);
     this._dims.set(name, dim);
     return dim;
@@ -12124,6 +12472,7 @@ export {
   RegistryRemedy,
   registryVerdictRemedy,
   MANIFEST_SIG_FORMAT,
+  CHARTER_SIG_FORMAT,
   RELEASE_KEY_CERT_FORMAT,
   ALIAS_TARGET_CAP,
   ALIAS_TARGET_MEDIA,
@@ -12193,7 +12542,6 @@ export {
   validateNoMediaDefRedefinition,
   validateNoMediaDefRedefinitionSync,
   validateNoMediaDefDuplicates,
-  getSchemaBaseURL,
   getProfileURL,
   MEDIA_STRING,
   MEDIA_INTEGER,
@@ -12336,10 +12684,7 @@ export {
   // Build-env registry identity
   registryUrlFromBuildEnv,
   // Cartridge discovery
-  slugForSync,
   CartridgeInstallSource,
-  RegistryUrlSchemeResultKind,
-  validateRegistryUrlScheme,
   CartridgeJsonErrorKind,
   CartridgeJsonError,
   CartridgeJson,
@@ -12350,11 +12695,21 @@ export {
   DiscoveredCartridge,
   probeCartridgeCapGroups,
   discoverCartridges,
-  // Registry slug
+  // Registry charters
+  CHARTER_FORMAT,
+  CHARTER_FILE,
+  CHARTER_SIG_FILE,
   DEV_SLUG,
-  slugForRegistryUrlSync,
-  slugForRegistryUrl,
+  RegistryKind,
+  CharterErrorKind,
+  CharterError,
+  Charter,
+  fetchCharter,
+  readStoredCharter,
+  storedCharterFor,
+  RegistryFolder,
   isRegistrySlug,
+  isExperimentId,
   // Machine notation
   MachineSyntaxError,
   MachineSyntaxErrorCodes,

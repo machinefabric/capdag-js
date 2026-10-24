@@ -17,7 +17,8 @@ import {
   CartridgeInfo, CartridgeCapSummary, CartridgeSuggestion, CartridgeRepoClient, CartridgeRepoServer,
   hostPlatform, CompatStatus, primaryPackage, CartridgeCompatibilityResolution,
   registryUrlFromBuildEnv,
-  slugForSync, CartridgeInstallSource, validateRegistryUrlScheme, RegistryUrlSchemeResultKind,
+  CartridgeInstallSource, Charter, CharterError, CharterErrorKind, RegistryKind, RegistryFolder,
+  fetchCharter, readStoredCharter, storedCharterFor, DEV_SLUG, CHARTER_FILE, CHARTER_SIG_FILE,
   CartridgeJson, CartridgeJsonError, CartridgeJsonErrorKind, hashCartridgeDirectory,
   DiscoveryIdentity, DiscoveredCartridge, discoverCartridges,
   CartridgeAttachmentErrorKind, CartridgeChannel,
@@ -26,7 +27,7 @@ import {
   registryVerdictStateForChainFailure, registryVerdictPermitsAttachment,
   registryVerdictIsTrustFailure, registryVerdictIsTransient,
   RegistryRemedy, registryVerdictRemedy,
-  MANIFEST_SIG_FORMAT, RELEASE_KEY_CERT_FORMAT,
+  MANIFEST_SIG_FORMAT, CHARTER_SIG_FORMAT, RELEASE_KEY_CERT_FORMAT,
   CapFabEdge, CapFabStats, CapFab,
   StdinSource, StdinSourceKind,
   validateNoMediaDefRedefinitionSync,
@@ -1918,17 +1919,17 @@ function test6269_JS_mediaDefConstruction() {
 // Cartridge Repository Tests (TEST320-TEST335)
 // =============================================================================
 
-// Sample registry for testing — v7.0 channel-partitioned schema.
+// Sample registry for testing — the channel-partitioned schema this build reads.
 //
 // Both `release` and `nightly` are always present. We populate the
 // release channel with two cartridges (pdf + txt) for the bulk of the
 // tests, and add one nightly entry so isolation tests have something
 // to assert on. Tests that need an empty channel use literals inline.
 const sampleRegistry = {
-  schemaVersion: '7.0',
-  registryVersion: 3,
+  schemaVersion: '8.0',
+  registryVersion: 4,
   lastUpdated: '2026-02-07T16:48:28Z',
-  registryUrl: 'https://test.example/manifest',
+  registryUrl: 'https://test.example/cartridges',
   fabricRegistryUrl: 'https://fabric.test',
   channels: {
     release: { cartridges: {
@@ -2069,7 +2070,7 @@ function test320_cartridgeInfoConstruction() {
   const data = {
     id: 'testcartridge',
     name: 'Test Cartridge',
-    registryUrl: 'https://test.example/manifest',
+    registryUrl: 'https://test.example/cartridges',
     channel: 'release',
     version: '1.0.0',
     description: 'A test',
@@ -2100,20 +2101,20 @@ function test320_cartridgeInfoConstruction() {
 
 // TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty.
 function test321_cartridgeInfoIsSigned() {
-  const signed = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', teamId: 'TEAM', signedAt: '2026-01-01', cap_groups: []});
+  const signed = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/cartridges', channel: 'release', teamId: 'TEAM', signedAt: '2026-01-01', cap_groups: []});
   assert(signed.isSigned() === true, 'Cartridge with teamId and signedAt should be signed');
 
-  const unsigned1 = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', teamId: '', signedAt: '2026-01-01', cap_groups: []});
+  const unsigned1 = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/cartridges', channel: 'release', teamId: '', signedAt: '2026-01-01', cap_groups: []});
   assert(unsigned1.isSigned() === false, 'Cartridge without teamId should not be signed');
 
-  const unsigned2 = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', teamId: 'TEAM', signedAt: '', cap_groups: []});
+  const unsigned2 = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/cartridges', channel: 'release', teamId: 'TEAM', signedAt: '', cap_groups: []});
   assert(unsigned2.isSigned() === false, 'Cartridge without signedAt should not be signed');
 }
 
 // TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise.
 function test322_cartridgeInfoBuildForPlatform() {
   const withBuilds = new CartridgeInfo({
-    id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', version: '1.0.0', cap_groups: [],
+    id: 'test', registryUrl: 'https://test.example/cartridges', channel: 'release', version: '1.0.0', cap_groups: [],
     versions: {
       '1.0.0': {
         builds: [
@@ -2139,43 +2140,43 @@ function test322_cartridgeInfoBuildForPlatform() {
   assert(platforms.includes('darwin-arm64'), 'Should include darwin-arm64');
   assert(platforms.includes('linux-x86_64'), 'Should include linux-x86_64');
 
-  const noBuilds = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/manifest', channel: 'release', version: '1.0.0', cap_groups: [], versions: {}, availableVersions: []});
+  const noBuilds = new CartridgeInfo({id: 'test', registryUrl: 'https://test.example/cartridges', channel: 'release', version: '1.0.0', cap_groups: [], versions: {}, availableVersions: []});
   assert(noBuilds.buildForPlatform('darwin-arm64') === null, 'Should return null when no versions');
   assert(noBuilds.availablePlatforms().length === 0, 'Should have no platforms');
 }
 
-// TEST323: CartridgeRepoServer requires the schema this build reads (7.0)
+// TEST323: CartridgeRepoServer requires the schema this build reads (8.0)
 // and rejects older.
 function test323_cartridgeRepoServerValidateRegistry() {
   // Valid registry
   const server = new CartridgeRepoServer(sampleRegistry);
-  assert(server.registry.schemaVersion === '7.0', 'Should accept v7.0 registry');
+  assert(server.registry.schemaVersion === '8.0', 'Should accept v8.0 registry');
 
   // Invalid schema version (6.0 is no longer accepted)
   let threw = false;
   try {
-    new CartridgeRepoServer({ ...sampleRegistry, schemaVersion: '6.0' });
+    new CartridgeRepoServer({ ...sampleRegistry, schemaVersion: '7.0' });
   } catch (e) {
     threw = true;
-    assert(e.message.includes('7.0'), 'Should reject pre-7.0 schema and mention required version');
+    assert(e.message.includes('8.0'), 'Should reject pre-8.0 schema and mention required version');
   }
-  assert(threw, 'Should throw for v6.0 schema');
+  assert(threw, 'Should throw for v7.0 schema');
 
   // A registry of another regime version (the one before this build's) is
   // refused, not reinterpreted.
   threw = false;
   try {
-    new CartridgeRepoServer({ ...sampleRegistry, registryVersion: 2 });
+    new CartridgeRepoServer({ ...sampleRegistry, registryVersion: 3 });
   } catch (e) {
     threw = true;
-    assert(e.message.includes('cartridge registry version') && e.message.includes('v3'), 'Should reject registry version 2 and name v3: ' + e.message);
+    assert(e.message.includes('cartridge registry version') && e.message.includes('v4'), 'Should reject registry version 3 and name v4: ' + e.message);
   }
-  assert(threw, 'Should throw for registry version 2');
+  assert(threw, 'Should throw for registry version 3');
 
   // Missing channels object
   threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '7.0', registryVersion: 3, fabricRegistryUrl: 'https://fabric.test', registryUrl: 'https://test.example/manifest'});
+    new CartridgeRepoServer({schemaVersion: '8.0', registryVersion: 4, fabricRegistryUrl: 'https://fabric.test', registryUrl: 'https://test.example/cartridges'});
   } catch (e) {
     threw = true;
     assert(e.message.includes('channels'), 'Should reject missing channels');
@@ -2185,7 +2186,7 @@ function test323_cartridgeRepoServerValidateRegistry() {
   // Missing one of the two required channels
   threw = false;
   try {
-    new CartridgeRepoServer({schemaVersion: '7.0', registryVersion: 3, fabricRegistryUrl: 'https://fabric.test', registryUrl: 'https://test.example/manifest', channels: {release: {cartridges: {}}}});
+    new CartridgeRepoServer({schemaVersion: '8.0', registryVersion: 4, fabricRegistryUrl: 'https://fabric.test', registryUrl: 'https://test.example/cartridges', channels: {release: {cartridges: {}}}});
   } catch (e) {
     threw = true;
     assert(e.message.includes('nightly'), 'Should require nightly channel');
@@ -2339,8 +2340,8 @@ function test330_cartridgeRepoClientUpdateCache() {
   // Cache key is the registry URL the cartridges carry — mismatching
   // it would orphan the entries (the new cache key is
   // <registryUrl>:<channel>:<id>). The sampleRegistry stamps every
-  // entry with 'https://test.example/manifest'.
-  const REGISTRY_URL = 'https://test.example/manifest';
+  // entry with 'https://test.example/cartridges'.
+  const REGISTRY_URL = 'https://test.example/cartridges';
   client.updateCache(REGISTRY_URL, cartridges);
 
   const cache = client.caches.get(REGISTRY_URL);
@@ -2393,7 +2394,7 @@ function test332_cartridgeRepoClientGetCartridge() {
   const server = new CartridgeRepoServer(sampleRegistry);
   const cartridges = server.transformToCartridgeArray().map(p => new CartridgeInfo(p));
 
-  const REGISTRY_URL = 'https://test.example/manifest';
+  const REGISTRY_URL = 'https://test.example/cartridges';
   client.updateCache(REGISTRY_URL, cartridges);
 
   const cartridge = client.getCartridge(REGISTRY_URL, 'release', 'pdfcartridge');
@@ -2475,7 +2476,7 @@ function test335_cartridgeRepoServerClientIntegration() {
   // Client consumes API response
   const client = new CartridgeRepoClient(3600);
   const cartridges = apiResponse.cartridges.map(p => new CartridgeInfo(p));
-  const REGISTRY_URL = 'https://test.example/manifest';
+  const REGISTRY_URL = 'https://test.example/cartridges';
   client.updateCache(REGISTRY_URL, cartridges);
 
   // Client can find cartridge by (registryUrl, channel, id)
@@ -2691,6 +2692,42 @@ function discoveryRegistryCartridgeJson(url, channel, fmv) {
   });
 }
 
+const CARTRIDGES_ANCHOR = 'https://registry.example/cartridges';
+const CARTRIDGES_SLUG = 'example-cartridges';
+
+/** A prod cartridges charter's JSON. */
+function cartridgesCharterJSON(anchor = CARTRIDGES_ANCHOR, slug = CARTRIDGES_SLUG) {
+  return {
+    format: 'machinefabric-registry-charter/1', anchor, kind: 'cartridges', slug, environment: 'prod',
+    locations: { manifest: `${anchor}/v{registry_version}/manifest` },
+    fabric: 'https://registry.example/fabric', issued_at: 1792800000, not_after: null,
+  };
+}
+
+/** A prod fabric charter's JSON, at `anchor`. */
+function fabricCharterJSON(anchor, slug = 'test-fabric') {
+  return {
+    format: 'machinefabric-registry-charter/1', anchor, kind: 'fabric', slug, environment: 'prod',
+    locations: {
+      manifest: `${anchor}/manifest/{manifest_version}.json`,
+      latest: `${anchor}/manifest/latest.json`,
+      definition: `${anchor}/{kind}/{urn_hash}/{version}.json`,
+    },
+    issued_at: 1792800000, not_after: null,
+  };
+}
+
+/**
+ * Store `charter` in `{root}/{folder}`, as an installer does. The signature
+ * is opaque here: this mirror carries it and never reads it.
+ */
+function discoveryStoreCharter(root, folder, charter = cartridgesCharterJSON()) {
+  const dir = path.join(root, folder);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, CHARTER_FILE), JSON.stringify(charter));
+  fs.writeFileSync(path.join(dir, CHARTER_SIG_FILE), 'sig');
+}
+
 function discoveryMakeTempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'capdag-disc-'));
 }
@@ -2705,18 +2742,19 @@ function discoveryExpectIncompatible(out, kind) {
   assertEqual(out[0].error.kind, kind, `wrong attachment-error kind: ${out[0].error.message}`);
 }
 
-// TEST1875: scan-all — a registry slug folder AND the dev slot present on disk
-// are BOTH scanned, regardless of the host's own baked registry. Both fixtures
+// TEST1875: scan-all — a chartered registry folder AND the dev slot present on
+// disk are BOTH scanned, regardless of the host's own baked registry. Both fixtures
 // lack a real bifaci binary, so both end at HandshakeFailed — proving discovery
 // REACHED them (was not filtered out by a registry pin). A registry-pin
 // rejection would instead surface BadInstallation and never probe.
 async function test1875_scanAllReachesBothDevAndRegistrySlugs() {
   const root = discoveryMakeTempRoot();
   try {
-    const url = 'https://cartridges.example.com/manifest';
-    const rslug = slugForSync(url);
+    discoveryStoreCharter(root, CARTRIDGES_SLUG);
+    const url = CARTRIDGES_ANCHOR;
+    const rslug = CARTRIDGES_SLUG;
     // Host baked for a DIFFERENT registry than the on-disk registry cartridge.
-    const host = new DiscoveryIdentity({ channel: 'nightly', registryUrl: 'https://other.example.com/manifest', fabricManifestVersion: 1, cartridgeRegistryVersion: 1 });
+    const host = new DiscoveryIdentity({ channel: 'nightly', registryUrl: 'https://other.example.com/cartridges', fabricManifestVersion: 1, cartridgeRegistryVersion: 1 });
     discoveryInstallFixture(root, 'dev', 'nightly', 'devcart', '1.0.0', discoveryDevCartridgeJson('nightly', 1), 'cart');
     discoveryInstallFixture(root, rslug, 'nightly', 'regcart', '1.0.0', discoveryRegistryCartridgeJson(url, 'nightly', 1), 'cart');
     const out = await discoverCartridges(root, host);
@@ -2737,8 +2775,9 @@ async function test1875_scanAllReachesBothDevAndRegistrySlugs() {
 async function test1876_otherChannelSubtreeIsSkipped() {
   const root = discoveryMakeTempRoot();
   try {
-    const url = 'https://cartridges.example.com/manifest';
-    const rslug = slugForSync(url);
+    discoveryStoreCharter(root, CARTRIDGES_SLUG);
+    const url = CARTRIDGES_ANCHOR;
+    const rslug = CARTRIDGES_SLUG;
     discoveryInstallFixture(root, rslug, 'release', 'regcart', '1.0.0', discoveryRegistryCartridgeJson(url, 'release', 1), 'cart');
     const out = await discoverCartridges(root, new DiscoveryIdentity({ channel: 'nightly', registryUrl: null, fabricManifestVersion: 1, cartridgeRegistryVersion: 1 }));
     assertEqual(out.length, 0, 'a release-only slug must be invisible to a nightly host');
@@ -2747,21 +2786,256 @@ async function test1876_otherChannelSubtreeIsSkipped() {
   }
 }
 
-// TEST1877: a registry cartridge hand-copied under the WRONG registry slug
-// folder fails the three-place rule (BadInstallation) — scan-all does not mean
+// TEST1877: a registry cartridge hand-copied into the folder of ANOTHER
+// registry fails the charter rule (Misplaced) — scan-all does not mean
 // "accept anywhere"; placement must still be self-consistent.
 async function test1877_registryCartridgeUnderWrongSlugIsBadInstall() {
   const root = discoveryMakeTempRoot();
   try {
-    const url = 'https://cartridges.example.com/manifest';
-    const wrongSlug = slugForSync('https://somewhere-else.example.com/manifest');
-    const json = discoveryRegistryCartridgeJson(url, 'nightly', 1);
-    discoveryInstallFixture(root, wrongSlug, 'nightly', 'cart', '1.0.0', json, 'cart');
+    discoveryStoreCharter(root, CARTRIDGES_SLUG);
+    const json = discoveryRegistryCartridgeJson('https://somewhere-else.example/cartridges', 'nightly', 1);
+    discoveryInstallFixture(root, CARTRIDGES_SLUG, 'nightly', 'cart', '1.0.0', json, 'cart');
     const out = await discoverCartridges(root, new DiscoveryIdentity({ channel: 'nightly', registryUrl: null, fabricManifestVersion: 1, cartridgeRegistryVersion: 1 }));
     discoveryExpectIncompatible(out, CartridgeAttachmentErrorKind.MISPLACED);
   } finally {
     discoveryRemoveRoot(root);
   }
+}
+
+// TEST12923: a registry folder is what its stored charter proves, never what
+// its name says. The same cartridge, recording the same anchor, is misplaced
+// in a folder with no charter and in a folder whose charter is stored under
+// another name; it reaches its probe only in the folder its charter names.
+async function test12923_aRegistryFolderIsProvenByItsCharterNotItsName() {
+  const nightly = new DiscoveryIdentity({ channel: 'nightly', registryUrl: null, fabricManifestVersion: 1, cartridgeRegistryVersion: 1 });
+  const json = discoveryRegistryCartridgeJson(CARTRIDGES_ANCHOR, 'nightly', 1);
+  const roots = [discoveryMakeTempRoot(), discoveryMakeTempRoot(), discoveryMakeTempRoot()];
+  try {
+    const [unchartered, renamed, placed] = roots;
+    // A folder named for the registry, holding no charter.
+    discoveryInstallFixture(unchartered, CARTRIDGES_SLUG, 'nightly', 'cart', '1.0.0', json, 'cart');
+    const bare = await discoverCartridges(unchartered, nightly);
+    discoveryExpectIncompatible(bare, CartridgeAttachmentErrorKind.MISPLACED);
+    assert(bare[0].error.message.includes('no charter that reads'), bare[0].error.message);
+    // The registry's charter, stored in a folder of another name.
+    discoveryStoreCharter(renamed, 'cartridges.example.com');
+    discoveryInstallFixture(renamed, 'cartridges.example.com', 'nightly', 'cart', '1.0.0', json, 'cart');
+    discoveryExpectIncompatible(await discoverCartridges(renamed, nightly), CartridgeAttachmentErrorKind.MISPLACED);
+    // Its charter, in the folder the charter names: placement holds, and
+    // discovery goes on to probe the (fake) binary.
+    discoveryStoreCharter(placed, CARTRIDGES_SLUG);
+    discoveryInstallFixture(placed, CARTRIDGES_SLUG, 'nightly', 'cart', '1.0.0', json, 'cart');
+    discoveryExpectIncompatible(await discoverCartridges(placed, nightly), CartridgeAttachmentErrorKind.HANDSHAKE_FAILED);
+  } finally {
+    roots.forEach(discoveryRemoveRoot);
+  }
+}
+
+// ============================================================================
+// Registry charters (charter_tests.rs, structural half: TEST12912-12913,
+// TEST12919-12922). The signature half has no counterpart here: this mirror
+// verifies no chain.
+// ============================================================================
+
+/**
+ * A fetch answering `served` by URL, its cache-bust query aside; anything else
+ * is 404. Every URL asked for is recorded in `asked`.
+ */
+function servingFetch(served, asked = []) {
+  return async (url) => {
+    const bare = url.split('?')[0];
+    asked.push(bare);
+    if (!(bare in served)) return { status: 404, ok: false, json: async () => ({}) };
+    return { status: 200, ok: true, json: async () => JSON.parse(JSON.stringify(served[bare])) };
+  };
+}
+
+async function refusedCharter(promise, kind, what) {
+  try {
+    await promise;
+  } catch (error) {
+    assert(error instanceof CharterError, `${what}: ${error.stack}`);
+    assertEqual(error.kind, kind, `${what}: ${error.message}`);
+    return;
+  }
+  throw new Error(`Assertion failed: ${what}: expected a refusal`);
+}
+
+// TEST12912: a valid charter served under another anchor is refused — a
+// registry cannot borrow another's charter. Nothing at an anchor's
+// charter.json makes it no registry at all.
+async function test12912_aCharterForAnotherAnchorIsRefused() {
+  const anchor = 'https://served.example/fabric';
+  const own = servingFetch({ [`${anchor}/charter.json`]: fabricCharterJSON(anchor) });
+  assertEqual((await fetchCharter(anchor, RegistryKind.FABRIC, own)).anchor, anchor, 'its own charter reads');
+  await refusedCharter(fetchCharter('https://served.example/nowhere', RegistryKind.FABRIC, own), CharterErrorKind.UNCHARTERED, 'no charter');
+  const borrowed = servingFetch({ [`${anchor}/charter.json`]: fabricCharterJSON('https://registry.example/fabric') });
+  await refusedCharter(fetchCharter(anchor, RegistryKind.FABRIC, borrowed), CharterErrorKind.REFUSED, "another registry's charter");
+}
+
+// TEST12913: a charter of one kind does not stand for another kind — fetched,
+// or stored in a registry's folder.
+async function test12913_aCharterOfAnotherKindIsRefused() {
+  const anchor = 'https://served.example/fabric';
+  const served = servingFetch({ [`${anchor}/charter.json`]: fabricCharterJSON(anchor) });
+  await refusedCharter(fetchCharter(anchor, RegistryKind.CARTRIDGES, served), CharterErrorKind.REFUSED, 'a fabric for cartridges');
+  const root = discoveryMakeTempRoot();
+  try {
+    discoveryStoreCharter(root, 'test-fabric', fabricCharterJSON('https://registry.example/fabric'));
+    assertThrowsMessage(() => readStoredCharter(path.join(root, 'test-fabric'), RegistryKind.CARTRIDGES),
+      'not a cartridges one', "a fabric's charter does not open a cartridges folder");
+    assertEqual(readStoredCharter(path.join(root, 'test-fabric'), RegistryKind.FABRIC).slug, 'test-fabric', 'it opens a fabric one');
+  } finally {
+    discoveryRemoveRoot(root);
+  }
+}
+
+// TEST12919: a location is filled with exactly the placeholders it takes —
+// one missing, or one it does not take, is refused rather than guessed.
+function test12919_aLocationTakesExactlyItsPlaceholders() {
+  const fabric = Charter.parse(fabricCharterJSON('https://registry.example/fabric'));
+  assertEqual(fabric.location('definition', { kind: 'caps', urn_hash: 'ab12', version: 3 }),
+    'https://registry.example/fabric/caps/ab12/3.json', 'filled');
+  assertThrowsMessage(() => fabric.location('definition', { kind: 'caps', urn_hash: 'ab12' }), "needs 'version'", 'a placeholder left unfilled');
+  assertThrowsMessage(() => fabric.location('latest', { version: 3 }), "does not take 'version'", 'a placeholder it does not take');
+  assertThrowsMessage(() => fabric.location('schema', {}), "no location 'schema'", 'a fabric charter has no schema location');
+}
+
+// TEST12920: the shape every charter must have. Each case is a charter that
+// reads with one thing wrong; the unchanged charter passes, so each refusal is
+// about the one change.
+function test12920_aCharterOutOfShapeIsMalformed() {
+  Charter.parse(cartridgesCharterJSON());
+  Charter.parse({ ...cartridgesCharterJSON('https://lab.example/exp/t1/cartridges', 'lab-t1-cartridges'),
+    environment: 'lab', experiment: 't1', not_after: 1800576000 });
+  const refused = (why, change) => {
+    const json = cartridgesCharterJSON();
+    change(json);
+    let error = null;
+    try { Charter.parse(json); } catch (e) { error = e; }
+    assert(error instanceof CharterError && error.kind === CharterErrorKind.MALFORMED, `${why} was accepted: ${error}`);
+  };
+  refused('an http anchor', j => { j.anchor = 'http://registry.example/cartridges'; });
+  refused('an anchor ending in /', j => { j.anchor += '/'; });
+  refused('the reserved dev slug', j => { j.slug = DEV_SLUG; });
+  refused('a slug outside [a-z0-9.-]', j => { j.slug = 'Has_Upper'; });
+  refused('no manifest location', j => { j.locations = {}; });
+  refused('a manifest location without {registry_version}', j => { j.locations.manifest = 'https://r.example/manifest'; });
+  refused('a placeholder the location does not take', j => { j.locations.manifest = 'https://r.example/v{registry_version}/{app_id}'; });
+  refused('a location of another kind', j => { j.locations.latest = 'https://r.example/latest'; });
+  refused('a cartridges registry with no fabric', j => { delete j.fabric; });
+  refused('an experiment that is not an id', j => { j.experiment = 'Not An Id'; });
+  refused('a not_after that is not after issue', j => { j.not_after = j.issued_at; });
+  refused('a field no charter has', j => { j.surprise = 1; });
+  refused('a document of another format', j => { j.format = 'machinefabric-manifest-sig/1'; });
+}
+
+// TEST12921: a stored charter proves its folder only under its own slug: a
+// folder renamed after install is refused, though the charter reads.
+function test12921_aStoredCharterHoldsItsFolderToItsSlug() {
+  const root = discoveryMakeTempRoot();
+  try {
+    discoveryStoreCharter(root, CARTRIDGES_SLUG);
+    assertEqual(readStoredCharter(path.join(root, CARTRIDGES_SLUG), RegistryKind.CARTRIDGES).anchor, CARTRIDGES_ANCHOR, 'reads offline');
+    fs.renameSync(path.join(root, CARTRIDGES_SLUG), path.join(root, 'cartridges.machinefabric.com'));
+    assertThrowsMessage(() => readStoredCharter(path.join(root, 'cartridges.machinefabric.com'), RegistryKind.CARTRIDGES),
+      "stored in a folder named 'cartridges.machinefabric.com'", 'a renamed folder');
+  } finally {
+    discoveryRemoveRoot(root);
+  }
+}
+
+// TEST12922: a registry folder is opened through its charter, and found by its
+// anchor — never by its name. `dev` is the one folder with no charter.
+function test12922_registryFoldersAreFoundByTheirCharters() {
+  const root = discoveryMakeTempRoot();
+  try {
+    discoveryStoreCharter(root, CARTRIDGES_SLUG);
+    discoveryStoreCharter(root, 'lab-t1-cartridges', { ...cartridgesCharterJSON('https://lab.example/exp/t1/cartridges', 'lab-t1-cartridges'),
+      environment: 'lab', experiment: 't1', not_after: 1800576000 });
+    fs.mkdirSync(path.join(root, DEV_SLUG));
+    // A folder named like the anchor's host holds no charter, and is not it.
+    fs.mkdirSync(path.join(root, 'registry.example'));
+    const found = storedCharterFor(root, CARTRIDGES_ANCHOR, RegistryKind.CARTRIDGES);
+    assertEqual(found.folder, path.join(root, CARTRIDGES_SLUG), 'found by its anchor');
+    assertEqual(found.charter.slug, CARTRIDGES_SLUG, 'its charter');
+    assertEqual(storedCharterFor(root, 'https://registry.example/elsewhere', RegistryKind.CARTRIDGES), null, 'an unknown anchor finds nothing');
+    const dev = RegistryFolder.open(path.join(root, DEV_SLUG));
+    assertEqual(dev.slug, DEV_SLUG, 'dev');
+    assertEqual(dev.anchor, null, 'dev has no anchor');
+    assertEqual(RegistryFolder.open(path.join(root, CARTRIDGES_SLUG)).anchor, CARTRIDGES_ANCHOR, 'a registry folder');
+    let error = null;
+    try { RegistryFolder.open(path.join(root, 'registry.example')); } catch (e) { error = e; }
+    assert(error instanceof CharterError, 'a folder with no charter is no registry\'s');
+  } finally {
+    discoveryRemoveRoot(root);
+  }
+}
+
+// TEST13005: a cartridge registry is read through its charter. The manifest is
+// fetched from the location the charter names, and the charter is kept by
+// anchor. An anchor with no charter is no registry; a manifest that names
+// another registry, or another fabric than its charter, is refused — nothing
+// of it is ingested.
+async function test13005_aCartridgeRegistryIsReadThroughItsCharter() {
+  const anchor = 'https://served.example/cartridges';
+  const charter = { ...cartridgesCharterJSON(anchor), locations: { manifest: `${anchor}/catalogue/r{registry_version}.json` } };
+  const manifest = (edit = () => {}) => {
+    const m = {
+      schemaVersion: '8.0', registryVersion: 4, lastUpdated: '2026-10-24', registryUrl: anchor,
+      fabricRegistryUrl: 'https://registry.example/fabric',
+      channels: { release: { cartridges: {} }, nightly: { cartridges: {} } },
+    };
+    edit(m);
+    return m;
+  };
+  const serving = (m, asked) => servingFetch({ [`${anchor}/charter.json`]: charter, [`${anchor}/catalogue/r4.json`]: m }, asked);
+  const asked = [];
+  const client = new CartridgeRepoClient(3600, { fetch: serving(manifest(), asked) });
+  assertEqual((await client.fetchRegistry(anchor)).length, 0, 'an empty registry');
+  assertEqual(asked.join(' '), `${anchor}/charter.json ${anchor}/catalogue/r4.json`,
+    'the charter first, then the manifest where the charter says it is');
+  assertEqual(client.charter(anchor).slug, CARTRIDGES_SLUG, 'the charter is kept by anchor');
+  await refusedCharter(new CartridgeRepoClient(3600, { fetch: serving(manifest()) }).fetchRegistry('https://served.example/elsewhere'),
+    CharterErrorKind.UNCHARTERED, 'an anchor with no charter');
+  for (const [what, edit] of [
+    ["another registry's anchor", m => { m.registryUrl = `${anchor}-other`; }],
+    ['another fabric', m => { m.fabricRegistryUrl = 'https://fabric.other'; }],
+  ]) {
+    let error = null;
+    try { await new CartridgeRepoClient(3600, { fetch: serving(manifest(edit)) }).fetchRegistry(anchor); } catch (e) { error = e; }
+    assert(error !== null && !(error instanceof CharterError), `${what} is refused: ${error}`);
+  }
+}
+
+// TEST13010: a slug is one registry's. A second anchor whose charter names a
+// slug another registry already holds is refused at its charter and is never
+// given that registry's folder; the registry that holds the slug syncs again
+// under its own charter.
+async function test13010_aSlugIsOneRegistrys() {
+  const first = 'https://first.example/cartridges';
+  const second = 'https://second.example/cartridges';
+  const manifest = (anchor) => ({
+    schemaVersion: '8.0', registryVersion: 4, lastUpdated: '2026-10-24', registryUrl: anchor,
+    fabricRegistryUrl: 'https://registry.example/fabric',
+    channels: { release: { cartridges: {} }, nightly: { cartridges: {} } },
+  });
+  const served = (secondSlug) => ({
+    [`${first}/charter.json`]: cartridgesCharterJSON(first, 'shared'),
+    [`${first}/v4/manifest`]: manifest(first),
+    [`${second}/charter.json`]: cartridgesCharterJSON(second, secondSlug),
+    [`${second}/v4/manifest`]: manifest(second),
+  });
+  const client = new CartridgeRepoClient(3600, { fetch: servingFetch(served('shared')) });
+  await client.fetchRegistry(first);
+  await refusedCharter(client.fetchRegistry(second), CharterErrorKind.REFUSED, 'a second registry with a held slug');
+  assertEqual(client.charter(second), null, 'the refused charter is not held');
+  await client.fetchRegistry(first);
+  assertEqual(client.charter(first).slug, 'shared', 'the holder syncs again under its own charter');
+  const own = new CartridgeRepoClient(3600, { fetch: servingFetch(served('second')) });
+  await own.fetchRegistry(first);
+  await own.fetchRegistry(second);
+  assertEqual(own.charter(second).slug, 'second', 'a slug of its own is admitted');
 }
 
 // TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in
@@ -4006,14 +4280,14 @@ const dimJSON = (name, version, values) => ({
 });
 
 /**
- * A registry in memory, served by URL as the publisher lays it out, with
+ * A registry in memory, served at the locations its charter states, with
  * every URL asked for recorded. `change` edits the objects before serving;
  * `goOffline` makes every later fetch fail as an unreachable registry does.
  */
 async function fakeRegistry(change = () => {}) {
   const objects = new Map();
   const put = async (section, name, version, body) =>
-    objects.set(`${REGISTRY}/${section}/${await sha256OfText(name)}/${version}.json`, body);
+    objects.set(`${REGISTRY}/defs/${section}/${await sha256OfText(name)}/v${version}.json`, body);
   const manifest = {
     version: 8, previous: 7,
     caps: { [EXTRACT_URN]: 3 },
@@ -4032,7 +4306,14 @@ async function fakeRegistry(change = () => {}) {
     medium: dimJSON('medium', 2, ['document', 'text']),
   } };
   change(served);
-  objects.set(`${REGISTRY}/manifest/8.json`, served.manifest);
+  // The charter places manifests and definitions where no URL convention
+  // would: every address the client asks for is the charter's.
+  objects.set(`${REGISTRY}/charter.json`, { ...fabricCharterJSON(REGISTRY), locations: {
+    manifest: `${REGISTRY}/snapshots/{manifest_version}.json`,
+    latest: `${REGISTRY}/snapshots/latest.json`,
+    definition: `${REGISTRY}/defs/{kind}/{urn_hash}/v{version}.json`,
+  } });
+  objects.set(`${REGISTRY}/snapshots/8.json`, served.manifest);
   await put('caps', EXTRACT_URN, 3, served.cap);
   for (const [urn, body] of Object.entries(served.media)) {
     await put('media', MediaUrn.fromString(urn).toString(), served.manifest.media[MediaUrn.fromString(urn).toString()] || 1, body);
@@ -4046,8 +4327,10 @@ async function fakeRegistry(change = () => {}) {
   const fetch = async url => {
     asked.push(url);
     if (offline) throw new Error('offline');
-    if (!objects.has(url)) return { status: 404, ok: false, json: async () => ({}) };
-    const body = objects.get(url);
+    // The charter is asked for with a cache-bust query.
+    const bare = url.split('?')[0];
+    if (!objects.has(bare)) return { status: 404, ok: false, json: async () => ({}) };
+    const body = objects.get(bare);
     return { status: 200, ok: true, json: async () => JSON.parse(JSON.stringify(body)) };
   };
   return { client: new FabricRegistryClient(REGISTRY, 8, { fetch }), asked, goOffline: () => { offline = true; } };
@@ -4081,9 +4364,9 @@ async function test6467_registryReadsACapWithEveryMediaItNames() {
     assert(client.mediaDefinition(urn) !== null, `the media it names: ${urn}`);
   }
   assertEqual(client.mediaDefinition(PAGES).validation.min, 1, 'with its rules');
-  assertEqual(asked.filter(url => url.endsWith('/manifest/8.json')).length, 1, 'the manifest once');
-  assert(asked.every(url => /\/(manifest\/8|caps\/[0-9a-f]{64}\/3|media\/[0-9a-f]{64}\/[12]|aliases\/[0-9a-f]{64}\/1)\.json$/.test(url)),
-    `only versioned addresses: ${asked.join(', ')}`);
+  assertEqual(asked.filter(url => url.endsWith('/snapshots/8.json')).length, 1, 'the manifest once');
+  assert(asked.every(url => /\/(charter\.json\?cb=\d+|(snapshots\/8|defs\/(caps\/[0-9a-f]{64}\/v3|media\/[0-9a-f]{64}\/v[12]|aliases\/[0-9a-f]{64}\/v1))\.json)$/.test(url)),
+    `only the charter and the versioned addresses it states: ${asked.join(', ')}`);
   await client.getCap(EXTRACT_URN);
   assertEqual(asked.filter(url => url.includes('/caps/')).length, 1, 'a held cap is not fetched again');
   // Asked for together, a definition is fetched once.
@@ -4140,14 +4423,18 @@ async function test6469_registryIsPinnedToOneManifest() {
     assertThrowsMessage(() => new FabricRegistryClient(REGISTRY, version), 'manifest version', `version ${version}`);
   }
   // A host that follows the fabric is pinned to the manifest promoted as the latest.
-  const promoted = async url => url === `${REGISTRY}/manifest/latest.json`
-    ? { status: 200, ok: true, json: async () => ({ version: 8, promoted_at: '2026-10-14T00:00:00Z' }) }
-    : { status: 404, ok: false, json: async () => ({}) };
+  // The latest manifest is where the charter's `latest` location says.
+  const promotedCharter = { ...fabricCharterJSON(REGISTRY), locations: { ...fabricCharterJSON(REGISTRY).locations, latest: `${REGISTRY}/promoted.json` } };
+  const promoted = servingFetch({ [`${REGISTRY}/charter.json`]: promotedCharter,
+    [`${REGISTRY}/promoted.json`]: { version: 8, promoted_at: '2026-10-14T00:00:00Z' } });
   assertEqual((await FabricRegistryClient.latest(REGISTRY, { fetch: promoted })).manifestVersion, 8, 'the latest');
-  const unnamed = async () => ({ status: 200, ok: true, json: async () => ({ promoted_at: 'never' }) });
+  const unnamed = servingFetch({ [`${REGISTRY}/charter.json`]: promotedCharter, [`${REGISTRY}/promoted.json`]: { promoted_at: 'never' } });
   await refusedRegistry(FabricRegistryClient.latest(REGISTRY, { fetch: unnamed }), FabricRegistryErrorCodes.PARSE, 'a latest that names no version');
+  const unchartered = servingFetch({ [`${REGISTRY}/manifest/8.json`]: { version: 8 } });
+  await refusedRegistry(new FabricRegistryClient(REGISTRY, 8, { fetch: unchartered }).manifest(), FabricRegistryErrorCodes.CHARTER,
+    'a registry with no charter serves nothing');
   const unreachable = new FabricRegistryClient(REGISTRY, 8, { fetch: async () => { throw new Error('offline'); } });
-  await refusedRegistry(unreachable.manifest(), FabricRegistryErrorCodes.HTTP, 'an unreachable registry');
+  await refusedRegistry(unreachable.manifest(), FabricRegistryErrorCodes.CHARTER, 'an unreachable registry has no charter to read');
 }
 
 // TEST6470: an alias is matched against what was asked; a cap can be got by
@@ -6684,7 +6971,7 @@ async function test1967_getDimResolvesThroughTheManifest() {
 async function test1968_aDimObjectIsTheDimAndVersionAskedFor() {
   const { client, asked } = await fakeRegistry();
   assertEqual((await client.getDim('medium')).version, 2, 'the pinned version');
-  assertEqual(asked.filter(url => url.includes('/dims/')).join(), `${REGISTRY}/dims/${await sha256OfText('medium')}/2.json`, 'its address');
+  assertEqual(asked.filter(url => url.includes('/dims/')).join(), `${REGISTRY}/defs/dims/${await sha256OfText('medium')}/v2.json`, 'its address');
 
   for (const [what, change, code, says] of [
     ['another name', served => { served.dims.medium.name = 'language'; }, FabricRegistryErrorCodes.PARSE, 'does not match requested name'],
@@ -7215,6 +7502,15 @@ async function runTests() {
   await runTest('TEST1875: scan_all_reaches_both_dev_and_registry_slugs', test1875_scanAllReachesBothDevAndRegistrySlugs);
   await runTest('TEST1876: other_channel_subtree_is_skipped', test1876_otherChannelSubtreeIsSkipped);
   await runTest('TEST1877: registry_cartridge_under_wrong_slug_is_bad_install', test1877_registryCartridgeUnderWrongSlugIsBadInstall);
+  await runTest('TEST12923: a_registry_folder_is_proven_by_its_charter_not_its_name', test12923_aRegistryFolderIsProvenByItsCharterNotItsName);
+  await runTest('TEST12912: a_charter_for_another_anchor_is_refused', test12912_aCharterForAnotherAnchorIsRefused);
+  await runTest('TEST12913: a_charter_of_another_kind_is_refused', test12913_aCharterOfAnotherKindIsRefused);
+  await runTest('TEST12919: a_location_takes_exactly_its_placeholders', test12919_aLocationTakesExactlyItsPlaceholders);
+  await runTest('TEST12920: a_charter_out_of_shape_is_malformed', test12920_aCharterOutOfShapeIsMalformed);
+  await runTest('TEST12921: a_stored_charter_holds_its_folder_to_its_slug', test12921_aStoredCharterHoldsItsFolderToItsSlug);
+  await runTest('TEST12922: registry_folders_are_found_by_their_charters', test12922_registryFoldersAreFoundByTheirCharters);
+  await runTest('TEST13005: a_cartridge_registry_is_read_through_its_charter', test13005_aCartridgeRegistryIsReadThroughItsCharter);
+  await runTest('TEST13010: a_slug_is_one_registrys', test13010_aSlugIsOneRegistrys);
   await runTest('TEST1878: bundled_cartridge_without_baked_hash_is_rejected', test1878_bundledCartridgeWithoutBakedHashIsRejected);
 
   // media_urn.rs: TEST1312-TEST1315, TEST1298-TEST1302 (MediaUrn predicates)
@@ -7480,7 +7776,7 @@ async function runTests() {
 function test8150_registryVerdictStatesAreTheClosedWireVocabulary() {
   const expected = [
     'verified', 'pending', 'offline', 'unreachable',
-    'http_error', 'malformed', 'unsigned', 'untrusted', 'unverifiable', 'unenforced',
+    'http_error', 'malformed', 'unchartered', 'unsigned', 'untrusted', 'unverifiable', 'unenforced',
   ];
   assertEqual(REGISTRY_VERDICT_STATES.length, expected.length, 'state count matches the Rust mirror');
   for (const state of expected) {
@@ -7491,6 +7787,10 @@ function test8150_registryVerdictStatesAreTheClosedWireVocabulary() {
     'unsupported_certificate_format', 'empty_certificate_list', 'insufficient_root_signatures',
     'expired_certificate', 'not_yet_valid_certificate', 'environment_mismatch',
     'key_id_mismatch', 'no_authorizing_certificate', 'manifest_signature_invalid',
+    'charter_malformed', 'charter_unsupported_format', 'charter_signature_invalid',
+    'charter_anchor_mismatch', 'charter_kind_mismatch', 'charter_environment_mismatch',
+    'charter_fabric_mismatch', 'charter_not_yet_valid', 'charter_expired', 'charter_folder_mismatch',
+    'charter_slug_taken',
   ];
   assertEqual(CHAIN_FAILURE_REASONS.length, reasons.length, 'reason count matches the Rust mirror');
   for (const reason of reasons) {
@@ -7508,6 +7808,8 @@ function test8151_unreadableFormatIsUnverifiableAndRejectedKeyIsUntrusted() {
     ChainFailureReason.MALFORMED_CERTIFICATE,
     ChainFailureReason.UNSUPPORTED_CERTIFICATE_FORMAT,
     ChainFailureReason.EMPTY_CERTIFICATE_LIST,
+    ChainFailureReason.CHARTER_MALFORMED,
+    ChainFailureReason.CHARTER_UNSUPPORTED_FORMAT,
   ]) {
     assertEqual(
       registryVerdictStateForChainFailure(unevaluable),
@@ -7523,6 +7825,15 @@ function test8151_unreadableFormatIsUnverifiableAndRejectedKeyIsUntrusted() {
     ChainFailureReason.KEY_ID_MISMATCH,
     ChainFailureReason.NO_AUTHORIZING_CERTIFICATE,
     ChainFailureReason.MANIFEST_SIGNATURE_INVALID,
+    ChainFailureReason.CHARTER_SIGNATURE_INVALID,
+    ChainFailureReason.CHARTER_ANCHOR_MISMATCH,
+    ChainFailureReason.CHARTER_KIND_MISMATCH,
+    ChainFailureReason.CHARTER_ENVIRONMENT_MISMATCH,
+    ChainFailureReason.CHARTER_FABRIC_MISMATCH,
+    ChainFailureReason.CHARTER_NOT_YET_VALID,
+    ChainFailureReason.CHARTER_EXPIRED,
+    ChainFailureReason.CHARTER_FOLDER_MISMATCH,
+    ChainFailureReason.CHARTER_SLUG_TAKEN,
   ]) {
     assertEqual(
       registryVerdictStateForChainFailure(judged),
@@ -7716,6 +8027,7 @@ function test8155_registryVerdictWireRoundTrip() {
  *  keeps working — which is precisely what happened. */
 function test8157_signatureFormatDiscriminatorsComeFromTheLibrary() {
   assertEqual(MANIFEST_SIG_FORMAT, 'machinefabric-manifest-sig/1');
+  assertEqual(CHARTER_SIG_FORMAT, 'machinefabric-charter-sig/1');
   assertEqual(RELEASE_KEY_CERT_FORMAT, 'machinefabric-release-key-cert/1');
 }
 
