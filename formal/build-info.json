@@ -1,10 +1,10 @@
 {
-  "build_key": "9add2c44e7c46927679398db0e258a142a7493e67c5d23cefcdb3ebbb4d9b01f",
+  "build_key": "57f84e8351c3ddec51d86ebe22a05a9bd316a16762939d7db7bc1b00c75c5b5d",
   "lean_version": "4.34.1",
   "lean_githash": "5045d0056413266e57c625dcd7c365b10e377c52",
   "bir_version": 3,
   "adapter_version": 2,
-  "lungo_version": "1.116.0",
+  "lungo_version": "1.117.0",
   "runtime_abi": 2,
   "worker_identity": "f9a5901d4a5bbf60ba25384968b626a055d4d8183729eae9a6914776c3d31457",
   "input_digests": {
@@ -22,7 +22,7 @@
     "<package:lungo>/Lungo/Spec/Model.lean": "5082edc39c7d67b908ab470ae61b6f97fa547b910dd0915b6f72b27ee54b90a7",
     "<package:lungo>/Lungo/Spec/State.lean": "a5a5aa8ccb208f06dd45005e5740c4e7096b1a7f8d484f6cc19d4835e816979e",
     "<package:lungo>/Lungo/Trace.lean": "f6f0735df8f533ef42e71cc5f5be73462fcac902c38f56f3d3411b28816a57bf",
-    "<package:lungo>/lakefile.toml": "864e0ad9aba4e35ff04d7bbbee281f07153c2f1f2751515630cb6e9bd29d3788",
+    "<package:lungo>/lakefile.toml": "5692e05244b9e29dc8f1c822a72158e90c6a51b4b205bfe97af075de68c2e611",
     "<package:tagged_urn_formal>/TaggedUrn.lean": "51c451ad004b38af0d8212ffdfa8098e8e3de3831ad4850052301fac4963ed34",
     "<package:tagged_urn_formal>/TaggedUrn/Constraint.lean": "20d93e3ff2482334a7288262c6fb229675e13696af5712dcec1af2f3fe6e4028",
     "<package:tagged_urn_formal>/TaggedUrn/Exec.lean": "6cbe398e8c0fe0ffd30191d41337ebc52d89436e363518bccb38a7732ffcf026",
@@ -49,9 +49,9 @@
   "project": ".",
   "link_directives": [],
   "output_digests": {
-    "assurance.json": "fec556ad4ab36391877d67722daf311f68f47e5a03be327ae50f03b74bc5963a",
-    "index.d.ts": "47868a97b34c4650e2fed9597984060fc29baa7fb46dd339bcdd170220efdd6f",
-    "index.js": "a94a6860c4e3e15647efa6475383627e669b776007d74f5e6f18f9f3c278e1c4"
+    "assurance.json": "e42523f0cd54d55241e54776084809f8493aea69c291c8e6910b72333518ebbf",
+    "index.d.ts": "7d3ecdfdb757a2eee8b3b19cc463596e7fcc9227cbbed0d493994d0ed87a9df5",
+    "index.js": "535904db80432ab4888159135b9d19ba9bb0a150eb09a0cf4ccb1797be40247d"
   },
   "platform_products": [
     "program.wasm"
