@@ -1,0 +1,10 @@
+{
+  "name": "capdag-js",
+  "alias": "capdag_js",
+  "templates_root": "../..",
+  "version": {
+    "major": 1,
+    "file": "version.txt",
+    "detect_manifests": true
+  }
+}
