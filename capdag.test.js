@@ -38,7 +38,7 @@ import {
   MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
   MEDIA_OBJECT, MEDIA_STRING_LIST, MEDIA_INTEGER_LIST,
   MEDIA_NUMBER_LIST, MEDIA_BOOLEAN_LIST, MEDIA_OBJECT_LIST,
-  MEDIA_IDENTITY, MEDIA_VOID, MEDIA_PNG, MEDIA_AUDIO, MEDIA_VIDEO,
+  MEDIA_IDENTITY, MEDIA_VOID, MEDIA_PNG, MEDIA_AUDIO, MEDIA_WAV, MEDIA_VIDEO,
   MEDIA_IMAGE, MEDIA_DOCUMENT,
   MEDIA_PDF, MEDIA_EPUB, MEDIA_MD, MEDIA_TXT, MEDIA_RST, MEDIA_LOG,
   MEDIA_HTML, MEDIA_XML, MEDIA_JSON, MEDIA_YAML, MEDIA_JSON_SCHEMA,
@@ -47,7 +47,6 @@ import {
   MEDIA_FILE_PATH,
   MEDIA_COLLECTION, MEDIA_COLLECTION_LIST,
   MEDIA_DECISION,
-  MEDIA_AUDIO_SPEECH,
   CAP_IDENTITY,
   ALIAS_TARGET_CAP, ALIAS_TARGET_MEDIA,
   tokenIsUrn, isAliasToken, normalizeAliasName, classifyAliasTarget,
@@ -993,8 +992,8 @@ function test066_isJson() {
 function test067_isText() {
   // Has enc= → text-representable
   assert(MediaUrn.fromString(MEDIA_STRING).getTag('enc') !== undefined, 'MEDIA_STRING should have enc');
-  assert(MediaUrn.fromString(MEDIA_BOOLEAN).getTag('enc') !== undefined, 'MEDIA_BOOLEAN should have enc');
   // No enc= → not text-representable
+  assert(MediaUrn.fromString(MEDIA_BOOLEAN).getTag('enc') === undefined, 'MEDIA_BOOLEAN is its own kind, not text');
   assert(MediaUrn.fromString(MEDIA_INTEGER).getTag('enc') === undefined, 'MEDIA_INTEGER should not have enc');
   assert(MediaUrn.fromString(MEDIA_JSON).getTag('enc') === undefined, 'MEDIA_JSON should not have enc');
   assert(MediaUrn.fromString(MEDIA_IDENTITY).getTag('enc') === undefined, 'MEDIA_IDENTITY should not have enc');
@@ -1358,7 +1357,7 @@ function test150_capManifestJsonSerialization() {
     }
   ));
   cap.addArg(new CapArg(
-    'media:bool;enc=utf-8;timestamps', 'bool',
+    'media:bool;timestamps', 'bool',
     false,
     [new ArgSource({ cli_flag: '--timestamps' })],
     {
@@ -1616,7 +1615,8 @@ function test283_capArgumentValueLargeBinary() {
 // TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags
 function test304_mediaAvailabilityOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
-  assertEqual(urn.getTag('enc'), 'utf-8', 'model-availability must carry enc=utf-8');
+  assertEqual(urn.getTag('fmt'), 'json', 'model-availability is a JSON record');
+  assertEqual(urn.getTag('enc'), undefined, 'a JSON record is not also text');
   assertEqual(urn.getTag('record'), '*', 'model-availability must be record');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
@@ -1625,7 +1625,8 @@ function test304_mediaAvailabilityOutputConstant() {
 // TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags
 function test305_mediaPathOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
-  assertEqual(urn.getTag('enc'), 'utf-8', 'model-path must carry enc=utf-8');
+  assertEqual(urn.getTag('fmt'), 'json', 'model-path is a JSON record');
+  assertEqual(urn.getTag('enc'), undefined, 'a JSON record is not also text');
   assertEqual(urn.getTag('record'), '*', 'model-path must be record');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
@@ -3101,7 +3102,7 @@ function test546_isImage() {
 // TEST547: is_audio returns true only when audio marker tag is present
 function test547_isAudio() {
   assert(MediaUrn.fromString(MEDIA_AUDIO).isAudio(), 'MEDIA_AUDIO should be audio');
-  assert(MediaUrn.fromString(MEDIA_AUDIO_SPEECH).isAudio(), 'MEDIA_AUDIO_SPEECH should be audio');
+  assert(MediaUrn.fromString(MEDIA_WAV).isAudio(), 'MEDIA_WAV should be audio');
   assert(MediaUrn.fromString('media:audio;ext=mp3').isAudio(), 'media:audio;ext=mp3 should be audio');
   // Non-audio types
   assert(!MediaUrn.fromString(MEDIA_VIDEO).isAudio(), 'MEDIA_VIDEO should not be audio');
@@ -3184,10 +3185,10 @@ function test558_predicateConstantConsistency() {
   assert(!intUrn.isImage(), 'MEDIA_INTEGER must not be image');
   assert(!intUrn.isList(), 'MEDIA_INTEGER must not be list');
 
-  // MEDIA_BOOLEAN must be bool, enc-bearing, scalar, NOT numeric
+  // MEDIA_BOOLEAN must be bool, its own kind (no enc), scalar, NOT numeric
   const boolUrn = MediaUrn.fromString(MEDIA_BOOLEAN);
   assert(boolUrn.isBool(), 'MEDIA_BOOLEAN must be bool');
-  assert(boolUrn.getTag('enc') === 'utf-8', 'MEDIA_BOOLEAN must carry enc=utf-8');
+  assert(boolUrn.getTag('enc') === undefined, 'MEDIA_BOOLEAN must not carry enc');
   assert(boolUrn.isScalar(), 'MEDIA_BOOLEAN must be scalar');
   assert(!boolUrn.isNumeric(), 'MEDIA_BOOLEAN must not be numeric');
 
