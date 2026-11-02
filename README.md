@@ -28,11 +28,11 @@ imported, so importing it waits for that (top-level `await`), and a CommonJS
 import { CapUrn, CapUrnBuilder } from "capdag";
 
 const parsed = CapUrn.fromString(
-  'cap:disbind;in="media:document;ext=pdf";out="media:enc=utf-8;page"'
+  'cap:disbind;in="media:document;ext=pdf";out="media:enc=utf8;page"'
 );
 const built = new CapUrnBuilder()
   .inSpec("media:document;ext=pdf")
-  .outSpec("media:enc=utf-8;page")
+  .outSpec("media:enc=utf8;page")
   .marker("disbind")
   .build();
 
@@ -52,16 +52,16 @@ the machine is held to.
 import { Cap, CapArg, CapOutput, ArgSource, CapUrn, CapDefinitions, parseMachine } from "capdag";
 
 const extract = new Cap(
-  CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"'),
+  CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"'),
   "Extract Text", ["extract"]
 );
 extract.addArg(new CapArg("media:document;ext=pdf", "document", true,
   [new ArgSource({ stdin: "media:document;ext=pdf" })]));
-extract.addOutput(new CapOutput("media:enc=utf-8;ext=txt", "text", "The text"));
+extract.addOutput(new CapOutput("media:enc=utf8;ext=txt;plain-text", "text", "The text"));
 
 const definitions = new CapDefinitions().addCaps([extract]);
 const machine = parseMachine(
-  '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+  '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"]' +
   "[(document=pdf) -> extract -> text]",
   definitions
 );
@@ -78,9 +78,9 @@ against, fabric aliases included:
 import { FabricRegistryClient, parseMachine } from "capdag";
 
 const fabric = await FabricRegistryClient.latest("https://fabric.capdag.com");
-await fabric.getCap('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+await fabric.getCap('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"');
 const machine = parseMachine(
-  '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]' +
+  '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"]' +
   "[pdf -> extract -> text]",
   fabric
 );

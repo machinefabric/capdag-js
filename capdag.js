@@ -1351,16 +1351,22 @@ const MediaDefErrorCodes = {
  *
  * Examples:
  * - `media:document;ext=pdf` → scalar, opaque (no markers)
- * - `media:enc=utf-8;list` → list, opaque (has list marker)
- * - `media:fmt=json;record` → scalar, record (has record marker)
- * - `media:fmt=json;list;record` → list of records (has both markers)
+ * - `media:enc=utf8;list` → list, opaque (has list marker)
+ * - `media:enc=utf8;fmt=json;record` → scalar, record (has record marker)
+ * - `media:enc=utf8;fmt=json;list;record` → list of records (has both markers)
  */
 
 // Primitive types - URNs must match base.toml definitions
 // Media URN for void (no input/output) - no coercion tags
 const MEDIA_VOID = 'media:void';
-// Media URN for string type — bare UTF-8 text (enc=utf-8), scalar by default (no list marker)
-const MEDIA_STRING = 'media:enc=utf-8';
+// Media URN for string type — any UTF-8 string (enc=utf8): prose, code, markup or a
+// textual serialization alike. Scalar by default (no list marker).
+const MEDIA_STRING = 'media:enc=utf8';
+// Media URN for plain text — UTF-8 text written to be read. What a cap that reads
+// text as language (summarizing, classifying, embedding, prompting a model) takes;
+// every prose file type, document page, digitized text and image description
+// conforms to it, and source code, markup and serialized data do not.
+const MEDIA_PLAIN_TEXT = 'media:enc=utf8;plain-text';
 // Media URN for integer type — numeric (math ops valid), scalar by default
 const MEDIA_INTEGER = 'media:integer;numeric';
 // Media URN for number type — numeric, scalar by default
@@ -1377,7 +1383,7 @@ const MEDIA_IDENTITY = 'media:';
 // Media URN for generic list type
 const MEDIA_LIST = 'media:list';
 // Media URN for string list type — bare UTF-8 text with list marker
-const MEDIA_STRING_LIST = 'media:enc=utf-8;list';
+const MEDIA_STRING_LIST = 'media:enc=utf8;list';
 // Media URN for integer list type — numeric with list marker
 const MEDIA_INTEGER_LIST = 'media:integer;list;numeric';
 // Media URN for number list type — numeric with list marker
@@ -1448,104 +1454,99 @@ const MEDIA_EPUB = 'media:document;ext=epub';
 
 // Text format types (PRIMARY naming - type IS the format)
 // Media URN for Markdown text
-const MEDIA_MD = 'media:enc=utf-8;ext=md';
+const MEDIA_MD = 'media:enc=utf8;ext=md;plain-text';
 // Media URN for plain text
-const MEDIA_TXT = 'media:enc=utf-8;ext=txt';
+const MEDIA_TXT = 'media:enc=utf8;ext=txt;plain-text';
 // Media URN for reStructuredText
-const MEDIA_RST = 'media:enc=utf-8;ext=rst';
+const MEDIA_RST = 'media:enc=utf8;ext=rst;plain-text';
 // Media URN for log files
-const MEDIA_LOG = 'media:enc=utf-8;ext=log';
+const MEDIA_LOG = 'media:enc=utf8;ext=log;plain-text';
 // Media URN for HTML documents
-const MEDIA_HTML = 'media:enc=utf-8;ext=html';
+const MEDIA_HTML = 'media:enc=utf8;ext=html';
 // Media URN for XML documents
-const MEDIA_XML = 'media:enc=utf-8;ext=xml';
+const MEDIA_XML = 'media:enc=utf8;ext=xml';
 // Media URN for JSON data - has record marker (structured key-value)
-const MEDIA_JSON = 'media:fmt=json;record';
+const MEDIA_JSON = 'media:enc=utf8;fmt=json;record';
 // Media URN for JSON with schema constraint (input for structured queries)
-const MEDIA_JSON_SCHEMA = 'media:fmt=json;json-schema;record';
+const MEDIA_JSON_SCHEMA = 'media:enc=utf8;fmt=json;json-schema;record';
 // Media URN for YAML data - has record marker (structured key-value)
-const MEDIA_YAML = 'media:fmt=yaml;record';
+const MEDIA_YAML = 'media:enc=utf8;fmt=yaml;record';
 
 // Format-specific variants for JSON, YAML, CSV
-const MEDIA_JSON_VALUE = 'media:fmt=json';
-const MEDIA_JSON_RECORD = 'media:fmt=json;record';
-const MEDIA_JSON_LIST = 'media:fmt=json;list';
-const MEDIA_JSON_LIST_RECORD = 'media:fmt=json;list;record';
-const MEDIA_YAML_VALUE = 'media:fmt=yaml';
-const MEDIA_YAML_RECORD = 'media:fmt=yaml;record';
-const MEDIA_YAML_LIST = 'media:fmt=yaml;list';
-const MEDIA_YAML_LIST_RECORD = 'media:fmt=yaml;list;record';
-const MEDIA_CSV = 'media:fmt=csv;list;record';
-const MEDIA_CSV_LIST = 'media:fmt=csv;list;record';
+const MEDIA_JSON_VALUE = 'media:enc=utf8;fmt=json';
+const MEDIA_JSON_RECORD = 'media:enc=utf8;fmt=json;record';
+const MEDIA_JSON_LIST = 'media:enc=utf8;fmt=json;list';
+const MEDIA_JSON_LIST_RECORD = 'media:enc=utf8;fmt=json;list;record';
+const MEDIA_YAML_VALUE = 'media:enc=utf8;fmt=yaml';
+const MEDIA_YAML_RECORD = 'media:enc=utf8;fmt=yaml;record';
+const MEDIA_YAML_LIST = 'media:enc=utf8;fmt=yaml;list';
+const MEDIA_YAML_LIST_RECORD = 'media:enc=utf8;fmt=yaml;list;record';
+const MEDIA_CSV = 'media:enc=utf8;fmt=csv;list;record';
+const MEDIA_CSV_LIST = 'media:enc=utf8;fmt=csv;list;record';
 
 // File path type — for arguments that represent filesystem paths.
 // There is a single media URN; cardinality (single file vs many files)
 // is carried on the wire via is_sequence, not via URN tags.
-const MEDIA_FILE_PATH = 'media:enc=utf-8;file-path';
+const MEDIA_FILE_PATH = 'media:enc=utf8;file-path';
 
 // Semantic text input types - distinguished by their purpose/context
 // Media URN for model spec (provider:model format, HuggingFace name, etc.) - scalar by default
-const MEDIA_MODEL_SPEC = 'media:enc=utf-8;model-spec';
+const MEDIA_MODEL_SPEC = 'media:enc=utf8;model-spec';
 // Media URN for MLX model path - scalar by default
-const MEDIA_MLX_MODEL_PATH = 'media:enc=utf-8;mlx-model-path';
+const MEDIA_MLX_MODEL_PATH = 'media:enc=utf8;mlx-model-path';
 // Media URN for model repository (input for list-models) - has record marker
-const MEDIA_MODEL_REPO = 'media:fmt=json;model-repo;record';
+const MEDIA_MODEL_REPO = 'media:enc=utf8;fmt=json;model-repo;record';
 
 // CAPDAG output types - record marker for structured JSON objects, list marker for arrays
 // Media URN for model dimension output - scalar by default (no list marker)
 const MEDIA_MODEL_DIM = 'media:integer;model-dim;numeric';
 // Media URN for model download output - has record marker
-const MEDIA_DOWNLOAD_OUTPUT = 'media:download-result;fmt=json;record';
+const MEDIA_DOWNLOAD_OUTPUT = 'media:download-result;enc=utf8;fmt=json;record';
 // Media URN for model list output - has record marker
-const MEDIA_LIST_OUTPUT = 'media:fmt=json;model-list;record';
+const MEDIA_LIST_OUTPUT = 'media:enc=utf8;fmt=json;model-list;record';
 // Media URN for model status output - has record marker
-const MEDIA_STATUS_OUTPUT = 'media:fmt=json;model-status;record';
+const MEDIA_STATUS_OUTPUT = 'media:enc=utf8;fmt=json;model-status;record';
 // Media URN for model contents output - has record marker
-const MEDIA_CONTENTS_OUTPUT = 'media:fmt=json;model-contents;record';
+const MEDIA_CONTENTS_OUTPUT = 'media:enc=utf8;fmt=json;model-contents;record';
 // Media URN for model availability output - has record marker
-const MEDIA_AVAILABILITY_OUTPUT = 'media:fmt=json;model-availability;record';
+const MEDIA_AVAILABILITY_OUTPUT = 'media:enc=utf8;fmt=json;model-availability;record';
 // Media URN for model path output - has record marker
-const MEDIA_PATH_OUTPUT = 'media:fmt=json;model-path;record';
+const MEDIA_PATH_OUTPUT = 'media:enc=utf8;fmt=json;model-path;record';
 // Media URN for embedding vector output - has record marker
-const MEDIA_EMBEDDING_VECTOR = 'media:embedding-vector;fmt=json;record';
+const MEDIA_EMBEDDING_VECTOR = 'media:embedding-vector;enc=utf8;fmt=json;record';
 // Media URN for vision inference output — a concrete plain-text terminal.
-// Carries `image-description` (the vision-specific marker), `plain-text` (the
-// finalised-text marker that opts into cap:save-as-txt's persistence path),
-// and `file-type=txt` (binds the URN to the `.txt` extension).
-const MEDIA_IMAGE_DESCRIPTION = 'media:enc=utf-8;ext=txt;image-description;plain-text';
-// Media URN for finalised plain text — the canonical input/output of cap:save-as-txt.
-// Producers of user-facing prose (LLM text-generation, OCR's digitized text,
-// summarisation) declare this URN as their `out` so the planner restricts the .txt
-// persistence path to those caps. See fabric/media/plain-text.toml.
-const MEDIA_PLAIN_TEXT = 'media:enc=utf-8;ext=txt;plain-text';
+// Carries `image-description` (the kind of plain text a vision model writes),
+// `plain-text` (text written to be read, so every cap that reads text as
+// language accepts it), and `ext=txt` (binds the URN to the `.txt` extension).
+const MEDIA_IMAGE_DESCRIPTION = 'media:enc=utf8;ext=txt;image-description;plain-text';
 // Media URN for transcription output - has record marker
-const MEDIA_TRANSCRIPT_OUTPUT = 'media:fmt=json;record;transcript';
+const MEDIA_TRANSCRIPT_OUTPUT = 'media:enc=utf8;fmt=json;record;transcript';
 // Media URN for decision output - JSON record
-const MEDIA_DECISION = 'media:decision;fmt=json;record';
+const MEDIA_DECISION = 'media:decision;enc=utf8;fmt=json;record';
 // Media URN for a single page of finalised plain text extracted from a document
-const MEDIA_TEXTABLE_PAGE = 'media:enc=utf-8;ext=txt;page;plain-text';
+const MEDIA_TEXTABLE_PAGE = 'media:enc=utf8;ext=txt;page;plain-text';
 // Media URN for Hugging Face API token (secret)
-const MEDIA_HF_TOKEN = 'media:enc=utf-8;hf-token;secret';
+const MEDIA_HF_TOKEN = 'media:enc=utf8;hf-token;secret';
 // Media URN for a list of model architectures — JSON record
-const MEDIA_MODEL_ARCH_LIST = 'media:fmt=json;model-arch-list;record';
+const MEDIA_MODEL_ARCH_LIST = 'media:enc=utf8;fmt=json;model-arch-list;record';
 // Media URN for a model search request — JSON record
-const MEDIA_MODEL_SEARCH_REQUEST = 'media:fmt=json;model-search-request;record';
+const MEDIA_MODEL_SEARCH_REQUEST = 'media:enc=utf8;fmt=json;model-search-request;record';
 // Media URN for a model search response — JSON record
-const MEDIA_MODEL_SEARCH_RESPONSE = 'media:fmt=json;model-search-response;record';
+const MEDIA_MODEL_SEARCH_RESPONSE = 'media:enc=utf8;fmt=json;model-search-response;record';
 // Media URN for model filter resolution — JSON record
-const MEDIA_MODEL_FILTER_RESOLUTION = 'media:fmt=json;model-filter-resolution;record';
+const MEDIA_MODEL_FILTER_RESOLUTION = 'media:enc=utf8;fmt=json;model-filter-resolution;record';
 // Collection types
 const MEDIA_COLLECTION = 'media:collection;record';
 const MEDIA_COLLECTION_LIST = 'media:collection;list;record';
 // Media URN for adapter selection output - JSON record
-const MEDIA_ADAPTER_SELECTION = 'media:adapter-selection;fmt=json;record';
+const MEDIA_ADAPTER_SELECTION = 'media:adapter-selection;enc=utf8;fmt=json;record';
 // Fabric registry lookup wire types (consumed/produced by cap:lookup-cap;fabric
 // and cap:lookup-media-def;fabric, both implemented by fetchcartridge).
-const MEDIA_CAP_URN = 'media:cap-urn;enc=utf-8';
-const MEDIA_MEDIA_URN = 'media:enc=utf-8;media-urn';
-const MEDIA_FABRIC_DEFVER = 'media:defver;enc=utf-8';
-const MEDIA_CAP_DEFINITION = 'media:cap-definition;fmt=json;record';
-const MEDIA_MEDIA_DEFINITION = 'media:fmt=json;media-definition;record';
+const MEDIA_CAP_URN = 'media:cap-urn;enc=utf8';
+const MEDIA_MEDIA_URN = 'media:enc=utf8;media-urn';
+const MEDIA_FABRIC_DEFVER = 'media:defver;enc=utf8';
+const MEDIA_CAP_DEFINITION = 'media:cap-definition;enc=utf8;fmt=json;record';
+const MEDIA_MEDIA_DEFINITION = 'media:enc=utf8;fmt=json;media-definition;record';
 
 // =============================================================================
 // STANDARD CAP URN CONSTANTS
@@ -1557,13 +1558,13 @@ const CAP_IDENTITY = 'cap:effect=none';
 
 // Adapter-selection capability. Default implementation returns empty END (no match).
 // Cartridges that inspect file content override this with a handler that returns {"media_urns": [...]}.
-const CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;fmt=json;record"';
+const CAP_ADAPTER_SELECTION = 'cap:in="media:";out="media:adapter-selection;enc=utf8;fmt=json;record"';
 
 // Fabric registry lookup caps. Implemented by fetchcartridge.
 // CAP_LOOKUP_CAP_FABRIC resolves a canonical cap URN to its full flattened
 // cap definition; CAP_LOOKUP_MEDIA_DEF_FABRIC does the same for media defs.
-const CAP_LOOKUP_CAP_FABRIC = 'cap:in="media:cap-urn;enc=utf-8";fabric;lookup-cap;out="media:cap-definition;fmt=json;record"';
-const CAP_LOOKUP_MEDIA_DEF_FABRIC = 'cap:in="media:enc=utf-8;media-urn";fabric;lookup-media-def;out="media:fmt=json;media-definition;record"';
+const CAP_LOOKUP_CAP_FABRIC = 'cap:in="media:cap-urn;enc=utf8";fabric;lookup-cap;out="media:cap-definition;enc=utf8;fmt=json;record"';
+const CAP_LOOKUP_MEDIA_DEF_FABRIC = 'cap:in="media:enc=utf8;media-urn";fabric;lookup-media-def;out="media:enc=utf8;fmt=json;media-definition;record"';
 
 // =============================================================================
 // MEDIA URN CLASS
@@ -1877,11 +1878,11 @@ class MediaUrn {
  */
 function llmGenerateTextUrn() {
   return new CapUrnBuilder()
-    .marker('generate_text')
-    .tag('llm', '*')
-    .tag('ml-model', '*')
-    .inSpec(MEDIA_STRING)
-    .outSpec(MEDIA_STRING)
+    .marker('generate-text')
+    .marker('llm')
+    .marker('ml-model')
+    .inSpec(MEDIA_PLAIN_TEXT)
+    .outSpec(MEDIA_TXT)
     .build();
 }
 
@@ -2193,7 +2194,7 @@ class MediaDef {
  * Resolution: Look up mediaUrn in mediaDefs array (by urn field), FAIL HARD if not found.
  * There is no built-in resolution - all media URNs must be in mediaDefs.
  *
- * @param {string} mediaUrn - The media URN (e.g., "media:enc=utf-8")
+ * @param {string} mediaUrn - The media URN (e.g., "media:enc=utf8")
  * @param {Array} mediaDefs - The mediaDefs array (each item has urn, media_type, title, etc.)
  * @returns {MediaDef} The resolved MediaDef
  * @throws {MediaDefError} If media URN cannot be resolved
@@ -4684,7 +4685,7 @@ class CapResult {
 class CapArgumentValue {
   /**
    * Create a new CapArgumentValue
-   * @param {string} mediaUrn - Semantic identifier, e.g., "media:enc=utf-8;model-spec"
+   * @param {string} mediaUrn - Semantic identifier, e.g., "media:enc=utf8;model-spec"
    * @param {Uint8Array|Buffer} value - Value bytes (UTF-8 for text, raw for binary)
    */
   constructor(mediaUrn, value) {
@@ -12543,6 +12544,7 @@ export {
   validateNoMediaDefDuplicates,
   getProfileURL,
   MEDIA_STRING,
+  MEDIA_PLAIN_TEXT,
   MEDIA_INTEGER,
   MEDIA_NUMBER,
   MEDIA_BOOLEAN,
@@ -12618,7 +12620,6 @@ export {
   // Semantic output types - inference
   MEDIA_EMBEDDING_VECTOR,
   MEDIA_IMAGE_DESCRIPTION,
-  MEDIA_PLAIN_TEXT,
   MEDIA_TRANSCRIPT_OUTPUT,
   // File path type — single URN; cardinality lives on is_sequence.
   MEDIA_FILE_PATH,

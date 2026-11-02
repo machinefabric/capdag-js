@@ -38,6 +38,7 @@ import {
   MEDIA_STRING, MEDIA_INTEGER, MEDIA_NUMBER, MEDIA_BOOLEAN,
   MEDIA_OBJECT, MEDIA_STRING_LIST, MEDIA_INTEGER_LIST,
   MEDIA_NUMBER_LIST, MEDIA_BOOLEAN_LIST, MEDIA_OBJECT_LIST,
+  MEDIA_CSV, MEDIA_JSON_LIST, MEDIA_TEXTABLE_PAGE,
   MEDIA_IDENTITY, MEDIA_VOID, MEDIA_PNG, MEDIA_AUDIO, MEDIA_WAV, MEDIA_VIDEO,
   MEDIA_IMAGE, MEDIA_DOCUMENT,
   MEDIA_PDF, MEDIA_EPUB, MEDIA_MD, MEDIA_TXT, MEDIA_RST, MEDIA_LOG,
@@ -167,7 +168,7 @@ function runTest(name, fn) {
 /**
  * Helper function to build test URNs with required in/out media URNs.
  * Uses MEDIA_VOID for in and MEDIA_OBJECT for out, matching the
- * Rust reference test_urn helper: test_urn(tags) => cap:in="media:void";{tags};out="media:enc=utf-8;record"
+ * Rust reference test_urn helper: test_urn(tags) => cap:in="media:void";{tags};out="media:enc=utf8;record"
  */
 // TEST6204: Urn
 function test6204_Urn(tags) {
@@ -222,7 +223,7 @@ function test003_directionMatching() {
   assert(cap.accepts(request), 'Same direction specs should match');
 
   // Different direction should not match
-  const requestDiff = CapUrn.fromString('cap:in="media:enc=utf-8";generate;out="media:enc=utf-8;record"');
+  const requestDiff = CapUrn.fromString('cap:in="media:enc=utf8";generate;out="media:enc=utf8;record"');
   assert(!cap.accepts(requestDiff), 'Different inSpec should not match');
 
   // A pattern that leaves both sides open asks nothing of them: it fits the
@@ -237,7 +238,7 @@ function test003_directionMatching() {
 
 // TEST4: Test that unquoted keys and values are normalized to lowercase
 function test004_unquotedValuesLowercased() {
-  const cap = CapUrn.fromString('cap:ext=pdf;generate;in=media:void;out="media:enc=utf-8;record"');
+  const cap = CapUrn.fromString('cap:ext=pdf;generate;in=media:void;out="media:enc=utf8;record"');
   assert(cap.hasMarkerTag('generate'), 'Unquoted value should be lowercased');
   assertEqual(cap.getTag('ext'), 'pdf', 'Unquoted value should be lowercased');
   assertEqual(cap.getTag('EXT'), 'pdf', 'Key lookup should be case-insensitive');
@@ -515,7 +516,7 @@ function test024_compatibility() {
   assert(general.accepts(cap1), 'General request should accept more specific instance');
   assert(!cap1.accepts(general), 'Specific pattern should reject general instance');
 
-  const broadIn = CapUrn.fromString('cap:in="media:";generate;out="media:enc=utf-8;record"');
+  const broadIn = CapUrn.fromString('cap:in="media:";generate;out="media:enc=utf8;record"');
   assert(!cap1.accepts(broadIn), 'Specific input should not accept broad wildcard input');
   assert(broadIn.accepts(cap1), 'Wildcard input should accept specific input');
 }
@@ -536,11 +537,11 @@ function test025_bestMatch() {
 // TEST26: Test merge combines tags from both caps, subset keeps only specified tags
 function test026_mergeAndSubset() {
   const cap1 = CapUrn.fromString(test6204_Urn('generate'));
-  const cap2 = CapUrn.fromString('cap:in="media:enc=utf-8";ext=pdf;format=binary;out="media:"');
+  const cap2 = CapUrn.fromString('cap:in="media:enc=utf8";ext=pdf;format=binary;out="media:"');
 
   // Merge (other takes precedence)
   const merged = cap1.merge(cap2);
-  assertEqual(merged.getInSpec(), 'media:enc=utf-8', 'Merge should take inSpec from other');
+  assertEqual(merged.getInSpec(), 'media:enc=utf8', 'Merge should take inSpec from other');
   assertEqual(merged.getOutSpec(), 'media:', 'Merge should take outSpec from other');
   assert(merged.hasMarkerTag('generate'), 'Merge should keep original tags');
   assertEqual(merged.getTag('ext'), 'pdf', 'Merge should add other tags');
@@ -549,7 +550,7 @@ function test026_mergeAndSubset() {
   const sub = merged.subset(['ext']);
   assertEqual(sub.getTag('ext'), 'pdf', 'Subset should keep ext');
   assert(!sub.hasMarkerTag('generate'), 'Subset should drop the generate marker');
-  assertEqual(sub.getInSpec(), 'media:enc=utf-8', 'Subset should preserve inSpec');
+  assertEqual(sub.getInSpec(), 'media:enc=utf8', 'Subset should preserve inSpec');
 }
 
 // TEST27: Test with_wildcard_tag sets tag to wildcard, including in/out
@@ -765,7 +766,7 @@ function test048_matchingSemanticsWildcardDirection() {
   assert(cap.accepts(request), 'a pattern with open sides fits a cap whatever it takes and gives');
   assert(!cap.isEquivalent(request), 'fitting a pattern is not being the same cap');
   assert(!cap.isDispatchable(request), 'media: out guarantees no particular output');
-  const anyOutput = CapUrn.fromString('cap:ext=pdf;generate;in="media:enc=utf-8"');
+  const anyOutput = CapUrn.fromString('cap:ext=pdf;generate;in="media:enc=utf8"');
   assert(cap.accepts(anyOutput), 'and one that asks for no particular output');
 }
 
@@ -941,7 +942,7 @@ function test062_isRecord() {
   assert(MediaUrn.fromString('media:custom;record').isRecord(), 'custom;record should be record');
   assert(MediaUrn.fromString(MEDIA_JSON).isRecord(), 'MEDIA_JSON should be record');
   // Without record marker, is_record is false
-  assert(!MediaUrn.fromString('media:enc=utf-8').isRecord(), 'plain text should not be record');
+  assert(!MediaUrn.fromString('media:enc=utf8').isRecord(), 'plain text should not be record');
   assert(!MediaUrn.fromString(MEDIA_STRING).isRecord(), 'MEDIA_STRING should not be record');
   assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isRecord(), 'MEDIA_STRING_LIST should not be record');
 }
@@ -953,7 +954,7 @@ function test063_isScalar() {
   assert(MediaUrn.fromString(MEDIA_NUMBER).isScalar(), 'MEDIA_NUMBER should be scalar');
   assert(MediaUrn.fromString(MEDIA_BOOLEAN).isScalar(), 'MEDIA_BOOLEAN should be scalar');
   assert(MediaUrn.fromString(MEDIA_OBJECT).isScalar(), 'MEDIA_OBJECT (record but scalar) should be scalar');
-  assert(MediaUrn.fromString('media:enc=utf-8').isScalar(), 'plain text should be scalar');
+  assert(MediaUrn.fromString('media:enc=utf8').isScalar(), 'plain text should be scalar');
   // With list marker, is_scalar is false
   assert(!MediaUrn.fromString(MEDIA_STRING_LIST).isScalar(), 'MEDIA_STRING_LIST should not be scalar');
   assert(!MediaUrn.fromString(MEDIA_OBJECT_LIST).isScalar(), 'MEDIA_OBJECT_LIST should not be scalar');
@@ -973,7 +974,7 @@ function test065_isOpaque() {
   assert(MediaUrn.fromString(MEDIA_STRING).isOpaque(), 'MEDIA_STRING should be opaque');
   assert(MediaUrn.fromString(MEDIA_STRING_LIST).isOpaque(), 'MEDIA_STRING_LIST (list but no record) should be opaque');
   assert(MediaUrn.fromString(MEDIA_PDF).isOpaque(), 'MEDIA_PDF should be opaque');
-  assert(MediaUrn.fromString('media:enc=utf-8').isOpaque(), 'plain text should be opaque');
+  assert(MediaUrn.fromString('media:enc=utf8').isOpaque(), 'plain text should be opaque');
   // With record marker, is_opaque is false
   assert(!MediaUrn.fromString(MEDIA_OBJECT).isOpaque(), 'MEDIA_OBJECT should not be opaque');
   assert(!MediaUrn.fromString(MEDIA_JSON).isOpaque(), 'MEDIA_JSON should not be opaque');
@@ -982,23 +983,45 @@ function test065_isOpaque() {
 // TEST66: Test is_json returns true only when json marker tag is present for JSON representation
 function test066_isJson() {
   assert(MediaUrn.fromString(MEDIA_JSON).isJson(), 'MEDIA_JSON should be json');
-  assert(MediaUrn.fromString('media:custom;fmt=json').isJson(), 'fmt=json should be json');
+  assert(MediaUrn.fromString('media:custom;enc=utf8;fmt=json').isJson(), 'fmt=json should be json');
   // record alone does not mean JSON representation
   assert(!MediaUrn.fromString(MEDIA_OBJECT).isJson(), 'MEDIA_OBJECT should not be json');
-  assert(!MediaUrn.fromString('media:enc=utf-8').isJson(), 'plain text should not be json');
+  assert(!MediaUrn.fromString('media:enc=utf8').isJson(), 'plain text should not be json');
 }
 
-// TEST67: Text-representability is now carried by the orthogonal `enc=` tag (the old `textable` marker and is_text() are gone). A media is "text" iff it declares an encoding. enc is orthogonal to format/numeric, so only media that actually carry enc= are text.
+// TEST67: A media is characters iff it declares an encoding (`enc=`). Every textual value carries it — free text and the textual serializations alike (a JSON record is UTF-8) — while a boolean, a number, an image and the top type do not. Whether text is written to be read is `plain-text`'s to say (TEST1973), never enc's.
 function test067_isText() {
-  // Has enc= → text-representable
+  // Has enc= → characters
   assert(MediaUrn.fromString(MEDIA_STRING).getTag('enc') !== undefined, 'MEDIA_STRING should have enc');
-  // No enc= → not text-representable
+  assertEqual(MediaUrn.fromString(MEDIA_JSON).getTag('enc'), 'utf8', 'a JSON record is UTF-8');
+  // No enc= → not characters
   assert(MediaUrn.fromString(MEDIA_BOOLEAN).getTag('enc') === undefined, 'MEDIA_BOOLEAN is its own kind, not text');
   assert(MediaUrn.fromString(MEDIA_INTEGER).getTag('enc') === undefined, 'MEDIA_INTEGER should not have enc');
-  assert(MediaUrn.fromString(MEDIA_JSON).getTag('enc') === undefined, 'MEDIA_JSON should not have enc');
   assert(MediaUrn.fromString(MEDIA_IDENTITY).getTag('enc') === undefined, 'MEDIA_IDENTITY should not have enc');
   assert(MediaUrn.fromString(MEDIA_PNG).getTag('enc') === undefined, 'MEDIA_PNG should not have enc');
   assert(MediaUrn.fromString(MEDIA_OBJECT).getTag('enc') === undefined, 'MEDIA_OBJECT should not have enc');
+}
+
+// TEST1973: Plain text is UTF-8 text written to be read. Every prose file type and the kinds of plain text conform to MEDIA_PLAIN_TEXT; a bare UTF-8 string, markup and serialized data do not. Every textual value — plain text and the textual serializations alike — is a UTF-8 string and conforms to MEDIA_STRING.
+function test1973_plainTextAndUtf8Strings() {
+  const plain = MediaUrn.fromString(MEDIA_PLAIN_TEXT);
+  const string = MediaUrn.fromString(MEDIA_STRING);
+  for (const urn of [
+    MEDIA_TXT, MEDIA_MD, MEDIA_RST, MEDIA_LOG, MEDIA_TEXTABLE_PAGE,
+    'media:digitized;enc=utf8;ext=txt;plain-text',
+    'media:enc=utf8;ext=txt;image-description;plain-text',
+  ]) {
+    assert(MediaUrn.fromString(urn).conformsTo(plain), `${urn} is plain text`);
+  }
+  for (const urn of [MEDIA_STRING, MEDIA_HTML, MEDIA_JSON, MEDIA_YAML, MEDIA_CSV, 'media:code;enc=utf8;python']) {
+    assert(!MediaUrn.fromString(urn).conformsTo(plain), `${urn} is not plain text`);
+  }
+  for (const urn of [MEDIA_PLAIN_TEXT, MEDIA_TXT, MEDIA_HTML, MEDIA_JSON, MEDIA_JSON_LIST, MEDIA_YAML, MEDIA_CSV]) {
+    assert(MediaUrn.fromString(urn).conformsTo(string), `${urn} is a UTF-8 string`);
+  }
+  for (const urn of [MEDIA_BOOLEAN, MEDIA_INTEGER, MEDIA_PNG, MEDIA_OBJECT]) {
+    assert(!MediaUrn.fromString(urn).conformsTo(string), `${urn} is not characters`);
+  }
 }
 
 // TEST68: Test is_void returns true when void flag or type=void tag is present
@@ -1046,8 +1069,8 @@ function test074_mediaUrnMatching() {
   assert(pdfUrn.conformsTo(pdfPattern), 'MEDIA_PDF should conform to media:document;ext=pdf');
 
   const mdUrn = MediaUrn.fromString(MEDIA_MD);
-  const mdPattern = MediaUrn.fromString('media:ext=md');
-  assert(mdUrn.conformsTo(mdPattern), 'MEDIA_MD should conform to media:ext=md');
+  const mdPattern = MediaUrn.fromString('media:ext=md;plain-text');
+  assert(mdUrn.conformsTo(mdPattern), 'MEDIA_MD should conform to media:ext=md;plain-text');
 
   // Same URN conforms to itself
   assert(pdfUrn.conformsTo(pdfUrn), 'Same URN should conform to itself');
@@ -1347,7 +1370,7 @@ function test150_capManifestJsonSerialization() {
   const cap = new Cap(capUrn, 'Extract Metadata', ['extract-metadata']);
   cap.addArg(new CapArg('media:document;ext=pdf', 'document', true, [new ArgSource({ stdin: 'media:document;ext=pdf' })]));
   cap.addArg(new CapArg(
-    'media:chunk-size;enc=utf-8;numeric', 'chunk-size',
+    'media:chunk-size;enc=utf8;numeric', 'chunk-size',
     false,
     [new ArgSource({ cli_flag: '--chunk-size' })],
     {
@@ -1443,34 +1466,34 @@ function test597_capArgWithFullDefinition() {
 // registry name we passed. This is exactly the shape the renderer depends on.
 function test6206_CapFabAddCapPopulatesEdgesAndNodes() {
   const graph = new CapFab();
-  const cap = makeGraphCap('media:document;ext=pdf', 'media:enc=utf-8', 'PDF to Text');
+  const cap = makeGraphCap('media:document;ext=pdf', 'media:enc=utf8', 'PDF to Text');
   graph.addCap(cap, 'registry');
 
   const edges = graph.getEdges();
   assertEqual(edges.length, 1, 'Graph must have one edge after a single addCap');
   assertEqual(edges[0].fromUrn, 'media:document;ext=pdf', 'Edge fromUrn must be cap in_spec');
-  assertEqual(edges[0].toUrn, 'media:enc=utf-8', 'Edge toUrn must be cap out_spec');
+  assertEqual(edges[0].toUrn, 'media:enc=utf8', 'Edge toUrn must be cap out_spec');
   assertEqual(edges[0].registryName, 'registry', 'Edge must carry the registry name passed to addCap');
 
   const nodes = graph.getNodes();
   assert(nodes.has('media:document;ext=pdf'), 'from_spec must appear as a node');
-  assert(nodes.has('media:enc=utf-8'), 'to_spec must appear as a node');
+  assert(nodes.has('media:enc=utf8'), 'to_spec must appear as a node');
 }
 
 // getOutgoing takes a concrete source URN and returns edges whose from_spec
 // the source conforms to. It must NOT be a plain string lookup.
 function test6208_CapFabGetOutgoingConformsToMatching() {
   const graph = new CapFab();
-  graph.addCap(makeGraphCap('media:enc=utf-8', 'media:embedding-vector', 'Embed text'), 'registry');
+  graph.addCap(makeGraphCap('media:enc=utf8', 'media:embedding-vector', 'Embed text'), 'registry');
 
-  // 'media:enc=utf-8;ext=txt' conforms to 'media:enc=utf-8' — renderer relies on
+  // 'media:enc=utf8;ext=txt;plain-text' conforms to 'media:enc=utf8' — renderer relies on
   // this for the browse-mode fan-out from specific source URNs to caps that
   // accept a broader media pattern.
-  const outgoingFromSpecific = graph.getOutgoing('media:enc=utf-8;ext=txt');
+  const outgoingFromSpecific = graph.getOutgoing('media:enc=utf8;ext=txt;plain-text');
   assertEqual(outgoingFromSpecific.length, 1, 'Specific URN must match broader cap input');
 
   // The broad URN still matches its own edge.
-  const outgoingFromBroad = graph.getOutgoing('media:enc=utf-8');
+  const outgoingFromBroad = graph.getOutgoing('media:enc=utf8');
   assertEqual(outgoingFromBroad.length, 1, 'Exact URN must match');
 
   // A totally unrelated URN must not match.
@@ -1482,8 +1505,8 @@ function test6208_CapFabGetOutgoingConformsToMatching() {
 // the renderer colours/groups edges by provenance in browse mode.
 function test6224_CapFabDistinctRegistryNames() {
   const graph = new CapFab();
-  graph.addCap(makeGraphCap('media:document;ext=pdf', 'media:enc=utf-8', 'PDF to Text'), 'bundled-cartridges');
-  graph.addCap(makeGraphCap('media:enc=utf-8', 'media:embedding-vector', 'Embed'), 'cartridges');
+  graph.addCap(makeGraphCap('media:document;ext=pdf', 'media:enc=utf8', 'PDF to Text'), 'bundled-cartridges');
+  graph.addCap(makeGraphCap('media:enc=utf8', 'media:embedding-vector', 'Embed'), 'cartridges');
 
   const edges = graph.getEdges();
   assertEqual(edges.length, 2, 'Two caps must produce two edges');
@@ -1549,15 +1572,15 @@ function test159_stdinSourceWithBinaryContent() {
 
 // TEST274: Test CapArgumentValue::new stores media_urn and raw byte value
 function test274_capArgumentValueNew() {
-  const arg = new CapArgumentValue('media:enc=utf-8;model-spec', new Uint8Array([103, 112, 116, 45, 52]));
-  assertEqual(arg.mediaUrn, 'media:enc=utf-8;model-spec', 'mediaUrn must match');
+  const arg = new CapArgumentValue('media:enc=utf8;model-spec', new Uint8Array([103, 112, 116, 45, 52]));
+  assertEqual(arg.mediaUrn, 'media:enc=utf8;model-spec', 'mediaUrn must match');
   assertEqual(arg.value.length, 5, 'value must have 5 bytes');
 }
 
 // TEST275: Test CapArgumentValue::from_str converts string to UTF-8 bytes
 function test275_capArgumentValueFromStr() {
-  const arg = CapArgumentValue.fromStr('media:enc=utf-8;string', 'hello world');
-  assertEqual(arg.mediaUrn, 'media:enc=utf-8;string', 'mediaUrn must match');
+  const arg = CapArgumentValue.fromStr('media:enc=utf8;string', 'hello world');
+  assertEqual(arg.mediaUrn, 'media:enc=utf8;string', 'mediaUrn must match');
   assertEqual(new TextDecoder().decode(arg.value), 'hello world', 'value must decode correctly');
 }
 
@@ -1616,7 +1639,8 @@ function test283_capArgumentValueLargeBinary() {
 function test304_mediaAvailabilityOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
   assertEqual(urn.getTag('fmt'), 'json', 'model-availability is a JSON record');
-  assertEqual(urn.getTag('enc'), undefined, 'a JSON record is not also text');
+  assertEqual(urn.getTag('enc'), 'utf8', 'a JSON record is UTF-8');
+  assertEqual(urn.getTag('plain-text'), undefined, 'a JSON record is not plain text');
   assertEqual(urn.getTag('record'), '*', 'model-availability must be record');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
@@ -1626,7 +1650,8 @@ function test304_mediaAvailabilityOutputConstant() {
 function test305_mediaPathOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
   assertEqual(urn.getTag('fmt'), 'json', 'model-path is a JSON record');
-  assertEqual(urn.getTag('enc'), undefined, 'a JSON record is not also text');
+  assertEqual(urn.getTag('enc'), 'utf8', 'a JSON record is UTF-8');
+  assertEqual(urn.getTag('plain-text'), undefined, 'a JSON record is not plain text');
   assertEqual(urn.getTag('record'), '*', 'model-path must be record');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
@@ -1677,27 +1702,16 @@ function test309_modelAvailabilityAndPathAreDistinct() {
   assert(avail.toString() !== path.toString(), 'availability and path must be distinct');
 }
 
-// TEST310: llm_generate_text_urn() produces a valid cap URN with a UTF-8 text input and plain-text terminal output.
+// TEST310: llm_generate_text_urn() produces a valid cap URN with a plain-text input and a `.txt` plain-text output.
 function test310_llmGenerateTextUrn() {
   const urn = llmGenerateTextUrn();
-  assert(urn.hasMarkerTag('generate_text'), 'Must have generate_text marker');
-  assert(urn.getTag('llm') !== undefined, 'Must have llm tag');
-  assert(urn.getTag('ml-model') !== undefined, 'Must have ml-model tag');
-  assert(TaggedUrn.fromString(urn.getInSpec()).conformsTo(TaggedUrn.fromString(MEDIA_STRING)),
-    'in_spec must conform to MEDIA_STRING');
-  assert(TaggedUrn.fromString(urn.getOutSpec()).conformsTo(TaggedUrn.fromString(MEDIA_STRING)),
-    'out_spec must conform to MEDIA_STRING');
-}
-
-// Mirror-specific coverage: llm_generate_text_urn input/output specs conform to MEDIA_STRING
-function test6228_LlmGenerateTextUrnSpecs() {
-  const urn = llmGenerateTextUrn();
-  const inSpec = TaggedUrn.fromString(urn.getInSpec());
-  const expectedIn = TaggedUrn.fromString(MEDIA_STRING);
-  assert(inSpec.conformsTo(expectedIn), 'in_spec must conform to MEDIA_STRING');
-  const outSpec = TaggedUrn.fromString(urn.getOutSpec());
-  const expectedOut = TaggedUrn.fromString(MEDIA_STRING);
-  assert(outSpec.conformsTo(expectedOut), 'out_spec must conform to MEDIA_STRING');
+  assert(urn.hasMarkerTag('generate-text'), 'Must have generate-text marker');
+  assert(urn.hasMarkerTag('llm'), 'Must have llm tag');
+  assert(urn.hasMarkerTag('ml-model'), 'Must have ml-model tag');
+  assert(MediaUrn.fromString(urn.getInSpec()).isEquivalent(MediaUrn.fromString(MEDIA_PLAIN_TEXT)),
+    'in_spec must be MEDIA_PLAIN_TEXT');
+  assert(MediaUrn.fromString(urn.getOutSpec()).isEquivalent(MediaUrn.fromString(MEDIA_TXT)),
+    'out_spec must be MEDIA_TXT');
 }
 
 // TEST312: Test all URN builders produce parseable cap URNs
@@ -1725,7 +1739,7 @@ function test6232_JS_buildExtensionIndex() {
   const mediaDefs = [
     { urn: 'media:document;ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
     { urn: 'media:ext=jpeg;image', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] },
-    { urn: 'media:fmt=json', media_type: 'application/json', extensions: ['json'] }
+    { urn: 'media:enc=utf8;fmt=json', media_type: 'application/json', extensions: ['json'] }
   ];
   const index = buildExtensionIndex(mediaDefs);
   assert(index instanceof Map, 'Should return a Map');
@@ -1741,8 +1755,8 @@ function test6232_JS_buildExtensionIndex() {
 function test6236_JS_mediaUrnsForExtension() {
   const mediaDefs = [
     { urn: 'media:document;ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
-    { urn: 'media:fmt=json;record', media_type: 'application/json', extensions: ['json'] },
-    { urn: 'media:fmt=json;list', media_type: 'application/json', extensions: ['json'] }
+    { urn: 'media:enc=utf8;fmt=json;record', media_type: 'application/json', extensions: ['json'] },
+    { urn: 'media:enc=utf8;fmt=json;list', media_type: 'application/json', extensions: ['json'] }
   ];
 
   const pdfUrns = mediaUrnsForExtension('pdf', mediaDefs);
@@ -1863,7 +1877,7 @@ function test6257_JS_mediaDefDocumentationPropagatesThroughResolve() {
   const body = '## Markdown body\n\nWith `code` and a [link](https://example.com).';
   const mediaDefs = [
     {
-      urn: 'media:doc-test;enc=utf-8',
+      urn: 'media:doc-test;enc=utf8',
       media_type: 'text/plain',
       title: 'Documented',
       description: 'short desc',
@@ -1871,20 +1885,20 @@ function test6257_JS_mediaDefDocumentationPropagatesThroughResolve() {
     }
   ];
 
-  const resolved = resolveMediaUrn('media:doc-test;enc=utf-8', mediaDefs);
+  const resolved = resolveMediaUrn('media:doc-test;enc=utf8', mediaDefs);
   assertEqual(resolved.documentation, body, 'documentation must propagate into MediaDef');
   // The short description must remain distinct from the long markdown
   // body — they are different fields with different semantics.
   assertEqual(resolved.description, 'short desc', 'description must remain distinct from documentation');
 
   // Missing documentation must collapse to null, not '' or undefined.
-  const noDoc = resolveMediaUrn('media:doc-test;enc=utf-8', [
-    { urn: 'media:doc-test;enc=utf-8', media_type: 'text/plain', title: 'No Doc' }
+  const noDoc = resolveMediaUrn('media:doc-test;enc=utf8', [
+    { urn: 'media:doc-test;enc=utf8', media_type: 'text/plain', title: 'No Doc' }
   ]);
   assertEqual(noDoc.documentation, null, 'Missing documentation must resolve to null');
 
-  const emptyDoc = resolveMediaUrn('media:doc-test;enc=utf-8', [
-    { urn: 'media:doc-test;enc=utf-8', media_type: 'text/plain', title: 'Empty', documentation: '' }
+  const emptyDoc = resolveMediaUrn('media:doc-test;enc=utf8', [
+    { urn: 'media:doc-test;enc=utf8', media_type: 'text/plain', title: 'Empty', documentation: '' }
   ]);
   assertEqual(emptyDoc.documentation, null, 'Empty documentation string must collapse to null');
 }
@@ -1949,12 +1963,12 @@ const sampleRegistry = {
           adapter_urns: ['media:document;ext=pdf'],
           caps: [
             {
-              urn: 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"',
+              urn: 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf8;list"',
               title: 'Disbind PDF',
               description: 'Extract pages'
             },
             {
-              urn: 'cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"',
+              urn: 'cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf8;file-metadata;record"',
               title: 'Extract Metadata',
               description: 'Get PDF metadata'
             }
@@ -1991,10 +2005,10 @@ const sampleRegistry = {
       cap_groups: [
         {
           name: 'text-processing',
-          adapter_urns: ['media:enc=utf-8;ext=txt'],
+          adapter_urns: ['media:enc=utf8;ext=txt;plain-text'],
           caps: [
             {
-              urn: 'cap:in="media:enc=utf-8;ext=txt";disbind;out="media:disbound-page;enc=utf-8;list"',
+              urn: 'cap:in="media:enc=utf8;ext=txt;plain-text";disbind;out="media:disbound-page;enc=utf8;list"',
               title: 'Disbind Text',
               description: 'Extract text pages'
             }
@@ -2036,7 +2050,7 @@ const sampleRegistry = {
             adapter_urns: ['media:json'],
             caps: [
               {
-                urn: 'cap:in="media:json";pretty;out="media:fmt=json"',
+                urn: 'cap:in="media:json";pretty;out="media:enc=utf8;fmt=json"',
                 title: 'Pretty Print JSON',
                 description: 'Format JSON',
                 command: 'pretty'
@@ -2319,13 +2333,13 @@ function test328_cartridgeRepoServerGetByCategory() {
 function test329_cartridgeRepoServerGetByCap() {
   const server = new CartridgeRepoServer(sampleRegistry);
 
-  const disbindCap = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"';
+  const disbindCap = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf8;list"';
   const cartridges = server.getCartridgesByCap(disbindCap);
 
   assert(cartridges.length === 1, 'Should find 1 cartridge with this cap');
   assert(cartridges[0].id === 'pdfcartridge', 'Should be pdfcartridge');
 
-  const metadataCap = 'cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf-8;file-metadata;record"';
+  const metadataCap = 'cap:in="media:document;ext=pdf";extract-metadata;out="media:enc=utf8;file-metadata;record"';
   const metadataCartridges = server.getCartridgesByCap(metadataCap);
   assert(metadataCartridges.length === 1, 'Should find metadata cap');
 }
@@ -2368,7 +2382,7 @@ function test331_cartridgeRepoClientGetSuggestions() {
 
   client.updateCache('https://example.com/api/cartridges', cartridges);
 
-  const disbindCap = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"';
+  const disbindCap = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf8;list"';
   const suggestions = client.getSuggestionsForCap(disbindCap);
 
   assert(suggestions.length === 1, 'Should find 1 suggestion');
@@ -2383,7 +2397,7 @@ function test331_cartridgeRepoClientGetSuggestions() {
   assert(suggestions[0].capTitle === 'Disbind PDF', 'Should have cap title');
 
   // Nightly cap should also surface a suggestion, with channel set to nightly.
-  const prettyCap = 'cap:in="media:json";pretty;out="media:fmt=json"';
+  const prettyCap = 'cap:in="media:json";pretty;out="media:enc=utf8;fmt=json"';
   const nightlySuggestions = client.getSuggestionsForCap(prettyCap);
   assert(nightlySuggestions.length === 1, 'Should find nightly cap suggestion');
   assert(nightlySuggestions[0].channel === 'nightly', 'Should report nightly channel');
@@ -2489,7 +2503,7 @@ function test335_cartridgeRepoServerClientIntegration() {
   assert(cartridge.buildForPlatform('darwin-arm64') !== null, 'Cartridge should have darwin-arm64 build');
 
   // Client can get suggestions
-  const capUrn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf-8;list"';
+  const capUrn = 'cap:in="media:document;ext=pdf";disbind;out="media:disbound-page;enc=utf8;list"';
   const suggestions = client.getSuggestionsForCap(capUrn);
   assert(suggestions.length === 1, 'Should get suggestions');
   assert(suggestions[0].cartridgeId === 'pdfcartridge', 'Should suggest correct cartridge');
@@ -3248,7 +3262,7 @@ function test560_withInOutSpec() {
   // Chain both
   const changedBoth = cap.withInSpec('media:document;ext=pdf').withOutSpec(MEDIA_TXT);
   assertEqual(changedBoth.getInSpec(), 'media:document;ext=pdf', 'Chain should set inSpec');
-  assertEqual(changedBoth.getOutSpec(), 'media:enc=utf-8;ext=txt', 'Chain should set outSpec');
+  assertEqual(changedBoth.getOutSpec(), 'media:enc=utf8;ext=txt;plain-text', 'Chain should set outSpec');
 
   const identity = CapUrn.fromString('cap:effect=none');
   assertThrows(
@@ -3464,14 +3478,14 @@ function capWithArgs(urn, args) {
 }
 
 const VOID_CAP = 'cap:in="media:void";test;out="media:void"';
-const TEXT_CAP = 'cap:in="media:enc=utf-8";test;out="media:void"';
+const TEXT_CAP = 'cap:in="media:enc=utf8";test;out="media:void"';
 const flagArg = (urn, name, flag) => new CapArg(urn, name, false, [new ArgSource({ cli_flag: flag })]);
 const stdinArg = (urn, name, stdin) => new CapArg(urn, name, true, [new ArgSource({ stdin })]);
 
 // TEST580: RULE3 - two args that declare a stdin source are rejected
 function test580_rule3TwoStdinArgsRejected() {
   const err = capIssue(() => validateCapArgs(capWithArgs(TEXT_CAP, [
-    stdinArg(MEDIA_STRING, 'input', 'media:enc=utf-8'),
+    stdinArg(MEDIA_STRING, 'input', 'media:enc=utf8'),
     stdinArg(MEDIA_INTEGER, 'other', 'media:'),
   ])));
   assert(err.includes('RULE3'), 'Error should mention RULE3: ' + err);
@@ -3486,19 +3500,19 @@ function test580_rule3TwoStdinArgsRejected() {
 // that both claim it leave nothing to say which of them a piped value is.
 function test581_rule3IdenticalStdinUrnsAreStillTwoMainInputs() {
   const err = capIssue(() => validateCapArgs(capWithArgs(TEXT_CAP, [
-    stdinArg(MEDIA_STRING, 'input', 'media:enc=utf-8'),
-    stdinArg(MEDIA_INTEGER, 'other', 'media:enc=utf-8'),
+    stdinArg(MEDIA_STRING, 'input', 'media:enc=utf8'),
+    stdinArg(MEDIA_INTEGER, 'other', 'media:enc=utf8'),
   ])));
   assert(err.includes('RULE3'), 'Error should mention RULE3: ' + err);
   // One is the main input; a cap of one is fine.
-  validateCapArgs(capWithArgs(TEXT_CAP, [stdinArg(MEDIA_STRING, 'input', 'media:enc=utf-8')]));
+  validateCapArgs(capWithArgs(TEXT_CAP, [stdinArg(MEDIA_STRING, 'input', 'media:enc=utf8')]));
 }
 
 // TEST12705: RULE15 - the stdin argument's URN is the cap's `in=`, as a
 // tagged URN: the same tags in another order pass, another type does not.
 function test12705_rule15TheStdinArgumentIsTheCapsInput() {
   const capOf = stdin => capWithArgs('cap:in="media:document;ext=pdf";test;out="media:record"', [
-    stdinArg('media:enc=utf-8;file-path', 'document', stdin),
+    stdinArg('media:enc=utf8;file-path', 'document', stdin),
   ]);
   validateCapArgs(capOf('media:document;ext=pdf'));
   validateCapArgs(capOf('media:ext=pdf;document'));  // tag order is not identity
@@ -3536,8 +3550,8 @@ function test12706_rule17ArgumentNames() {
 // TEST12707: RULE18 - an argument says what it accepts in one place; and what
 // it accepts is not what it is delivered under.
 function test12707_rule18AcceptsAndTheTwoUrnsOfAnArgument() {
-  const series = 'media:fmt=json;list;record;time-series';
-  const own = 'media:benchmark;fmt=json;list;record;time-series';
+  const series = 'media:enc=utf8;fmt=json;list;record;time-series';
+  const own = 'media:benchmark;enc=utf8;fmt=json;list;record;time-series';
   const declared = new CapArg(own, 'benchmark', true, [new ArgSource({ cli_flag: '--benchmark' })]);
   const benchmark = declared.accepting(series);
   // It accepts a plain series, and is delivered under its own URN: two args
@@ -3552,7 +3566,7 @@ function test12707_rule18AcceptsAndTheTwoUrnsOfAnArgument() {
   assertEqual(benchmark.toJSON().name, 'benchmark', 'the name is written');
 
   // The main input accepts, and is delivered under, its stdin URN.
-  const main = stdinArg('media:enc=utf-8;file-path', 'path', series);
+  const main = stdinArg('media:enc=utf8;file-path', 'path', series);
   assertEqual(main.acceptedUrn(), series, 'the main input accepts its stdin URN');
   assertEqual(main.streamUrn(), series, 'and is delivered under it');
   // What it is piped is what it accepts, whatever else it says (and saying
@@ -3569,11 +3583,11 @@ function test12707_rule18AcceptsAndTheTwoUrnsOfAnArgument() {
 
   // `accepts` beside a stdin source says it twice.
   const err = capIssue(() => validateCapArgs(capWithArgs(urn, [main.accepting(series)])));
-  assert(err.includes('RULE18') && err.includes('media:enc=utf-8;file-path'), err);
+  assert(err.includes('RULE18') && err.includes('media:enc=utf8;file-path'), err);
 }
 
 function capWithOutputs(outSpec, outputs) {
-  const cap = new Cap(CapUrn.fromString(`cap:in="media:enc=utf-8";test;out="${outSpec}"`), 'Test', ['cmd']);
+  const cap = new Cap(CapUrn.fromString(`cap:in="media:enc=utf8";test;out="${outSpec}"`), 'Test', ['cmd']);
   cap.setOutputs(outputs);
   return cap;
 }
@@ -3581,8 +3595,8 @@ function capWithOutputs(outSpec, outputs) {
 // TEST12708: RULE19, RULE20 - outputs have well-formed, distinct names and
 // distinct media URNs, compared as URNs.
 function test12708_rule19Rule20OutputNamesAndIdentities() {
-  const FIT = 'media:fmt=json;record;regression';
-  const RESIDUALS = 'media:fmt=json;list;record;residual';
+  const FIT = 'media:enc=utf8;fmt=json;record;regression';
+  const RESIDUALS = 'media:enc=utf8;fmt=json;list;record;residual';
   const fit = () => new CapOutput(FIT, 'fit', 'the fit');
   validateCapOutputs(capWithOutputs(FIT, [fit(), new CapOutput(RESIDUALS, 'residuals', '')]));
 
@@ -3594,7 +3608,7 @@ function test12708_rule19Rule20OutputNamesAndIdentities() {
   err = refused([fit(), new CapOutput(RESIDUALS, 'fit', '')]);
   assert(err.includes('RULE19') && err.includes("share the name 'fit'"), err);
   // The same URN with its tags in another order is the same output.
-  err = refused([fit(), new CapOutput('media:regression;record;fmt=json', 'again', '')]);
+  err = refused([fit(), new CapOutput('media:regression;record;fmt=json;enc=utf8', 'again', '')]);
   assert(err.includes('RULE20'), err);
   err = refused([fit(), new CapOutput('not a urn', 'broken', '')]);
   assert(err.includes('RULE20') && err.includes('not a media URN'), err);
@@ -3603,14 +3617,14 @@ function test12708_rule19Rule20OutputNamesAndIdentities() {
 // TEST12709: RULE21 - exactly one output is the main one, the cap's `out=`;
 // a cap whose `out=` is void declares none.
 function test12709_rule21ExactlyOneMainOutput() {
-  const FIT = 'media:fmt=json;record;regression';
+  const FIT = 'media:enc=utf8;fmt=json;record;regression';
   let err = capIssue(() => validateCapOutputs(
-    capWithOutputs(FIT, [new CapOutput('media:fmt=json;list;record;residual', 'residuals', '')])
+    capWithOutputs(FIT, [new CapOutput('media:enc=utf8;fmt=json;list;record;residual', 'residuals', '')])
   ));
   assert(err.includes('RULE21') && err.includes('0 outputs'), err);
   assert(capIssue(() => validateCapOutputs(capWithOutputs(FIT, []))).includes('RULE21'), 'no output at all');
 
-  const one = capWithOutputs(FIT, [new CapOutput('media:regression;fmt=json;record', 'fit', '')]);
+  const one = capWithOutputs(FIT, [new CapOutput('media:regression;fmt=json;record;enc=utf8', 'fit', '')]);
   validateCapOutputs(one);  // the main output is found by URN equivalence
   assertEqual(one.mainOutput().name, 'fit', 'the main output');
   assertEqual(one.outputNamed('fit'), one.mainOutput(), 'and it is the one of that name');
@@ -3618,7 +3632,7 @@ function test12709_rule21ExactlyOneMainOutput() {
   assertEqual(one.outputByUrn('not a urn'), null, 'what is no URN identifies no output');
   // The main output is the one `out=` names, wherever it is declared.
   const second = capWithOutputs(FIT, [
-    new CapOutput('media:fmt=json;list;record;residual', 'residuals', ''),
+    new CapOutput('media:enc=utf8;fmt=json;list;record;residual', 'residuals', ''),
     new CapOutput(FIT, 'fit', ''),
   ]);
   validateCapOutputs(second);
@@ -3628,7 +3642,7 @@ function test12709_rule21ExactlyOneMainOutput() {
   validateCapOutputs(empty);
   assertEqual(empty.mainOutput(), null, 'a void cap has no main output');
   err = capIssue(() => validateCapOutputs(
-    capWithOutputs('media:void', [new CapOutput('media:enc=utf-8', 'text', '')])
+    capWithOutputs('media:void', [new CapOutput('media:enc=utf8', 'text', '')])
   ));
   assert(err.includes('RULE21') && err.includes('media:void'), err);
 }
@@ -3636,12 +3650,12 @@ function test12709_rule21ExactlyOneMainOutput() {
 // TEST12710: RULE22 - only a non-main output of a cap that takes an input
 // may carry that input's type.
 function test12710_rule22WhatAnOutputCarries() {
-  const KEPT = 'media:enc=utf-8;kept';
-  const dropped = new CapOutput('media:enc=utf-8;dropped', 'no', '').asOptional(true).carryingInput();
+  const KEPT = 'media:enc=utf8;kept';
+  const dropped = new CapOutput('media:enc=utf8;dropped', 'no', '').asOptional(true).carryingInput();
   assertEqual(dropped.carries, OUTPUT_CARRIES_INPUT, 'it carries the input');
   assertEqual(dropped.optional, true, 'and stays optional');
   // In the other order too: each keeps what the other declared.
-  const reversed = new CapOutput('media:enc=utf-8;dropped', 'no', '').carryingInput().asOptional(true);
+  const reversed = new CapOutput('media:enc=utf8;dropped', 'no', '').carryingInput().asOptional(true);
   assertEqual(reversed.carries, OUTPUT_CARRIES_INPUT, 'declared optional, it still carries the input');
   assertEqual(reversed.optional, true, 'and is optional');
   validateCapOutputs(capWithOutputs(KEPT, [new CapOutput(KEPT, 'yes', '').asOptional(true), dropped]));
@@ -3664,10 +3678,10 @@ function test12710_rule22WhatAnOutputCarries() {
   ));
   assert(err.includes('RULE22') && err.includes('main output'), err);
 
-  const source = new Cap(CapUrn.fromString('cap:in="media:void";now;out="media:enc=utf-8;stamp"'), 'Now', ['now']);
+  const source = new Cap(CapUrn.fromString('cap:in="media:void";now;out="media:enc=utf8;stamp"'), 'Now', ['now']);
   source.setOutputs([
-    new CapOutput('media:enc=utf-8;stamp', 'stamp', ''),
-    new CapOutput('media:enc=utf-8;echo', 'echo', '').carryingInput(),
+    new CapOutput('media:enc=utf8;stamp', 'stamp', ''),
+    new CapOutput('media:enc=utf8;echo', 'echo', '').carryingInput(),
   ]);
   err = capIssue(() => validateCapOutputs(source));
   assert(err.includes('RULE22') && err.includes('takes none'), err);
@@ -3699,7 +3713,7 @@ function test12711_validateRefusesAnInvalidDefinition() {
 
   // Two arguments under one name.
   const twins = convertCap(true);
-  twins.addArg(flagArg('media:enc=utf-8', 'same', '--a'));
+  twins.addArg(flagArg('media:enc=utf8', 'same', '--a'));
   twins.addArg(flagArg('media:integer', 'same', '--b'));
   assertThrowsMessage(() => withCap(twins).validate(), 'RULE17', 'two arguments under one name');
 
@@ -3720,13 +3734,13 @@ function test12712_advertisedCapGroupsRejectAnInvalidDefinition() {
     name: 'Test', version: '1.0', channel: 'release', registry_url: null, description: 'Test',
     cap_groups: [{ name: 'default', caps: [identity, cap], adapter_urns: [] }],
   });
-  const urn = 'cap:in="media:enc=utf-8";compare;out="media:record"';
+  const urn = 'cap:in="media:enc=utf8";compare;out="media:record"';
   const arg = (media, name, source) => ({ media_urn: media, name, required: true, sources: [source] });
   const output = { media_urn: 'media:record', name: 'result', output_description: 'The result' };
 
   const good = {
     urn, title: 'Compare', aliases: ['compare'],
-    args: [arg('media:enc=utf-8', 'left', { stdin: 'media:enc=utf-8' })],
+    args: [arg('media:enc=utf8', 'left', { stdin: 'media:enc=utf8' })],
     outputs: [output],
   };
   const groups = advertisedCapGroups(manifestJson(good));
@@ -3746,8 +3760,8 @@ function test12712_advertisedCapGroupsRejectAnInvalidDefinition() {
   let text = refused({
     urn, title: 'Compare', aliases: ['compare'],
     args: [
-      arg('media:enc=utf-8', 'left', { stdin: 'media:enc=utf-8' }),
-      arg('media:enc=utf-8;other', 'right', { stdin: 'media:enc=utf-8' }),
+      arg('media:enc=utf8', 'left', { stdin: 'media:enc=utf8' }),
+      arg('media:enc=utf8;other', 'right', { stdin: 'media:enc=utf8' }),
     ],
     outputs: [output],
   });
@@ -3755,7 +3769,7 @@ function test12712_advertisedCapGroupsRejectAnInvalidDefinition() {
   // The output the cap URN states is not declared.
   text = refused({
     urn, title: 'Compare', aliases: ['compare'],
-    args: [arg('media:enc=utf-8', 'left', { stdin: 'media:enc=utf-8' })],
+    args: [arg('media:enc=utf8', 'left', { stdin: 'media:enc=utf8' })],
   });
   assert(text.includes('RULE21'), text);
 }
@@ -3925,13 +3939,13 @@ function test648_wildcardAcceptsSpecific() {
 // is stand in for the request AS A DESCRIPTION — that relation is typed and
 // composes (Legacy.wildcard_input_not_transitive is why the two were never one).
 function test825_dispatchRequestUnconstrainedInput() {
-  const pdfOnly = CapUrn.fromString('cap:in="media:document;ext=pdf";analyze;out="media:enc=utf-8;record"');
-  const acceptsAnything = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf-8;record"');
-  const request = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf-8;record"');
+  const pdfOnly = CapUrn.fromString('cap:in="media:document;ext=pdf";analyze;out="media:enc=utf8;record"');
+  const acceptsAnything = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf8;record"');
+  const request = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf8;record"');
   assert(pdfOnly.isDispatchable(request), 'the request has not said what it sends: a PDF-only candidate serves it');
   assert(acceptsAnything.isDispatchable(request));
   // A request that DOES say what it sends is held to it.
-  const pngRequest = CapUrn.fromString('cap:in="media:ext=png";analyze;out="media:enc=utf-8;record"');
+  const pngRequest = CapUrn.fromString('cap:in="media:ext=png";analyze;out="media:enc=utf8;record"');
   assert(!pdfOnly.isDispatchable(pngRequest));
   assert(acceptsAnything.isDispatchable(pngRequest));
   assert(!pdfOnly.isEquivalent(request), 'serving a request is not being it');
@@ -3944,7 +3958,7 @@ function test825_dispatchRequestUnconstrainedInput() {
 // request spelled that way asked for a cap that takes everything, and found
 // none. The unknown side asks nothing; the stated side is held to.
 function test12368_aQuestionMayLeaveASideUnknown() {
-  const pages = CapUrn.fromString('cap:disbind;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt;page"');
+  const pages = CapUrn.fromString('cap:disbind;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;page;plain-text"');
   const toJpeg = CapUrn.fromString('cap:convert-image;in="media:ext=png;image";out="media:ext=jpeg;image"');
   const someImage = CapUrn.fromString('cap:render;in="media:document;ext=pdf";out="media:image"');
   const passesThrough = CapUrn.fromString('cap:decimate-sequence;effect=none');
@@ -4061,7 +4075,7 @@ function test6621_capIdentityConstantWorks() {
 // TEST653: invalid effect=none declarations fail at construction
 function test653_invalidEffectNoneDeclarationRejected() {
   assertThrows(
-    () => CapUrn.fromString('cap:in="media:document;ext=pdf";effect=none;out="media:enc=utf-8"'),
+    () => CapUrn.fromString('cap:in="media:document;ext=pdf";effect=none;out="media:enc=utf8"'),
     ErrorCodes.ILLEGAL_DECLARATION,
     'invalid effect=none declaration must fail at construction'
   );
@@ -4090,7 +4104,7 @@ function test126_effectDeclaredUsesDeclaredOutput() {
 // TEST127: invalid effect=none declarations fail hard
 function test127_invalidEffectNoneFailsHard() {
   assertThrows(
-    () => CapUrn.fromString('cap:in="media:document;ext=pdf";effect=none;out="media:enc=utf-8"'),
+    () => CapUrn.fromString('cap:in="media:document;ext=pdf";effect=none;out="media:enc=utf8"'),
     ErrorCodes.ILLEGAL_DECLARATION,
     'invalid effect=none declaration must fail at construction'
   );
@@ -4107,7 +4121,7 @@ function test8121_effectConformanceDeclaredAsymmetry() {
     'emitting exactly the declared out is conformant'
   );
   assert(
-    cap.isConformantRuntimeOutput(input, MediaUrn.fromString('media:fmt=json;record')),
+    cap.isConformantRuntimeOutput(input, MediaUrn.fromString('media:enc=utf8;fmt=json;record')),
     'a more specific emission than the declared out is conformant'
   );
   assert(
@@ -4187,24 +4201,24 @@ function test128_effectDispatchRequiresExplicitWildcard() {
 // --- CapUrn.isEquivalent/isComparable tests ---
 
 function test6444_Machine_capUrnIsEquivalent() {
-  const a = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
-  const b = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+  const a = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"');
+  const b = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"');
   assert(a.isEquivalent(b), 'Same cap URNs should be equivalent');
-  const c = CapUrn.fromString('cap:in="media:document;ext=pdf";summarize;out="media:enc=utf-8;ext=txt"');
+  const c = CapUrn.fromString('cap:in="media:document;ext=pdf";summarize;out="media:enc=utf8;ext=txt;plain-text"');
   assert(!a.isEquivalent(c), 'Different cap URNs should not be equivalent');
 }
 
 // TEST6446: Machine cap urn is comparable
 function test6446_Machine_capUrnIsComparable() {
-  const general = CapUrn.fromString('cap:in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"');
-  const specific = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+  const general = CapUrn.fromString('cap:in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;plain-text"');
+  const specific = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"');
   assert(general.isComparable(specific), 'General should be comparable to specific');
   assert(specific.isComparable(general), 'isComparable should be symmetric');
 }
 
 // TEST6448: Machine cap urn in media urn
 function test6448_Machine_capUrnInMediaUrn() {
-  const cap = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+  const cap = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"');
   const inUrn = cap.inMediaUrn();
   assert(inUrn instanceof MediaUrn, 'inMediaUrn should return MediaUrn');
   assert(inUrn.isEquivalent(MediaUrn.fromString('media:document;ext=pdf')), 'inMediaUrn should be media:document;ext=pdf');
@@ -4212,10 +4226,10 @@ function test6448_Machine_capUrnInMediaUrn() {
 
 // TEST6449: Machine cap urn out media urn
 function test6449_Machine_capUrnOutMediaUrn() {
-  const cap = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"');
+  const cap = CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"');
   const outUrn = cap.outMediaUrn();
   assert(outUrn instanceof MediaUrn, 'outMediaUrn should return MediaUrn');
-  assert(outUrn.isEquivalent(MediaUrn.fromString('media:enc=utf-8;ext=txt')), 'outMediaUrn should be media:enc=utf-8;ext=txt');
+  assert(outUrn.isEquivalent(MediaUrn.fromString('media:enc=utf8;ext=txt;plain-text')), 'outMediaUrn should be media:enc=utf8;ext=txt;plain-text');
 }
 
 // --- MediaUrn.isEquivalent/isComparable tests ---
@@ -4224,14 +4238,14 @@ function test6450_Machine_mediaUrnIsEquivalent() {
   const a = MediaUrn.fromString('media:document;ext=pdf');
   const b = MediaUrn.fromString('media:document;ext=pdf');
   assert(a.isEquivalent(b), 'Same media URNs should be equivalent');
-  const c = MediaUrn.fromString('media:enc=utf-8;ext=txt');
+  const c = MediaUrn.fromString('media:enc=utf8;ext=txt;plain-text');
   assert(!a.isEquivalent(c), 'Different media URNs should not be equivalent');
 }
 
 // TEST6451: Machine media urn is comparable
 function test6451_Machine_mediaUrnIsComparable() {
-  const general = MediaUrn.fromString('media:enc=utf-8');
-  const specific = MediaUrn.fromString('media:enc=utf-8;ext=txt');
+  const general = MediaUrn.fromString('media:enc=utf8');
+  const specific = MediaUrn.fromString('media:enc=utf8;ext=txt;plain-text');
   assert(general.isComparable(specific), 'General should be comparable to specific');
   assert(specific.isComparable(general), 'isComparable should be symmetric');
   const unrelated = MediaUrn.fromString('media:document;ext=pdf');
@@ -4245,7 +4259,7 @@ function test6451_Machine_mediaUrnIsComparable() {
 
 const REGISTRY = 'https://fabric.example';
 const PDF = 'media:document;ext=pdf';
-const TEXT = 'media:enc=utf-8;ext=txt';
+const TEXT = 'media:enc=utf8;ext=txt;plain-text';
 const PAGES = 'media:integer;max-pages';
 const WHOLE = 'media:integer';
 const COUNT = 'media:integer;page-count';
@@ -4514,7 +4528,7 @@ function test6473_Renderer_cardinalityFromCap_findsStdinArgNotFirstArg() {
   // A naive implementation that reads args[0] would see `cli-only` (not a
   // sequence) and report 1→1 even though the stdin arg is a sequence.
   const cap = {
-    urn: 'cap:in="media:enc=utf-8;list";transcribe;out="media:enc=utf-8"',
+    urn: 'cap:in="media:enc=utf8;list";transcribe;out="media:enc=utf8"',
     args: [
       {
         display_name: 'cli-only',
@@ -4527,7 +4541,7 @@ function test6473_Renderer_cardinalityFromCap_findsStdinArgNotFirstArg() {
         sources: [{ stdin: {} }],
       },
     ],
-    outputs: [{ media_urn: 'media:enc=utf-8', is_sequence: false }],
+    outputs: [{ media_urn: 'media:enc=utf8', is_sequence: false }],
   };
   assertEqual(rendererCardinalityFromCap(cap), 'n\u21921',
     'must pick the arg that has a stdin source, not args[0]');
@@ -4546,19 +4560,19 @@ function test6474_Renderer_cardinalityFromCap_scalarDefaultsWhenFieldsMissing() 
 function test6475_Renderer_cardinalityFromCap_outputOnlySequence() {
   // One scalar stdin arg, output is a sequence: expects 1→n.
   const cap = {
-    urn: 'cap:in="media:enc=utf-8";generate;out="media:enc=utf-8;list"',
+    urn: 'cap:in="media:enc=utf8";generate;out="media:enc=utf8;list"',
     args: [{ sources: [{ stdin: {} }], is_sequence: false }],
     // The main output is the one whose URN is `out=`, wherever it is listed
     // and however its tags are ordered; another output's cardinality is not
     // the cap's.
     outputs: [
-      { media_urn: 'media:enc=utf-8;rest', is_sequence: false },
-      { media_urn: 'media:list;enc=utf-8', is_sequence: true },
+      { media_urn: 'media:enc=utf8;rest', is_sequence: false },
+      { media_urn: 'media:list;enc=utf8', is_sequence: true },
     ],
   };
   const otherIsTheSequence = { ...cap, outputs: [
-    { media_urn: 'media:enc=utf-8;rest', is_sequence: true },
-    { media_urn: 'media:list;enc=utf-8', is_sequence: false },
+    { media_urn: 'media:enc=utf8;rest', is_sequence: true },
+    { media_urn: 'media:list;enc=utf8', is_sequence: false },
   ] };
   assertEqual(rendererCardinalityFromCap(otherIsTheSequence), '1→1',
     'a sequence on another output is not the main output\'s cardinality');
@@ -4656,8 +4670,8 @@ function test12872_Renderer_browsePathIsAMachine() {
     outputs: [{ media_urn: output, name: 'output', output_description: title }],
   });
   const pdf = 'media:document;ext=pdf';
-  const text = 'media:enc=utf-8;ext=txt';
-  const summary = 'media:enc=utf-8;summary';
+  const text = 'media:enc=utf8;ext=txt;plain-text';
+  const summary = 'media:enc=utf8;summary';
   const built = rendererBuildBrowseGraphData([
     record(`cap:in="${pdf}";extract;out="${text}"`, 'Extract', 'extract-pdf', pdf, text, 'PDF', 'Text'),
     record(`cap:in="${text}";summarize;out="${summary}"`, 'Summarize', 'summarize-text', text, summary, 'Text', 'Summary'),
@@ -4683,10 +4697,10 @@ function test6483_Renderer_buildBrowseGraphData_rejectsMissingMediaTitles() {
   try {
     rendererBuildBrowseGraphData([
       {
-        urn: 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
+        urn: 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"',
         title: 'Extract Text',
         in_spec: 'media:document;ext=pdf',
-        out_spec: 'media:enc=utf-8;ext=txt',
+        out_spec: 'media:enc=utf8;ext=txt;plain-text',
         in_media_title: 'PDF',
         out_media_title: '',
       },
@@ -4818,8 +4832,8 @@ function test6487_Renderer_classifyStrandCapSteps_capFlags() {
     makeForEachStep('media:document;ext=pdf;list'),
     makeCapStep('cap:in="media:document;ext=pdf";a;out="media:ext=png;image"', 'a', 'media:document;ext=pdf', 'media:ext=png;image', false, false),
     makeCapStep('cap:in="media:ext=png;image";b;out="media:ext=jpg"', 'b', 'media:ext=png;image', 'media:ext=jpg', false, false),
-    makeCapStep('cap:in="media:ext=jpg";c;out="media:ext=txt"', 'c', 'media:ext=jpg', 'media:ext=txt', false, false),
-    makeCollectStep('media:ext=txt'),
+    makeCapStep('cap:in="media:ext=jpg";c;out="media:ext=txt;plain-text"', 'c', 'media:ext=jpg', 'media:ext=txt;plain-text', false, false),
+    makeCollectStep('media:ext=txt;plain-text'),
   ]);
   const { capStepIndices, capFlags } = rendererClassifyStrandCapSteps(steps);
   assertEqual(capStepIndices.length, 3, 'three cap steps');
@@ -4930,12 +4944,12 @@ function test6492_Renderer_buildStrandGraphData_foreachCollectSpan() {
     target_media_urn: 'media:txt;list',
     steps: wireLinearStepInputs([
       makeForEachStep('media:document;ext=pdf;list'),
-      makeCapStep('cap:in="media:document;ext=pdf";extract;out="media:ext=txt"', 'extract', 'media:document;ext=pdf', 'media:ext=txt', false, false),
-      makeCollectStep('media:ext=txt'),
+      makeCapStep('cap:in="media:document;ext=pdf";extract;out="media:ext=txt;plain-text"', 'extract', 'media:document;ext=pdf', 'media:ext=txt;plain-text', false, false),
+      makeCollectStep('media:ext=txt;plain-text'),
     ]),
   }, {
     'media:document;ext=pdf;list': 'PDF List',
-    'media:ext=txt': 'Plain Text',
+    'media:ext=txt;plain-text': 'Plain Text',
     'media:txt;list': 'Text List',
   });
   const built = rendererBuildStrandGraphData(payload);
@@ -5078,12 +5092,12 @@ function test6496_Renderer_collapseStrand_singleCapBodyKeepsCapOwnLabel() {
     target_media_urn: 'media:txt;list',
     steps: wireLinearStepInputs([
       makeForEachStep('media:document;ext=pdf;list'),
-      makeCapStep('cap:in="media:document;ext=pdf";extract;out="media:ext=txt"', 'extract', 'media:document;ext=pdf', 'media:ext=txt', false, false),
-      makeCollectStep('media:ext=txt'),
+      makeCapStep('cap:in="media:document;ext=pdf";extract;out="media:ext=txt;plain-text"', 'extract', 'media:document;ext=pdf', 'media:ext=txt;plain-text', false, false),
+      makeCollectStep('media:ext=txt;plain-text'),
     ]),
   }, {
     'media:document;ext=pdf;list': 'PDF List',
-    'media:ext=txt': 'Plain Text',
+    'media:ext=txt;plain-text': 'Plain Text',
     'media:txt;list': 'Text List',
   });
   const built = rendererBuildStrandGraphData(payload);
@@ -5530,12 +5544,12 @@ function test6504_Renderer_buildRunGraphData_pagesSuccessesAndFailures() {
   // failures.
   const strand = {
     source_media_urn: 'media:document;ext=pdf;list',
-    target_media_urn: 'media:ext=txt',
+    target_media_urn: 'media:ext=txt;plain-text',
     steps: wireLinearStepInputs([
       makeForEachStep('media:document;ext=pdf;list'),
       makeCapStep('cap:in="media:document;ext=pdf";a;out="media:ext=png;image"', 'a', 'media:document;ext=pdf', 'media:ext=png;image', false, false),
-      makeCapStep('cap:in="media:ext=png;image";b;out="media:ext=txt"', 'b', 'media:ext=png;image', 'media:ext=txt', false, false),
-      makeCollectStep('media:ext=txt'),
+      makeCapStep('cap:in="media:ext=png;image";b;out="media:ext=txt;plain-text"', 'b', 'media:ext=png;image', 'media:ext=txt;plain-text', false, false),
+      makeCollectStep('media:ext=txt;plain-text'),
     ]),
   };
   const outcomes = [];
@@ -5562,7 +5576,7 @@ function test6504_Renderer_buildRunGraphData_pagesSuccessesAndFailures() {
       'media:document;ext=pdf;list': 'PDF List',
       'media:document;ext=pdf': 'PDF',
       'media:ext=png;image': 'PNG',
-      'media:ext=txt': 'Text',
+      'media:ext=txt;plain-text': 'Text',
     },
     body_outcomes: outcomes,
     visible_success_count: 3,
@@ -5598,11 +5612,11 @@ function test6505_Renderer_buildRunGraphData_unattributedFailureStopsAtEntry() {
   // replica emits 1 entry node + 1 body cap node = 2 nodes.
   const strand = {
     source_media_urn: 'media:document;ext=pdf;list',
-    target_media_urn: 'media:ext=txt',
+    target_media_urn: 'media:ext=txt;plain-text',
     steps: wireLinearStepInputs([
       makeForEachStep('media:document;ext=pdf;list'),
-      makeCapStep('cap:in="media:document;ext=pdf";a;out="media:ext=txt"', 'a', 'media:document;ext=pdf', 'media:ext=txt', false, false),
-      makeCollectStep('media:ext=txt'),
+      makeCapStep('cap:in="media:document;ext=pdf";a;out="media:ext=txt;plain-text"', 'a', 'media:document;ext=pdf', 'media:ext=txt;plain-text', false, false),
+      makeCollectStep('media:ext=txt;plain-text'),
     ]),
   };
   const payload = {
@@ -5610,7 +5624,7 @@ function test6505_Renderer_buildRunGraphData_unattributedFailureStopsAtEntry() {
     media_display_names: {
       'media:document;ext=pdf;list': 'PDF List',
       'media:document;ext=pdf': 'PDF',
-      'media:ext=txt': 'Text',
+      'media:ext=txt;plain-text': 'Text',
     },
     body_outcomes: [
       { body_index: 0, foreach_token_id: strand.steps[0].token_id, success: false, cap_urns: [], saved_paths: [], total_bytes: 0, duration_ms: 0, failed_token_id: null, failed_arg_urn: null, error: 'unknown' },
@@ -5891,8 +5905,8 @@ function test6510_Renderer_buildRunGraphData_closedForeachSuccessMergesAtCollect
     target_media_urn: 'media:txt;list',
     steps: wireLinearStepInputs([
       makeForEachStep('media:document;ext=pdf;list'),
-      makeCapStep('cap:in="media:document;ext=pdf";extract;out="media:ext=txt"', 'extract', 'media:document;ext=pdf', 'media:ext=txt', false, false),
-      makeCollectStep('media:ext=txt'),
+      makeCapStep('cap:in="media:document;ext=pdf";extract;out="media:ext=txt;plain-text"', 'extract', 'media:document;ext=pdf', 'media:ext=txt;plain-text', false, false),
+      makeCollectStep('media:ext=txt;plain-text'),
     ]),
   };
   const payload = {
@@ -5900,7 +5914,7 @@ function test6510_Renderer_buildRunGraphData_closedForeachSuccessMergesAtCollect
     media_display_names: {
       'media:document;ext=pdf;list': 'PDF List',
       'media:document;ext=pdf': 'PDF',
-      'media:ext=txt': 'Text',
+      'media:ext=txt;plain-text': 'Text',
       'media:txt;list': 'Text List',
     },
     body_outcomes: [
@@ -6075,10 +6089,10 @@ function payloadEdge(alias, capUrn, title, assignment, outputs, extra = {}) {
   }, extra);
 }
 
-const EXTRACT_PAYLOAD_EDGE = payloadEdge('edge_0', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
+const EXTRACT_PAYLOAD_EDGE = payloadEdge('edge_0', 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"',
   'Extract Text',
   [{ cap_arg_media_urn: 'media:document;ext=pdf', arg_name: 'input', source_node: 'n0' }],
-  [{ output_media_urn: 'media:enc=utf-8;ext=txt', output_name: 'output', node: 'n1' }]);
+  [{ output_media_urn: 'media:enc=utf8;ext=txt;plain-text', output_name: 'output', node: 'n1' }]);
 
 /** The edges of a built machine graph as `source->target:label`. */
 const drawnEdges = built => built.edges.map(e => `${e.data.source}->${e.data.target}:${e.data.label}`);
@@ -6090,13 +6104,13 @@ function test6517_Renderer_buildResolvedMachineGraphData_singleStrandLinearChain
     strands: [{
       nodes: [
         { id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' },
-        { id: 'n1', urn: 'media:enc=utf-8;ext=txt', title: 'Plain Text' },
+        { id: 'n1', urn: 'media:enc=utf8;ext=txt;plain-text', title: 'Plain Text' },
         { id: 'n2', urn: 'media:embedding;record', title: 'Embedding Record' },
       ],
       edges: [
         EXTRACT_PAYLOAD_EDGE,
-        payloadEdge('edge_1', 'cap:in=media:enc=utf-8;embed;out="media:embedding;record"', 'Generate Embedding',
-          [{ cap_arg_media_urn: 'media:enc=utf-8', arg_name: 'text', source_node: 'n1' }],
+        payloadEdge('edge_1', 'cap:in=media:enc=utf8;embed;out="media:embedding;record"', 'Generate Embedding',
+          [{ cap_arg_media_urn: 'media:enc=utf8', arg_name: 'text', source_node: 'n1' }],
           [{ output_media_urn: 'media:embedding;record', output_name: 'embedding', node: 'n2' }]),
       ],
       input_anchor_nodes: ['n0'],
@@ -6124,12 +6138,12 @@ function test6518_Renderer_buildResolvedMachineGraphData_loopEdgeGetsLoopClass()
   const payload = {
     strands: [{
       nodes: [
-        { id: 'n0', urn: 'media:enc=utf-8;page', title: 'Page' },
-        { id: 'n1', urn: 'media:decision;fmt=json;record', title: 'Decision Record' },
+        { id: 'n0', urn: 'media:enc=utf8;page', title: 'Page' },
+        { id: 'n1', urn: 'media:decision;enc=utf8;fmt=json;record', title: 'Decision Record' },
       ],
-      edges: [payloadEdge('edge_0', 'cap:in=media:enc=utf-8;make-decision;out="media:decision;fmt=json;record"', 'Make Decision',
-        [{ cap_arg_media_urn: 'media:enc=utf-8', arg_name: 'page', source_node: 'n0' }],
-        [{ output_media_urn: 'media:decision;fmt=json;record', output_name: 'decision', node: 'n1' }],
+      edges: [payloadEdge('edge_0', 'cap:in=media:enc=utf8;make-decision;out="media:decision;enc=utf8;fmt=json;record"', 'Make Decision',
+        [{ cap_arg_media_urn: 'media:enc=utf8', arg_name: 'page', source_node: 'n0' }],
+        [{ output_media_urn: 'media:decision;enc=utf8;fmt=json;record', output_name: 'decision', node: 'n1' }],
         { is_loop: true, retry: 2, on_error: 'absent' })],
       input_anchor_nodes: ['n0'],
       output_anchor_nodes: ['n1'],
@@ -6153,19 +6167,19 @@ function test6519_Renderer_buildResolvedMachineGraphData_fanInProducesEdgePerAss
     strands: [{
       nodes: [
         { id: 'n0', urn: 'media:ext=png;image', title: 'PNG Image' },
-        { id: 'n1', urn: 'media:enc=utf-8;model-spec', title: 'Model Spec' },
-        { id: 'n2', urn: 'media:enc=utf-8;image-description', title: 'Image Description' },
+        { id: 'n1', urn: 'media:enc=utf8;model-spec', title: 'Model Spec' },
+        { id: 'n2', urn: 'media:enc=utf8;image-description', title: 'Image Description' },
       ],
       edges: [
         payloadEdge('edge_0', 'cap:in=media:void;now;out="media:ext=png;image"', 'Capture', [],
           [{ output_media_urn: 'media:ext=png;image', output_name: 'image', node: 'n0' }]),
-        payloadEdge('edge_1', 'cap:in="media:ext=png;image";describe-image;out="media:enc=utf-8;image-description"', 'Describe Image', [
+        payloadEdge('edge_1', 'cap:in="media:ext=png;image";describe-image;out="media:enc=utf8;image-description"', 'Describe Image', [
           { cap_arg_media_urn: 'media:ext=png;image', arg_name: 'image', source_node: 'n0' },
-          { cap_arg_media_urn: 'media:enc=utf-8;model-spec', arg_name: 'model', source_node: 'n1' },
+          { cap_arg_media_urn: 'media:enc=utf8;model-spec', arg_name: 'model', source_node: 'n1' },
           { cap_arg_media_urn: 'media:integer;max-tokens', arg_name: 'max_tokens', constant: 200 },
-        ], [{ output_media_urn: 'media:enc=utf-8;image-description', output_name: 'description', node: 'n2' }]),
-        payloadEdge('edge_2', 'cap:in="media:enc=utf-8;image-description";publish;out=media:void', 'Publish',
-          [{ cap_arg_media_urn: 'media:enc=utf-8;image-description', arg_name: 'report', source_node: 'n2' }], []),
+        ], [{ output_media_urn: 'media:enc=utf8;image-description', output_name: 'description', node: 'n2' }]),
+        payloadEdge('edge_2', 'cap:in="media:enc=utf8;image-description";publish;out=media:void', 'Publish',
+          [{ cap_arg_media_urn: 'media:enc=utf8;image-description', arg_name: 'report', source_node: 'n2' }], []),
       ],
       input_anchor_nodes: ['n1'],
       output_anchor_nodes: [],
@@ -6192,7 +6206,7 @@ function test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrands
       {
         nodes: [
           { id: 'n0', urn: 'media:document;ext=pdf', title: 'PDF' },
-          { id: 'n1', urn: 'media:enc=utf-8;ext=txt', title: 'Plain Text' },
+          { id: 'n1', urn: 'media:enc=utf8;ext=txt;plain-text', title: 'Plain Text' },
         ],
         edges: [EXTRACT_PAYLOAD_EDGE],
         input_anchor_nodes: ['n0'],
@@ -6200,12 +6214,12 @@ function test6520_Renderer_buildResolvedMachineGraphData_multiStrandKeepsStrands
       },
       {
         nodes: [
-          { id: 'n2', urn: 'media:fmt=json;record', title: 'JSON Record' },
-          { id: 'n3', urn: 'media:fmt=csv;list;record', title: 'CSV Rows' },
+          { id: 'n2', urn: 'media:enc=utf8;fmt=json;record', title: 'JSON Record' },
+          { id: 'n3', urn: 'media:enc=utf8;fmt=csv;list;record', title: 'CSV Rows' },
         ],
-        edges: [payloadEdge('edge_1', 'cap:in="media:fmt=json;record";convert-format;out="media:fmt=csv;list;record"', 'Convert Format',
-          [{ cap_arg_media_urn: 'media:fmt=json;record', arg_name: 'input', source_node: 'n2' }],
-          [{ output_media_urn: 'media:fmt=csv;list;record', output_name: 'output', node: 'n3' }])],
+        edges: [payloadEdge('edge_1', 'cap:in="media:enc=utf8;fmt=json;record";convert-format;out="media:enc=utf8;fmt=csv;list;record"', 'Convert Format',
+          [{ cap_arg_media_urn: 'media:enc=utf8;fmt=json;record', arg_name: 'input', source_node: 'n2' }],
+          [{ output_media_urn: 'media:enc=utf8;fmt=csv;list;record', output_name: 'output', node: 'n3' }])],
         input_anchor_nodes: ['n2'],
         output_anchor_nodes: ['n3'],
       },
@@ -6268,9 +6282,9 @@ function test6522_Renderer_validateResolvedMachinePayload_rejectsMissingFields()
 // constant, two outputs, a step that maps and a policy, written as a render
 // payload and built into a graph.
 function test12839_rendererDrawsTheLibrarysMachinePayload() {
-  const series = 'media:fmt=json;list;record;time-series';
-  const residuals = 'media:fmt=json;list;record;residual';
-  const comparison = 'media:comparison;fmt=json;record';
+  const series = 'media:enc=utf8;fmt=json;list;record;time-series';
+  const residuals = 'media:enc=utf8;fmt=json;list;record;residual';
+  const comparison = 'media:comparison;enc=utf8;fmt=json;record';
   const definitions = new CapDefinitions().addCaps([
     capOf(`cap:in="${series}";compare;out="${comparison}"`, 'Compare', [
       new CapArg(series, 'series', true, [new ArgSource({ stdin: series })]),
@@ -6341,7 +6355,7 @@ function test1801_kindSourceWhenInputIsVoid() {
   const warm = CapUrn.fromString('cap:in=media:void;out="media:model-artifact";warm');
   assertEqual(warm.kind(), CapKind.SOURCE, 'warm cap is a Source');
 
-  const gen = CapUrn.fromString('cap:in=media:void;out="media:enc=utf-8"');
+  const gen = CapUrn.fromString('cap:in=media:void;out="media:enc=utf8"');
   assertEqual(gen.kind(), CapKind.SOURCE, 'in=void with concrete out is a Source');
 }
 
@@ -6350,7 +6364,7 @@ function test1802_kindSinkWhenOutputIsVoid() {
   const discard = CapUrn.fromString('cap:discard;in=media:;out=media:void');
   assertEqual(discard.kind(), CapKind.SINK, 'discard cap is a Sink');
 
-  const log = CapUrn.fromString('cap:in="media:fmt=json";log;out=media:void');
+  const log = CapUrn.fromString('cap:in="media:enc=utf8;fmt=json";log;out=media:void');
   assertEqual(log.kind(), CapKind.SINK, 'log cap is a Sink');
 }
 
@@ -6366,7 +6380,7 @@ function test1803_kindEffectWhenBothSidesVoid() {
 
 // TEST1804: Transform classifier — at least one side non-void, and the cap is not the bare identity. The default kind for ordinary data-processing caps.
 function test1804_kindTransformForNormalDataProcessors() {
-  const extract = CapUrn.fromString('cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8;record"');
+  const extract = CapUrn.fromString('cap:extract;in="media:document;ext=pdf";out="media:enc=utf8;record"');
   assertEqual(extract.kind(), CapKind.TRANSFORM, 'extract is a Transform');
 
   const labeled = CapUrn.fromString('cap:passthrough;in=media:;out=media:');
@@ -6412,13 +6426,13 @@ function test1805_kindInvariantUnderCanonicalSpellings() {
   const cases = [
     { a: 'cap:effect=none', b: 'cap:in=media:;out=media:;effect=none', expected: CapKind.IDENTITY },
     {
-      a: 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8"',
-      b: 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8"',
+      a: 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8"',
+      b: 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8"',
       expected: CapKind.TRANSFORM,
     },
     {
-      a: 'cap:in=media:void;out="media:enc=utf-8";warm',
-      b: 'cap:warm;out="media:enc=utf-8";in=media:void',
+      a: 'cap:in=media:void;out="media:enc=utf8";warm',
+      b: 'cap:warm;out="media:enc=utf8";in=media:void',
       expected: CapKind.SOURCE,
     },
   ];
@@ -6616,7 +6630,7 @@ function test6734_rejectInvalidCombinations() {
 
 // TEST6735: out-axis difference dominates combined in+y differences.
 function test6735_axisWeightingOutDominates() {
-  const bigOut = CapUrn.fromString('cap:in=media:;out="media:enc=utf-8;record"');
+  const bigOut = CapUrn.fromString('cap:in=media:;out="media:enc=utf8;record"');
   const bigInAndY = CapUrn.fromString(
     'cap:in="media:document;ext=pdf";out=media:record;!constrained;?target;extract;stage!=alpha;target2=metadata;ver?=draft'
   );
@@ -6648,7 +6662,7 @@ function test6736_axisWeightingDecodedLayout() {
 
 // TEST6737: Cap with version=0 round-trips with no `version` key on wire
 function test6737_capVersionZeroOmittedOnWire() {
-  const urn = CapUrn.fromString('cap:in="media:void";test-op;out="media:enc=utf-8;record"');
+  const urn = CapUrn.fromString('cap:in="media:void";test-op;out="media:enc=utf8;record"');
   const cap = new Cap(urn, 'Test Cap', ['test-op']);
   // version defaults to 0
   assertEqual(cap.version, 0, 'Default version should be 0');
@@ -6660,7 +6674,7 @@ function test6737_capVersionZeroOmittedOnWire() {
 
 // TEST1848: Cap with version=N round-trips with `version: N` on wire
 function test1848_capVersionNonZeroOnWire() {
-  const urn = CapUrn.fromString('cap:in="media:void";versioned-op;out="media:enc=utf-8;record"');
+  const urn = CapUrn.fromString('cap:in="media:void";versioned-op;out="media:enc=utf8;record"');
   const cap = new Cap(urn, 'Versioned Cap', ['versioned-op']);
   cap.version = 42;
   const json = cap.toJSON();
@@ -6678,7 +6692,7 @@ function test1848_capVersionNonZeroOnWire() {
 // TEST7100: streamUrn() returns the stdin source's URN when it differs from the declared slot media_urn — the stdin URN, not the slot URN, is what the runtime demuxes the arg's input stream by.
 function test7100_streamUrnReturnsStdinSourceUrnWhenItDiffersFromSlotUrn() {
   const arg = new CapArg(
-    'media:enc=utf-8;file-path', 'enc',
+    'media:enc=utf8;file-path', 'enc',
     true,
     [new ArgSource({ stdin: 'media:document;ext=pdf;pdf-stream' })]
   );
@@ -6691,11 +6705,11 @@ function test7100_streamUrnReturnsStdinSourceUrnWhenItDiffersFromSlotUrn() {
 // TEST7101: streamUrn() falls back to the declared slot media_urn when the arg declares no stdin source — a producer-fed arg may be delivered by its declared URN without ever appearing on stdin.
 function test7101_streamUrnFallsBackToDeclaredMediaUrnWithoutStdinSource() {
   const arg = new CapArg(
-    'media:enc=utf-8;system-prompt', 'enc',
+    'media:enc=utf8;system-prompt', 'enc',
     true,
     [new ArgSource({ cli_flag: '--system-prompt' })]
   );
-  assertEqual(arg.streamUrn(), 'media:enc=utf-8;system-prompt',
+  assertEqual(arg.streamUrn(), 'media:enc=utf8;system-prompt',
     'streamUrn must fall back to the declared media_urn');
 }
 
@@ -6703,7 +6717,7 @@ function test7101_streamUrnFallsBackToDeclaredMediaUrnWithoutStdinSource() {
 function test7102_isMainInputTrueOnTagOrderInsensitiveEquivalenceToInSpec() {
   const inSpec = MediaUrn.fromString('media:document;ext=pdf;pdf-stream');
   const arg = new CapArg(
-    'media:enc=utf-8;file-path', 'enc',
+    'media:enc=utf8;file-path', 'enc',
     true,
     [new ArgSource({ stdin: 'media:pdf-stream;document;ext=pdf' })] // same tags, different order
   );
@@ -6734,9 +6748,9 @@ function test7103_isMainInputFalseWithoutEquivalentStdinSource() {
   assert(!positionOnly.isMainInput(inSpec), 'position-only arg is never the main input');
 
   const nonEquivalentStdin = new CapArg(
-    'media:enc=utf-8;system-prompt', 'enc',
+    'media:enc=utf8;system-prompt', 'enc',
     false,
-    [new ArgSource({ stdin: 'media:enc=utf-8;system-prompt' })]
+    [new ArgSource({ stdin: 'media:enc=utf8;system-prompt' })]
   );
   assert(!nonEquivalentStdin.isMainInput(inSpec),
     'stdin URN not equivalent to in= must not be the main input');
@@ -6748,14 +6762,14 @@ function test7104_multiArgCapExactlyOneMainInputAndPartitionOfRest() {
 
   const args = [
     new CapArg(
-      'media:enc=utf-8;file-path', 'enc',
+      'media:enc=utf8;file-path', 'enc',
       true,
       // Main input may ALSO be delivered by cli-flag; stdin is the
       // defining route.
       [new ArgSource({ stdin: 'media:pdf-stream;document;ext=pdf' }), new ArgSource({ cli_flag: '--input' })]
     ),
     new CapArg(
-      'media:enc=utf-8;question', 'enc2',
+      'media:enc=utf8;question', 'enc2',
       true,
       [new ArgSource({ cli_flag: '--question' })]
     ),
@@ -6772,7 +6786,7 @@ function test7104_multiArgCapExactlyOneMainInputAndPartitionOfRest() {
       { default_value: 0.7 }
     ),
     new CapArg(
-      'media:enc=utf-8;system-prompt', 'enc3',
+      'media:enc=utf8;system-prompt', 'enc3',
       false,
       [new ArgSource({ cli_flag: '--system-prompt' })],
       { default_value: 'You are a helpful assistant.' }
@@ -6789,16 +6803,16 @@ function test7104_multiArgCapExactlyOneMainInputAndPartitionOfRest() {
     .map(a => a.media_urn);
 
   assertEqual(JSON.stringify(mainInputs),
-    JSON.stringify(['media:enc=utf-8;file-path']),
+    JSON.stringify(['media:enc=utf8;file-path']),
     'exactly one arg must be the main input');
   assertEqual(JSON.stringify(requiredWithoutDefault),
-    JSON.stringify(['media:enc=utf-8;question']),
+    JSON.stringify(['media:enc=utf8;question']),
     'required-without-default partition');
   assertEqual(JSON.stringify(withDefault),
     JSON.stringify([
       'media:max-tokens;numeric',
       'media:numeric;temperature',
-      'media:enc=utf-8;system-prompt',
+      'media:enc=utf8;system-prompt',
     ]),
     'has-default partition');
 }
@@ -6827,16 +6841,16 @@ function test1880_aliasNameNormalizationRules() {
 
 // TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact.
 function test1881_tokenUrnVsAliasDetection() {
-  assert(tokenIsUrn('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8"'), 'cap URN is a URN');
-  assert(tokenIsUrn('media:fmt=json;record'), 'media URN is a URN');
+  assert(tokenIsUrn('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8"'), 'cap URN is a URN');
+  assert(tokenIsUrn('media:enc=utf8;fmt=json;record'), 'media URN is a URN');
   assert(!tokenIsUrn('pdf2text'), 'bare name is not a URN');
   assert(isAliasToken('pdf2text'), 'bare name is an alias token');
-  assert(!isAliasToken('media:enc=utf-8'), 'media URN is not an alias token');
+  assert(!isAliasToken('media:enc=utf8'), 'media URN is not an alias token');
 }
 
 // TEST1882: alias target classification distinguishes cap from media by prefix and rejects a non-URN target. The typed-boundary enforcement in the registry depends on this.
 function test1882_classifyAliasTargetByPrefix() {
-  assertEqual(classifyAliasTarget('media:fmt=json;record'), ALIAS_TARGET_MEDIA, 'media target');
+  assertEqual(classifyAliasTarget('media:enc=utf8;fmt=json;record'), ALIAS_TARGET_MEDIA, 'media target');
   assertEqual(
     classifyAliasTarget('cap:effect=patch;in="media:image";name;out="media:ext=png;image"'),
     ALIAS_TARGET_CAP, 'cap target');
@@ -6881,24 +6895,24 @@ function test1894_selectDisplayAliasOrdering() {
 // no alias returns null, (4) a non-URN string returns null.
 function test1895_displayAliasForUrn() {
   const registry = new FabricRegistryClient('https://fabric.example', 1);
-  const capTarget = CapUrn.fromString('cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"').toString();
+  const capTarget = CapUrn.fromString('cap:coerce;in="media:integer;numeric";out="media:enc=utf8"').toString();
   // Two aliases on the same cap target; "i2s" is shorter than "int2str".
   registry.insertCachedAliasForTest(new StoredAlias('int2str', capTarget, 1));
   registry.insertCachedAliasForTest(new StoredAlias('i2s', capTarget, 1));
   // A media alias too. Stored canonically.
-  const jsonTarget = MediaUrn.fromString('media:fmt=json;record').toString();
+  const jsonTarget = MediaUrn.fromString('media:enc=utf8;fmt=json;record').toString();
   registry.insertCachedAliasForTest(new StoredAlias('json', jsonTarget, 1));
 
   // Canonical query → shortest alias wins.
   assertEqual(
-    registry.displayAliasForUrn('cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"'),
+    registry.displayAliasForUrn('cap:coerce;in="media:integer;numeric";out="media:enc=utf8"'),
     'i2s', 'shortest cap alias wins');
   // NON-canonical query (media tags reordered) must still resolve via
   // canonicalisation.
-  assertEqual(registry.displayAliasForUrn('media:record;fmt=json'), 'json',
+  assertEqual(registry.displayAliasForUrn('media:record;fmt=json;enc=utf8'), 'json',
     'non-canonical media query canonicalises');
   // A real URN with no alias → null.
-  assertEqual(registry.displayAliasForUrn('media:document;enc=utf-8;ext=pdf'), null, 'no alias → null');
+  assertEqual(registry.displayAliasForUrn('media:document;enc=utf8;ext=pdf'), null, 'no alias → null');
   // A non-URN (no cap:/media: prefix) → null, never a throw.
   assertEqual(registry.displayAliasForUrn('int2str'), null, 'non-URN → null');
 }
@@ -6908,9 +6922,9 @@ function test1895_displayAliasForUrn() {
 // registered-alias completions.
 function test1896_cachedCapAliasesFiltersToCapTargets() {
   const registry = new FabricRegistryClient('https://fabric.example', 1);
-  const capTarget = CapUrn.fromString('cap:coerce;in="media:integer;numeric";out="media:enc=utf-8"').toString();
+  const capTarget = CapUrn.fromString('cap:coerce;in="media:integer;numeric";out="media:enc=utf8"').toString();
   registry.insertCachedAliasForTest(new StoredAlias('int2str', capTarget, 1));
-  registry.insertCachedAliasForTest(new StoredAlias('json', MediaUrn.fromString('media:fmt=json;record').toString(), 1));
+  registry.insertCachedAliasForTest(new StoredAlias('json', MediaUrn.fromString('media:enc=utf8;fmt=json;record').toString(), 1));
   const capAliases = registry.cachedCapAliases();
   assertEqual(capAliases.length, 1, 'only the cap alias is returned');
   assertEqual(capAliases[0][0], 'int2str', 'pair name');
@@ -6995,7 +7009,7 @@ async function test1968_aDimObjectIsTheDimAndVersionAskedFor() {
 // dim named twice. A cartridge re-serializes the caps it declares, so a
 // dropped `dims` would leave its copy without them.
 function test1969_capDimsRoundTripInOrderAndRefuseWhatTheyCannotHold() {
-  const json = '{"urn":"cap:ask;constrained;in=\\"media:enc=utf-8\\";language=en;out=\\"media:enc=utf-8\\"","version":3,"title":"Ask","aliases":["ask-en"],"documentation":"Only about asking.","dims":[{"dim":"constrained","value":"constrained"},{"dim":"language","value":"en"}]}';
+  const json = '{"urn":"cap:ask;constrained;in=\\"media:enc=utf8\\";language=en;out=\\"media:enc=utf8\\"","version":3,"title":"Ask","aliases":["ask-en"],"documentation":"Only about asking.","dims":[{"dim":"constrained","value":"constrained"},{"dim":"language","value":"en"}]}';
   const expected = '[{"dim":"constrained","value":"constrained"},{"dim":"language","value":"en"}]';
   const cap = Cap.fromJSON(JSON.parse(json));
   assert(cap.dims.every(d => d instanceof DimRef), 'dim references');
@@ -7163,7 +7177,7 @@ function test1514_installSourceVocabularyTolerance() {
 function test1450_planRequestDefaults() {
   const request = new plannerNS.PlanRequest({
     sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
-    exactTargets: ['media:enc=utf-8;ext=txt'],
+    exactTargets: ['media:enc=utf8;ext=txt;plain-text'],
   });
   assertEqual(request.isConfigured, false, 'defaults are not configured');
   const wire = request.toProtoJSON();
@@ -7182,19 +7196,19 @@ function test1450_planRequestDefaults() {
 function test1451_planRequestKnobValidation() {
   assertThrowsPlanState(() => new plannerNS.PlanRequest({
     sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
-    exactTargets: ['media:enc=utf-8;ext=txt'],
+    exactTargets: ['media:enc=utf8;ext=txt;plain-text'],
     convergenceLocation: 'at-depth',
   }), 'at-depth without a depth must throw');
 
   assertThrowsPlanState(() => new plannerNS.PlanRequest({
     sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
-    exactTargets: ['media:enc=utf-8;ext=txt'],
+    exactTargets: ['media:enc=utf8;ext=txt;plain-text'],
     convergenceAtDepth: 2,
   }), 'a depth without at-depth must throw');
 
   const ranked = new plannerNS.PlanRequest({
     sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
-    exactTargets: ['media:enc=utf-8;ext=txt'],
+    exactTargets: ['media:enc=utf8;ext=txt;plain-text'],
     ranking: 'shortest',
   });
   assertEqual(ranked.isConfigured, false, 'ranking alone never configures');
@@ -7202,7 +7216,7 @@ function test1451_planRequestKnobValidation() {
 
   const constrained = new plannerNS.PlanRequest({
     sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
-    exactTargets: ['media:enc=utf-8;ext=txt'],
+    exactTargets: ['media:enc=utf8;ext=txt;plain-text'],
     convergenceMechanism: 'collect',
   });
   assertEqual(constrained.isConfigured, true, 'a mechanism constrains');
@@ -7210,7 +7224,7 @@ function test1451_planRequestKnobValidation() {
 
   assertThrowsPlanState(() => new plannerNS.PlanRequest({
     sources: [],
-    exactTargets: ['media:enc=utf-8;ext=txt'],
+    exactTargets: ['media:enc=utf8;ext=txt;plain-text'],
   }), 'no sources must throw');
   assertThrowsPlanState(() => new plannerNS.PlanRequest({
     sources: [{ mediaUrn: 'media:document;ext=pdf', isSequence: false }],
@@ -7246,7 +7260,7 @@ function test1453_planResponseParsers() {
         notation: '[n0 -> edge_1 -> n1]',
         label: 'Convert each',
         rank: 1,
-        profile: { source_media: ['media:document;ext=pdf'], target_media: ['media:enc=utf-8;ext=txt'], apexes: [], converged: false, diverged: false },
+        profile: { source_media: ['media:document;ext=pdf'], target_media: ['media:enc=utf8;ext=txt;plain-text'], apexes: [], converged: false, diverged: false },
         cost: { cap_steps: 2, total_steps: 2, max_leg_depth: 0, intent_score: 0.5 },
       },
       {
@@ -7254,9 +7268,9 @@ function test1453_planResponseParsers() {
         label: 'Combine via text',
         rank: 0,
         profile: {
-          source_media: ['media:document;ext=pdf', 'media:ext=md'],
-          target_media: ['media:enc=utf-8;ext=txt'],
-          apexes: [{ media_urn: 'media:enc=utf-8;page', mechanism: 2, depth: 1 }],
+          source_media: ['media:document;ext=pdf', 'media:ext=md;plain-text'],
+          target_media: ['media:enc=utf8;ext=txt;plain-text'],
+          apexes: [{ media_urn: 'media:enc=utf8;page', mechanism: 2, depth: 1 }],
           converged: true,
           diverged: false,
         },
@@ -7277,10 +7291,10 @@ function test1453_planResponseParsers() {
   const targets = plannerNS.parseConvergentTargets({
     targets: [
       {
-        media_def: 'media:enc=utf-8;ext=txt',
+        media_def: 'media:enc=utf8;ext=txt;plain-text',
         display_name: 'Plain Text',
         min_total_steps: 3,
-        apex: { media_urn: 'media:enc=utf-8;page', mechanism: 2, depth: 1 },
+        apex: { media_urn: 'media:enc=utf8;page', mechanism: 2, depth: 1 },
         convergent: true,
         file_extension: 'txt',
       },
@@ -7293,7 +7307,7 @@ function test1453_planResponseParsers() {
       },
     ],
   });
-  assertEqual(targets[0].apex.mediaUrn, 'media:enc=utf-8;page', 'apex carried');
+  assertEqual(targets[0].apex.mediaUrn, 'media:enc=utf8;page', 'apex carried');
   assertEqual(targets[1].apex, null, 'independent target has no apex');
   assertThrowsPlanState(
     () => plannerNS.parseConvergentTargets({ targets: [{ display_name: 'no media_def' }] }),
@@ -7377,6 +7391,7 @@ async function runTests() {
   runTest('TEST065: is_opaque', test065_isOpaque);
   runTest('TEST066: is_json', test066_isJson);
   runTest('TEST067: is_text', test067_isText);
+  runTest('TEST1973: plain_text_and_utf8_strings', test1973_plainTextAndUtf8Strings);
   runTest('TEST068: is_void', test068_isVoid);
   console.log('  SKIP TEST069-070: N/A for JS (Rust binary_media_urn_for_ext/text_media_urn_for_ext)');
   runTest('TEST071: to_string_roundtrip', test071_toStringRoundtrip);
@@ -7448,7 +7463,6 @@ async function runTests() {
   runTest('TEST308: model_path_urn', test308_modelPathUrn);
   runTest('TEST309: model_availability_and_path_are_distinct', test309_modelAvailabilityAndPathAreDistinct);
   runTest('TEST310: llm_generate_text_urn', test310_llmGenerateTextUrn);
-  runTest('llm_generate_text_urn_specs', test6228_LlmGenerateTextUrnSpecs);
   runTest('TEST312: all_urn_builders_produce_valid_urns', test312_allUrnBuildersProduceValidUrns);
 
   // JS-specific tests (no Rust number)

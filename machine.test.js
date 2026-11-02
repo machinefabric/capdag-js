@@ -234,7 +234,7 @@ function test12732_theFormsOfAWiring() {
 // keyword where a header puts it.
 function test12734_capHeadersAndMachineHeaders() {
   const statements = parseSyntax(
-    'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8"\n' +
+    'extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf8"\n' +
     'clean machine "lib/clean \\"v2\\".machine"\n' +
     '[machine cap:in=media:;machine;out=media:]\n' +
     'machine -> machine -> machinery');
@@ -242,7 +242,7 @@ function test12734_capHeadersAndMachineHeaders() {
 
   assertEqual(statements[0].kind, SYNTAX_CAP_HEADER, 'a cap header');
   assertEqual(statements[0].alias, 'extract', 'its alias');
-  assertEqual(statements[0].capUrn, 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8"', 'its URN');
+  assertEqual(statements[0].capUrn, 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8"', 'its URN');
 
   assertEqual(statements[1].kind, SYNTAX_MACHINE_HEADER, 'a machine header');
   assertEqual(statements[1].alias, 'clean', 'its alias');
@@ -435,15 +435,15 @@ function test12832_aConstantHasOneText() {
 // sinks, step policy, the URN of a node, and the canonical form.
 // ============================================================================
 
-const SERIES = 'media:fmt=json;list;record;time-series';
-const BENCHMARK = 'media:benchmark;fmt=json;list;record;time-series';
+const SERIES = 'media:enc=utf8;fmt=json;list;record;time-series';
+const BENCHMARK = 'media:benchmark;enc=utf8;fmt=json;list;record;time-series';
 const WINDOW = 'media:integer;window';
-const LABEL = 'media:enc=utf-8;label';
-const TAG = 'media:enc=utf-8;tag';
-const COMPARISON = 'media:comparison;fmt=json;record';
-const RESIDUALS = 'media:fmt=json;list;record;residual';
-const NOTE = 'media:enc=utf-8;note';
-const REFERENCE = 'media:enc=utf-8;series-ref';
+const LABEL = 'media:enc=utf8;label';
+const TAG = 'media:enc=utf8;tag';
+const COMPARISON = 'media:comparison;enc=utf8;fmt=json;record';
+const RESIDUALS = 'media:enc=utf8;fmt=json;list;record;residual';
+const NOTE = 'media:enc=utf8;note';
+const REFERENCE = 'media:enc=utf8;series-ref';
 
 /**
  * A main input and a second arg that accepts the same type, two constants'
@@ -499,12 +499,12 @@ const titledDefinitions = () => notationDefinitions().addMediaDefs(
   [SERIES, BENCHMARK, COMPARISON, RESIDUALS, NOTE, 'media:mean;numeric', 'media:numeric;score'].map(urn => mediaDef(urn)));
 
 const HEADERS =
-  '[compare cap:in="media:fmt=json;list;record;time-series";compare;' +
-  'out="media:comparison;fmt=json;record"]' +
-  '[fetch cap:in=media:void;fetch;out="media:fmt=json;list;record;time-series"]' +
-  '[publish cap:in="media:comparison;fmt=json;record";publish;out=media:void]' +
-  '[mean cap:in="media:fmt=json;list;record;residual";mean;out="media:mean;numeric"]' +
-  '[score cap:in="media:fmt=json;list;record;residual";score;out="media:numeric;score"]';
+  '[compare cap:in="media:enc=utf8;fmt=json;list;record;time-series";compare;' +
+  'out="media:comparison;enc=utf8;fmt=json;record"]' +
+  '[fetch cap:in=media:void;fetch;out="media:enc=utf8;fmt=json;list;record;time-series"]' +
+  '[publish cap:in="media:comparison;enc=utf8;fmt=json;record";publish;out=media:void]' +
+  '[mean cap:in="media:enc=utf8;fmt=json;list;record;residual";mean;out="media:mean;numeric"]' +
+  '[score cap:in="media:enc=utf8;fmt=json;list;record;residual";score;out="media:numeric;score"]';
 
 const machineOf = wirings => parseMachine(HEADERS + wirings, notationDefinitions());
 
@@ -599,8 +599,8 @@ function test12737_aNamedMemberBindsTheArgItNames() {
   const mixUrn = `cap:in="${SERIES}";mix;out="${COMPARISON}"`;
   const withMix = notationDefinitions().addCaps([definition(mixUrn, 'mix', [
     stdinArg(SERIES, 'first'),
-    flagArg('media:second;fmt=json;list;record;time-series', 'second').accepting(SERIES),
-    flagArg('media:third;fmt=json;list;record;time-series', 'third').accepting(SERIES),
+    flagArg('media:second;fmt=json;list;record;time-series;enc=utf8', 'second').accepting(SERIES),
+    flagArg('media:third;fmt=json;list;record;time-series;enc=utf8', 'third').accepting(SERIES),
   ], [outputOf(COMPARISON, 'mixed', 'The mix')])]);
   const mixed = resolutionError(produced + '[(reference="c") -> fetch -> c][(first=c, a, b) -> mix -> result]',
     withMix, HEADERS + '[mix ' + mixUrn + ']');
@@ -970,8 +970,8 @@ function test12867_renderPayloadMarksTheMainInputAndOutput() {
 // is refused, as the notation would be.
 function test12871_aCapPathIsAMachine() {
   const pdf = 'media:document;ext=pdf';
-  const text = 'media:enc=utf-8;ext=txt';
-  const summary = 'media:enc=utf-8;summary';
+  const text = 'media:enc=utf8;ext=txt;plain-text';
+  const summary = 'media:enc=utf8;summary';
   const extract = stdinCap(`cap:in="${pdf}";extract;out="${text}"`, 'extract', pdf, text);
   const summarize = stdinCap(`cap:in="${text}";summarize;out="${summary}"`, 'summarize', text, summary);
   const edge = cap => new CapFabEdge(cap.urn.inSpec, cap.urn.outSpec, cap, 'fabric', 1);
@@ -996,7 +996,7 @@ function test12871_aCapPathIsAMachine() {
 // step that takes that type can be wired to one. Which branch a wiring takes
 // is part of what the machine is, although both hold one type.
 function test12833_aCarriedOutputHoldsTheInputsType() {
-  const verdict = 'media:enc=utf-8;verdict';
+  const verdict = 'media:enc=utf8;verdict';
   const kept = 'media:kept;marker';
   const dropped = 'media:dropped;marker';
   const routeUrn = `cap:in="${SERIES}";route;out="${verdict}"`;
@@ -1063,7 +1063,7 @@ function test12838_urnsAreOrderedByTheirPartsNotTheirText() {
   // before the same tag with one; values in their own order.
   assert(standsBefore('media:file', 'media:file;sample'), 'a beginning');
   assert(standsBefore('media:enc', 'media:enc=ascii'), 'any value first');
-  assert(standsBefore('media:enc=ascii', 'media:enc=utf-8'), 'values in order');
+  assert(standsBefore('media:enc=ascii', 'media:enc=utf8'), 'values in order');
   assertEqual(compareMediaUrns(media('media:sample;file'), media(sample)), 0, 'tag order is no part of it');
 
   const capBefore = (first, second) => compareCapUrns(CapUrn.fromString(first), CapUrn.fromString(second)) < 0;
@@ -1129,13 +1129,13 @@ function refusedMatch(sources, args, argIsSequence) {
 // exists. Three page sources feed a one-arg concat cap whose arg is a sequence
 // — all three land on the same arg, in source-declaration order.
 function test1400_gatherNSourcesIntoSequenceArg() {
-  const sources = [1, 2, 3].map(() => media('media:enc=utf-8;page'));
-  const args = [media('media:enc=utf-8')];
+  const sources = [1, 2, 3].map(() => media('media:enc=utf8;page'));
+  const args = [media('media:enc=utf8')];
   const pairs = matchSourcesToArgs(sources, args, [true], null);
   assertEqual(pairs.length, 3, 'one binding per gathered source');
   for (const [arg, source] of pairs) {
-    assert(arg.isEquivalent(media('media:enc=utf-8')), 'the arg');
-    assert(source.isEquivalent(media('media:enc=utf-8;page')), 'the source');
+    assert(arg.isEquivalent(media('media:enc=utf8')), 'the arg');
+    assert(source.isEquivalent(media('media:enc=utf8;page')), 'the source');
   }
   // The same three with an arg that takes one value have nowhere to go.
   const failure = refusedMatch(sources, args, [false]);
@@ -1146,22 +1146,22 @@ function test1400_gatherNSourcesIntoSequenceArg() {
 // though gathering everything into the sequence arg is also valid. s1 exactly
 // fits the scalar page arg; s2 only fits the sequence arg.
 function test1401_productPrecedenceOverGather() {
-  const sources = [media('media:enc=utf-8;page'), media('media:enc=utf-8;summary')];
-  const args = [media('media:enc=utf-8;page'), media('media:enc=utf-8')];
+  const sources = [media('media:enc=utf8;page'), media('media:enc=utf8;summary')];
+  const args = [media('media:enc=utf8;page'), media('media:enc=utf8')];
   const pairs = matchSourcesToArgs(sources, args, [false, true], null);
   assertEqual(pairs.length, 2, 'two pairs');
   // The page source must claim the scalar page arg (injection), NOT be
   // gathered into the sequence arg alongside the summary.
   assertEqual(pairs.map(([arg, source]) => [arg.toString(), source.toString()]).sort(), [
-    [canonical('media:enc=utf-8'), canonical('media:enc=utf-8;summary')],
-    [canonical('media:enc=utf-8;page'), canonical('media:enc=utf-8;page')],
+    [canonical('media:enc=utf8'), canonical('media:enc=utf8;summary')],
+    [canonical('media:enc=utf8;page'), canonical('media:enc=utf8;page')],
   ], 'the injection');
 
   // Two pages, a sequence arg that takes pages and a scalar arg that takes any
   // text: each page can take either arg, at one cost — a tie. Gathering both
   // into the sequence arg would be cheaper and unique, and it is not what is
   // asked: a tied product is ambiguous, it does not become a gather.
-  const pages = [media('media:enc=utf-8;page'), media('media:enc=utf-8;page')];
+  const pages = [media('media:enc=utf8;page'), media('media:enc=utf8;page')];
   const failure = refusedMatch(pages, args, [true, false]);
   assert(failure.ambiguous, 'a tie');
   assertEqual(failure.undecided, [[0, [0, 1]], [1, [0, 1]]], 'the undecided sources');
@@ -1173,16 +1173,16 @@ function test1402_gatherAmbiguityAndScalarPigeonholeFailHard() {
   // Two equally-costed sequence args (each drops a different one of the
   // source's tags → the same absolute specificity gap) → every distribution
   // of the three sources ties → ambiguous.
-  const chunk = media('media:chunk;enc=utf-8;page');
-  const args = [media('media:enc=utf-8;page'), media('media:chunk;enc=utf-8')];
+  const chunk = media('media:chunk;enc=utf8;page');
+  const args = [media('media:enc=utf8;page'), media('media:chunk;enc=utf8')];
   const failure = refusedMatch([chunk, chunk, chunk], args, [true, true]);
   assert(failure.ambiguous, 'tied gather distributions must be ambiguous');
   assertEqual(failure.undecided, [[0, [0, 1]], [1, [0, 1]], [2, [0, 1]]], 'the undecided sources');
 }
 
-const URN_A = 'cap:in="media:document;ext=pdf";op-a;out="media:enc=utf-8;page"';
-const URN_B = 'cap:in="media:ext=md";op-b;out="media:enc=utf-8;page"';
-const URN_CONCAT = 'cap:in="media:enc=utf-8";concat;out="media:enc=utf-8;ext=txt"';
+const URN_A = 'cap:in="media:document;ext=pdf";op-a;out="media:enc=utf8;page"';
+const URN_B = 'cap:in="media:ext=md;plain-text";op-b;out="media:enc=utf8;page"';
+const URN_CONCAT = 'cap:in="media:enc=utf8";concat;out="media:enc=utf8;ext=txt;plain-text"';
 
 /** A wiring numbered against a nodes list, with no names and the default policy. */
 const preInterned = (tokenId, capUrn, sourceNodeIds, targets) => ({
@@ -1200,19 +1200,19 @@ const preInterned = (tokenId, capUrn, sourceNodeIds, targets) => ({
  * wired `(page from a, page from b) -> concat`.
  */
 function gatherFixture(firstProducesSequence) {
-  const capA = stdinCap(URN_A, 'op_a', 'media:document;ext=pdf', 'media:enc=utf-8;page');
+  const capA = stdinCap(URN_A, 'op_a', 'media:document;ext=pdf', 'media:enc=utf8;page');
   capA.mainOutput().is_sequence = firstProducesSequence;
-  const capB = stdinCap(URN_B, 'op_b', 'media:ext=md', 'media:enc=utf-8;page');
-  const concat = stdinCap(URN_CONCAT, 'concat', 'media:enc=utf-8', 'media:enc=utf-8;ext=txt');
+  const capB = stdinCap(URN_B, 'op_b', 'media:ext=md;plain-text', 'media:enc=utf8;page');
+  const concat = stdinCap(URN_CONCAT, 'concat', 'media:enc=utf8', 'media:enc=utf8;ext=txt;plain-text');
   concat.args[0].is_sequence = true;
   const definitions = definitionsOf([capA, capB, concat]);
   // nodes: 0=pdf, 1=md, 2=page(from a), 3=page(from b), 4=txt
   const nodes = [
     media('media:document;ext=pdf'),
-    media('media:ext=md'),
-    media('media:enc=utf-8;page'),
-    media('media:enc=utf-8;page'),
-    media('media:enc=utf-8;ext=txt'),
+    media('media:ext=md;plain-text'),
+    media('media:enc=utf8;page'),
+    media('media:enc=utf8;page'),
+    media('media:enc=utf8;ext=txt;plain-text'),
   ];
   return resolvePreInterned(nodes, [
     preInterned('tok-a', URN_A, [0], [2]),
@@ -1243,7 +1243,7 @@ function test1403_resolveGatherEmitsNBindingsOnSequenceArg() {
   assertEqual(strand.outputAnchors().length, 1, 'one output');
   // Anchors come by the URN they hold, not by when their node was made.
   assertEqual(strand.inputAnchors().map(anchor => anchor.toString()),
-    [canonical('media:document;ext=pdf'), canonical('media:ext=md')], 'inputs by URN');
+    [canonical('media:document;ext=pdf'), canonical('media:ext=md;plain-text')], 'inputs by URN');
   assertEqual(strand.inputAnchorIds(), [0, 1], 'their ids');
   // The gather is written as its arg's name once per member, in item order.
   // Nodes are named in the order the canonical walk meets them.
@@ -1903,15 +1903,15 @@ function test12809_inclusionNestsAndAnUntakenOutputIsNotTheWholes() {
     '[(a, benchmark=b, window=20) -> compare -> (c, residuals=r)][r -> score -> ()][c -> publish -> ()]')), 'by hand');
 }
 
-const LOOSE = 'cap:in="media:fmt=json;list;record;time-series";loose;out="media:enc=utf-8"';
-const TIGHT = 'cap:in="media:enc=utf-8;note";tight;out="media:tightened"';
+const LOOSE = 'cap:in="media:enc=utf8;fmt=json;list;record;time-series";loose;out="media:enc=utf8"';
+const TIGHT = 'cap:in="media:enc=utf8;note";tight;out="media:tightened"';
 
 /**
  * The definitions of the tests above, with a step whose output is declared
  * more loosely than the step after it asks for.
  */
 const definitionsWithARefinement = () => notationDefinitions().addCaps([
-  definition(LOOSE, 'loose', [stdinArg(SERIES, 'series')], [outputOf('media:enc=utf-8', 'text', 'Some text')]),
+  definition(LOOSE, 'loose', [stdinArg(SERIES, 'series')], [outputOf('media:enc=utf8', 'text', 'Some text')]),
   definition(TIGHT, 'tight', [stdinArg(NOTE, 'note')], [outputOf('media:tightened', 'tightened', 'Tightened')]),
 ]);
 
@@ -2003,12 +2003,12 @@ function simpleCap(capUrn, stdinUrn, outUrn, slotUrn = stdinUrn) {
 const match = (sources, args) => matchSourcesToArgs(sources, args, args.map(() => false), null);
 const refusedScalar = (sources, args) => refusedMatch(sources, args, args.map(() => false));
 
-const URN_EXTRACT = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"';
-const URN_EMBED = 'cap:embed;in="media:enc=utf-8";out="media:vec;record"';
+const URN_EXTRACT = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;plain-text"';
+const URN_EMBED = 'cap:embed;in="media:enc=utf8";out="media:vec;record"';
 
 const extractEmbedDefinitions = () => definitionsOf([
-  simpleCap(URN_EXTRACT, 'media:document;ext=pdf', 'media:enc=utf-8;ext=txt'),
-  simpleCap(URN_EMBED, 'media:enc=utf-8', 'media:vec;record'),
+  simpleCap(URN_EXTRACT, 'media:document;ext=pdf', 'media:enc=utf8;ext=txt;plain-text'),
+  simpleCap(URN_EMBED, 'media:enc=utf8', 'media:vec;record'),
 ]);
 
 const EXTRACT_EMBED = `[extract ${URN_EXTRACT}][embed ${URN_EMBED}][doc -> extract -> txt][txt -> embed -> vec]`;
@@ -2021,8 +2021,8 @@ function test1188_resolveStrandNoCapStepsFailsHard() {
 
 // TEST1187: Strand resolution fails when a referenced cap is not among the definitions.
 function test1187_unknownCapErrorWhenNotInRegistry() {
-  const capUrn = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"';
-  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf-8;ext=txt')];
+  const capUrn = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"';
+  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf8;ext=txt;plain-text')];
   const error = thrown(() => resolvePreInterned(nodes, [preInterned('t', capUrn, [0], [1])], definitionsOf([]), 0), 'unknown cap');
   assert(isAbstraction(error, AE.UNKNOWN_CAP), error.stack);
   assert(error.message.includes('extract'), error.message);
@@ -2038,32 +2038,32 @@ function test6703_matchSourcesToArgsSingleTrivial() {
 
 // TEST1179: Source-to-arg matching assigns a more specific source to a compatible general argument.
 function test1179_matchSourcesMoreSpecificSourceMatchesGeneralArg() {
-  const pairs = match([media('media:enc=utf-8;page')], [media('media:enc=utf-8')]);
+  const pairs = match([media('media:enc=utf8;page')], [media('media:enc=utf8')]);
   assertEqual(pairs.length, 1, 'one pair');
-  assert(pairs[0][0].isEquivalent(media('media:enc=utf-8')), 'the general arg');
-  assert(pairs[0][1].isEquivalent(media('media:enc=utf-8;page')), 'the specific source');
+  assert(pairs[0][0].isEquivalent(media('media:enc=utf8')), 'the general arg');
+  assert(pairs[0][1].isEquivalent(media('media:enc=utf8;page')), 'the specific source');
 }
 
 // TEST1180: Matching fails when a source does not conform to any cap input argument.
 function test1180_matchSourcesUnmatchedSourceFailsHard() {
-  let failure = refusedScalar([media('media:numeric')], [media('media:enc=utf-8')]);
+  let failure = refusedScalar([media('media:numeric')], [media('media:enc=utf8')]);
   assertEqual([failure.ambiguous, failure.source], [false, 0], 'unmatched source must fail hard');
   // It is the source that fits nothing that is named, wherever it stands.
-  failure = refusedScalar([media('media:enc=utf-8;page'), media('media:numeric')],
-    [media('media:enc=utf-8'), media('media:enc=utf-8;page')]);
+  failure = refusedScalar([media('media:enc=utf8;page'), media('media:numeric')],
+    [media('media:enc=utf8'), media('media:enc=utf8;page')]);
   assertEqual([failure.ambiguous, failure.source], [false, 1], 'the second');
 }
 
 // TEST1182: Matching fails as ambiguous when two sources can be swapped at equal minimum cost.
 function test1182_matchSourcesAmbiguousRaisesAmbiguousError() {
   // Both are left open, and each could go to either arg.
-  let failure = refusedScalar([media('media:enc=utf-8'), media('media:enc=utf-8')],
-    [media('media:enc=utf-8'), media('media:enc=utf-8')]);
+  let failure = refusedScalar([media('media:enc=utf8'), media('media:enc=utf8')],
+    [media('media:enc=utf8'), media('media:enc=utf8')]);
   assert(failure.ambiguous, 'ambiguous matching must fail hard');
   assertEqual(failure.undecided, [[0, [0, 1]], [1, [0, 1]]], 'both open');
   // Only the sources the tie is about are named: a third that fits one arg
   // alone is decided, whatever the other two do.
-  const text = media('media:enc=utf-8');
+  const text = media('media:enc=utf8');
   const number = media('media:numeric');
   failure = refusedScalar([text, number, text], [text, text, number]);
   assert(failure.ambiguous, 'a tie');
@@ -2072,13 +2072,13 @@ function test1182_matchSourcesAmbiguousRaisesAmbiguousError() {
 
 // TEST1308: A wiring that forms a cycle is refused, naming the strand.
 function test1308_cyclicStrandFailsHard() {
-  const urnA = 'cap:in="media:document;ext=pdf";op-a;out="media:enc=utf-8;ext=txt"';
-  const urnB = 'cap:in="media:enc=utf-8;ext=txt";op-b;out="media:document;ext=pdf"';
+  const urnA = 'cap:in="media:document;ext=pdf";op-a;out="media:enc=utf8;ext=txt;plain-text"';
+  const urnB = 'cap:in="media:enc=utf8;ext=txt;plain-text";op-b;out="media:document;ext=pdf"';
   const definitions = definitionsOf([
-    simpleCap(urnA, 'media:document;ext=pdf', 'media:enc=utf-8;ext=txt'),
-    simpleCap(urnB, 'media:enc=utf-8;ext=txt', 'media:document;ext=pdf'),
+    simpleCap(urnA, 'media:document;ext=pdf', 'media:enc=utf8;ext=txt;plain-text'),
+    simpleCap(urnB, 'media:enc=utf8;ext=txt;plain-text', 'media:document;ext=pdf'),
   ]);
-  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf-8;ext=txt')];
+  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf8;ext=txt;plain-text')];
   // node 0 -> cap_a -> node 1  and  node 1 -> cap_b -> node 0 (cycle)
   const error = thrown(() => resolvePreInterned(nodes,
     [preInterned('a', urnA, [0], [1]), preInterned('b', urnB, [1], [0])], definitions, 5), 'a cycle');
@@ -2110,10 +2110,10 @@ function test1309_parseMachineSingleWiringOneStrand() {
 
 // TEST1164: Parsing two disconnected strand definitions yields two separate machine strands.
 function test1164_parseMachineDisconnectedWiringsBecomeSeparateStrands() {
-  const urnCaption = 'cap:in=media:image;caption;out="media:enc=utf-8;ext=txt"';
+  const urnCaption = 'cap:in=media:image;caption;out="media:enc=utf8;ext=txt;plain-text"';
   const definitions = definitionsOf([
-    simpleCap(URN_EXTRACT, 'media:document;ext=pdf', 'media:enc=utf-8;ext=txt'),
-    simpleCap(urnCaption, 'media:image', 'media:enc=utf-8;ext=txt'),
+    simpleCap(URN_EXTRACT, 'media:document;ext=pdf', 'media:enc=utf8;ext=txt;plain-text'),
+    simpleCap(urnCaption, 'media:image', 'media:enc=utf8;ext=txt;plain-text'),
   ]);
   const machine = parseMachine(`[extract ${URN_EXTRACT}]\n[caption ${urnCaption}]\n[doc -> extract -> text1]\n[img -> caption -> text2]`, definitions);
   assertEqual(machine.strandCount(), 2, 'two strands');
@@ -2131,13 +2131,13 @@ function test6698_parseMachineSharedNodeNameYieldsOneStrand() {
 // TEST6713: A binding's cap arg media URN is the slot identity (the arg's own
 // media URN), not the type its stdin source accepts.
 function test6713_bindingSlotIdentityIsOuterMediaUrn() {
-  const capUrn = 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf-8;page"';
-  const definitions = definitionsOf([simpleCap(capUrn, 'media:document;ext=pdf', 'media:enc=utf-8;page', 'media:enc=utf-8;file-path')]);
-  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf-8;page')];
+  const capUrn = 'cap:in="media:document;ext=pdf";disbind;out="media:enc=utf8;page"';
+  const definitions = definitionsOf([simpleCap(capUrn, 'media:document;ext=pdf', 'media:enc=utf8;page', 'media:enc=utf8;file-path')]);
+  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf8;page')];
   const strand = resolvePreInterned(nodes, [preInterned('t', capUrn, [0], [1])], definitions, 0);
   assertEqual(strand.edges().length, 1, 'one edge');
   const binding = strand.edges()[0].assignment[0];
-  assert(binding.capArgMediaUrn.isEquivalent(media('media:enc=utf-8;file-path')), 'the slot identity');
+  assert(binding.capArgMediaUrn.isEquivalent(media('media:enc=utf8;file-path')), 'the slot identity');
   assert(!binding.source.isConstant, 'a node');
   assertEqual(binding.source.node, 0, 'node 0');
   assertEqual(binding.argName, 'input', "the binding carries the arg's name");
@@ -2145,19 +2145,19 @@ function test6713_bindingSlotIdentityIsOuterMediaUrn() {
 
 // TEST1310: Two strands differing only in one node's media URN are not equivalent.
 function test1310_strandEquivalenceRejectsMismatchedNodeUrns() {
-  const urnTxt = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"';
-  const urnMd = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=md"';
+  const urnTxt = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"';
+  const urnMd = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=md;plain-text"';
   const definitions = definitionsOf([
-    simpleCap(urnTxt, 'media:document;ext=pdf', 'media:enc=utf-8;ext=txt'),
-    simpleCap(urnMd, 'media:document;ext=pdf', 'media:enc=utf-8;ext=md'),
+    simpleCap(urnTxt, 'media:document;ext=pdf', 'media:enc=utf8;ext=txt;plain-text'),
+    simpleCap(urnMd, 'media:document;ext=pdf', 'media:enc=utf8;ext=md;plain-text'),
   ]);
   const txt = parseMachine(`[e ${urnTxt}][doc -> e -> out]`, definitions);
   const md = parseMachine(`[e ${urnMd}][doc -> e -> out]`, definitions);
   assert(!txt.strands()[0].isEquivalent(md.strands()[0]), 'another output URN');
   // The same step over nodes that differ in one URN: the steps alone do not
   // make two strands one.
-  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf-8;ext=txt')];
-  const scanned = [media('media:document;ext=pdf;scanned'), media('media:enc=utf-8;ext=txt')];
+  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf8;ext=txt;plain-text')];
+  const scanned = [media('media:document;ext=pdf;scanned'), media('media:enc=utf8;ext=txt;plain-text')];
   const plain = resolvePreInterned(nodes, [preInterned('t', urnTxt, [0], [1])], definitions, 0);
   const other = resolvePreInterned(scanned, [preInterned('t', urnTxt, [0], [1])], definitions, 0);
   assert(!plain.isEquivalent(other) && !other.isEquivalent(plain), 'one node holds another type');
@@ -2173,10 +2173,10 @@ function test1136_parseMachineUndefinedAliasRaisesSyntaxError() {
 
 // TEST6691: A machine with two strands serializes to notation that names both caps.
 function test6691_twoStrandMachineSerializesToNotation() {
-  const urnCaption = 'cap:in=media:image;caption;out="media:enc=utf-8;ext=txt"';
+  const urnCaption = 'cap:in=media:image;caption;out="media:enc=utf8;ext=txt;plain-text"';
   const definitions = definitionsOf([
-    simpleCap(URN_EXTRACT, 'media:document;ext=pdf', 'media:enc=utf-8;ext=txt'),
-    simpleCap(urnCaption, 'media:image', 'media:enc=utf-8;ext=txt'),
+    simpleCap(URN_EXTRACT, 'media:document;ext=pdf', 'media:enc=utf8;ext=txt;plain-text'),
+    simpleCap(urnCaption, 'media:image', 'media:enc=utf8;ext=txt;plain-text'),
   ]);
   const machine = parseMachine(`[extract ${URN_EXTRACT}][caption ${urnCaption}][doc -> extract -> t1][img -> caption -> t2]`, definitions);
   const notation = machine.toMachineNotation();
@@ -2191,13 +2191,13 @@ function test6691_twoStrandMachineSerializesToNotation() {
 // TEST6692: A step's bindings are sorted by the arg's media URN, whatever order
 // the args are declared and the sources written in.
 function test6692_assignmentBindingsSortedBySlotUrn() {
-  const capUrn = 'cap:in="media:document;ext=pdf";merge;out="media:enc=utf-8;ext=txt"';
+  const capUrn = 'cap:in="media:document;ext=pdf";merge;out="media:enc=utf8;ext=txt;plain-text"';
   const cap = new Cap(CapUrn.fromString(capUrn), 'Merge', ['merge']);
-  cap.addArg(new CapArg('media:enc=utf-8', 'text', false, [new ArgSource({ cli_flag: '--text' })]));
+  cap.addArg(new CapArg('media:enc=utf8', 'text', false, [new ArgSource({ cli_flag: '--text' })]));
   cap.addArg(new CapArg('media:document;ext=pdf', 'input', true, [new ArgSource({ stdin: 'media:document;ext=pdf' })]));
-  cap.addOutput(new CapOutput('media:enc=utf-8;ext=txt', 'output', 'merged output'));
+  cap.addOutput(new CapOutput('media:enc=utf8;ext=txt;plain-text', 'output', 'merged output'));
   const definitions = definitionsOf([cap]);
-  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf-8'), media('media:enc=utf-8;ext=txt')];
+  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf8'), media('media:enc=utf8;ext=txt;plain-text')];
   for (const sources of [[0, 1], [1, 0]]) {
     const strand = resolvePreInterned(nodes, [preInterned('t', capUrn, sources, [2])], definitions, 0);
     const slots = strand.edges()[0].assignment.map(binding => binding.capArgMediaUrn);
@@ -2217,26 +2217,26 @@ function test1147_machineSyntaxErrorDisplayIsSpecific() {
 
 // TEST1149: an ambiguity says which members to name, and what each could be.
 function test1149_machineParseErrorFromResolutionPreservesVariant() {
-  const undecided = node => new UndecidedMember(node, 'media:enc=utf-8', ['left', 'right']);
+  const undecided = node => new UndecidedMember(node, 'media:enc=utf8', ['left', 'right']);
   const URN = 'cap:in="media:document;ext=pdf";out=media:text';
   const error = new MachineAbstractionError(AE.AMBIGUOUS_MACHINE_NOTATION, '', {});
   assert(error instanceof Error, 'an error');
-  const definitions = definitionsOf([definition('cap:in="media:enc=utf-8";pair;out="media:enc=utf-8;paired"', 'pair', [
-    stdinArg('media:enc=utf-8', 'left'),
-    flagArg('media:enc=utf-8;right', 'right').accepting('media:enc=utf-8'),
-  ], [outputOf('media:enc=utf-8;paired', 'paired')])]);
-  const nodes = [media('media:enc=utf-8'), media('media:enc=utf-8'), media('media:enc=utf-8;paired')];
+  const definitions = definitionsOf([definition('cap:in="media:enc=utf8";pair;out="media:enc=utf8;paired"', 'pair', [
+    stdinArg('media:enc=utf8', 'left'),
+    flagArg('media:enc=utf8;right', 'right').accepting('media:enc=utf8'),
+  ], [outputOf('media:enc=utf8;paired', 'paired')])]);
+  const nodes = [media('media:enc=utf8'), media('media:enc=utf8'), media('media:enc=utf8;paired')];
   const ambiguous = thrown(() => resolvePreInterned(nodes,
-    [preInterned('t', 'cap:in="media:enc=utf-8";pair;out="media:enc=utf-8;paired"', [0, 1], [2])], definitions, 2), 'a tie');
+    [preInterned('t', 'cap:in="media:enc=utf8";pair;out="media:enc=utf8;paired"', [0, 1], [2])], definitions, 2), 'a tie');
   assert(isAbstraction(ambiguous, AE.AMBIGUOUS_MACHINE_NOTATION), ambiguous.stack);
   assertEqual(ambiguous.strandIndex, 2, 'the strand');
   // Without notation a member is known by its type alone.
   assert(ambiguous.message.endsWith(
-    "name them: a member of type 'media:enc=utf-8' could be left or right; a member of type 'media:enc=utf-8' could be left or right"),
+    "name them: a member of type 'media:enc=utf8' could be left or right; a member of type 'media:enc=utf8' could be left or right"),
   ambiguous.message);
   assertEqual(ambiguous.members.length, 2, 'the members are carried');
-  assertEqual(undecided('a').toString(), "'a' (media:enc=utf-8) could be left or right", 'a named member');
-  assertEqual(undecided('').toString(), "a member of type 'media:enc=utf-8' could be left or right", 'an unnamed member');
+  assertEqual(undecided('a').toString(), "'a' (media:enc=utf8) could be left or right", 'a named member');
+  assertEqual(undecided('').toString(), "a member of type 'media:enc=utf8' could be left or right", 'an unnamed member');
   assert(URN.length > 0, 'a cap URN');
 }
 
@@ -2263,11 +2263,11 @@ function test1168_parseNodeAliasCollisionWithHeaderAliasFailsHard() {
 // resolved edge a per-item map (isLoop), derived from cardinality. The
 // scalar->sequence producer edge itself does not loop.
 function test1169_sequenceIntoScalarCapDerivesIsLoop() {
-  const splitUrn = 'cap:in="media:enc=utf-8";split;out="media:enc=utf-8;item"';
-  const tUrn = 'cap:in="media:enc=utf-8;item";t;out="media:enc=utf-8"';
-  const splitter = simpleCap(splitUrn, 'media:enc=utf-8', 'media:enc=utf-8;item');
+  const splitUrn = 'cap:in="media:enc=utf8";split;out="media:enc=utf8;item"';
+  const tUrn = 'cap:in="media:enc=utf8;item";t;out="media:enc=utf8"';
+  const splitter = simpleCap(splitUrn, 'media:enc=utf8', 'media:enc=utf8;item');
   splitter.mainOutput().is_sequence = true;
-  const definitions = definitionsOf([splitter, simpleCap(tUrn, 'media:enc=utf-8;item', 'media:enc=utf-8')]);
+  const definitions = definitionsOf([splitter, simpleCap(tUrn, 'media:enc=utf8;item', 'media:enc=utf8')]);
   const machine = parseMachine(`[split ${splitUrn}][t ${tUrn}][a -> split -> items][items -> t -> b]`, definitions);
   assertEqual(machine.strandCount(), 1, 'one strand');
   const edges = machine.strands()[0].edges();
@@ -2331,7 +2331,7 @@ function test1176_renderPayloadJsonIncludesStrandWithAnchors() {
   const machine = parseMachine(EXTRACT_EMBED, extractEmbedDefinitions());
   const titled = extractEmbedDefinitions().addMediaDefs([
     new MediaDef('application/pdf', null, null, 'PDF', null, 'media:document;ext=pdf'),
-    new MediaDef('text/plain', null, null, 'Plain Text', null, 'media:enc=utf-8;ext=txt'),
+    new MediaDef('text/plain', null, null, 'Plain Text', null, 'media:enc=utf8;ext=txt;plain-text'),
     new MediaDef('application/json', null, null, 'Vector', null, 'media:vec;record'),
   ]);
   const payload = machine.toRenderPayloadJson(titled);
@@ -2345,7 +2345,7 @@ function test1176_renderPayloadJsonIncludesStrandWithAnchors() {
   assert(untitled.message.includes(canonical('media:document;ext=pdf')), untitled.message);
   const noCap = definitionsOf([]).addMediaDefs([
     new MediaDef('application/pdf', null, null, 'PDF', null, 'media:document;ext=pdf'),
-    new MediaDef('text/plain', null, null, 'Plain Text', null, 'media:enc=utf-8;ext=txt'),
+    new MediaDef('text/plain', null, null, 'Plain Text', null, 'media:enc=utf8;ext=txt;plain-text'),
     new MediaDef('application/json', null, null, 'Vector', null, 'media:vec;record'),
   ]);
   const uncached = thrown(() => machine.toRenderPayloadJson(noCap), 'no cap definitions');
@@ -2359,8 +2359,8 @@ function test1177_renderPayloadForEmptyMachineHasEmptyStrandsArray() {
 
 // TEST1181: Two sources disambiguated by specificity — unique minimum-cost assignment.
 function test1181_matchTwoSourcesDisambiguatedBySpecificity() {
-  const sources = [media('media:ext=png;image'), media('media:enc=utf-8;model-spec')];
-  const args = [media('media:ext=png;image'), media('media:enc=utf-8')];
+  const sources = [media('media:ext=png;image'), media('media:enc=utf8;model-spec')];
+  const args = [media('media:ext=png;image'), media('media:enc=utf8')];
   const pairs = match(sources, args);
   assertEqual(pairs.length, 2, 'two pairs');
   let foundImage = false;
@@ -2369,8 +2369,8 @@ function test1181_matchTwoSourcesDisambiguatedBySpecificity() {
     if (arg.isEquivalent(media('media:ext=png;image'))) {
       assert(source.isEquivalent(media('media:ext=png;image')), 'the image');
       foundImage = true;
-    } else if (arg.isEquivalent(media('media:enc=utf-8'))) {
-      assert(source.isEquivalent(media('media:enc=utf-8;model-spec')), 'the text');
+    } else if (arg.isEquivalent(media('media:enc=utf8'))) {
+      assert(source.isEquivalent(media('media:enc=utf8;model-spec')), 'the text');
       foundText = true;
     }
   }
@@ -2388,10 +2388,10 @@ function test1181_matchTwoSourcesDisambiguatedBySpecificity() {
 
   // One source that fits two args takes the one it is closest to, whichever
   // of the two is tried first.
-  const general = media('media:enc=utf-8');
-  const exact = media('media:enc=utf-8;page');
+  const general = media('media:enc=utf8');
+  const exact = media('media:enc=utf8;page');
   for (const either of [[general, exact], [exact, general]]) {
-    const one = match([media('media:enc=utf-8;page')], either);
+    const one = match([media('media:enc=utf8;page')], either);
     assertEqual(one.length, 1, 'one pair');
     assert(one[0][0].isEquivalent(exact), `the exact arg, not the general one: ${one[0][0]}`);
   }
@@ -2432,11 +2432,11 @@ function test1178_matchSingleSourcePicksUniqueArg() {
 // alphabetical) in the wiring with no header, keeps the URN and a header for a
 // cap with no alias, and reads back as the same machine.
 function test1196_aliasedSerializationUsesAliasAndRoundTrips() {
-  const extractUrn = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf-8;ext=txt"';
-  const embedUrn = 'cap:embed;in="media:enc=utf-8;ext=txt";out="media:vec;record"';
+  const extractUrn = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;plain-text"';
+  const embedUrn = 'cap:embed;in="media:enc=utf8;ext=txt;plain-text";out="media:vec;record"';
   const definitions = definitionsOf([
-    simpleCap(extractUrn, 'media:document;ext=pdf', 'media:enc=utf-8;ext=txt'),
-    simpleCap(embedUrn, 'media:enc=utf-8;ext=txt', 'media:vec;record'),
+    simpleCap(extractUrn, 'media:document;ext=pdf', 'media:enc=utf8;ext=txt;plain-text'),
+    simpleCap(embedUrn, 'media:enc=utf8;ext=txt;plain-text', 'media:vec;record'),
   ]).addAlias('extract-pdf', extractUrn).addAlias('ex', extractUrn);
   const first = parseMachine(`[x ${extractUrn}][y ${embedUrn}][doc -> x -> txt][txt -> y -> vec]`, definitions);
   const aliased = first.toMachineNotationAliased(definitions);
@@ -2463,9 +2463,9 @@ function test1196_aliasedSerializationUsesAliasAndRoundTrips() {
 // definition declares, whoever built the wiring: a member or a target naming
 // what the cap does not declare is refused by name, with what it does declare.
 function test12837_theResolverRefusesNamesADefinitionDoesNotDeclare() {
-  const capUrn = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"';
-  const definitions = definitionsOf([simpleCap(capUrn, 'media:document;ext=pdf', 'media:enc=utf-8;ext=txt')]);
-  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf-8;ext=txt')];
+  const capUrn = 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"';
+  const definitions = definitionsOf([simpleCap(capUrn, 'media:document;ext=pdf', 'media:enc=utf8;ext=txt;plain-text')]);
+  const nodes = [media('media:document;ext=pdf'), media('media:enc=utf8;ext=txt;plain-text')];
   const wiring = (named, targets) => ({ ...preInterned('t', capUrn, [], []), namedSources: named, targets });
 
   // By the names the definition declares, it resolves.
@@ -2487,9 +2487,9 @@ function test12837_theResolverRefusesNamesADefinitionDoesNotDeclare() {
 // points.
 // ============================================================================
 
-const EXTRACT_HEADER = '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"]';
-const extractDefinitions = () => definitionsOf([simpleCap('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"',
-  'media:document;ext=pdf', 'media:enc=utf-8;ext=txt')]);
+const EXTRACT_HEADER = '[extract cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"]';
+const extractDefinitions = () => definitionsOf([simpleCap('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"',
+  'media:document;ext=pdf', 'media:enc=utf8;ext=txt;plain-text')]);
 
 /** The text a location covers. */
 const covered = (text, location) => text.slice(location.start.offset, location.end.offset);
@@ -2503,7 +2503,7 @@ function test6452_Machine_parseMachineWithAST_headerLocation() {
   assertEqual(header.kind, SYNTAX_CAP_HEADER, 'a header');
   assertEqual(covered(input, header.location), EXTRACT_HEADER, 'the statement');
   assertEqual(covered(input, header.aliasLocation), 'extract', 'the alias');
-  assertEqual(covered(input, header.capUrnLocation), 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'the URN');
+  assertEqual(covered(input, header.capUrnLocation), 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"', 'the URN');
   assertEqual(header.location.start.line, 1, 'line 1');
   assertEqual(header.location.start.column, 1, 'column 1');
 }
@@ -2550,20 +2550,20 @@ function test6455_Machine_parseMachineWithAST_fanInSourceLocations() {
 // TEST6456: the alias map holds every header's cap with where it was declared.
 function test6456_Machine_parseMachineWithAST_aliasMap() {
   const input = EXTRACT_HEADER + `[embed ${URN_EMBED}][doc -> extract -> text][text -> embed -> vectors]`;
-  const definitions = extractDefinitions().addCaps([simpleCap(URN_EMBED, 'media:enc=utf-8', 'media:vec;record')]);
+  const definitions = extractDefinitions().addCaps([simpleCap(URN_EMBED, 'media:enc=utf8', 'media:vec;record')]);
   const result = parseMachineWithAST(input, definitions);
   assertEqual([...result.aliasMap.keys()].sort(), ['embed', 'extract'], 'both aliases');
   const extract = result.aliasMap.get('extract');
-  assert(extract.capUrn.isEquivalent(CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"')), 'its cap');
+  assert(extract.capUrn.isEquivalent(CapUrn.fromString('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"')), 'its cap');
   assertEqual(covered(input, extract.aliasLocation), 'extract', 'where its alias stands');
-  assertEqual(covered(input, extract.capUrnLocation), 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf-8;ext=txt"', 'where its URN stands');
+  assertEqual(covered(input, extract.capUrnLocation), 'cap:in="media:document;ext=pdf";extract;out="media:enc=utf8;ext=txt;plain-text"', 'where its URN stands');
 }
 
 // TEST6457: every node, by the name the text gave it, with the media it holds.
 function test6457_Machine_parseMachineWithAST_nodeMedia() {
   const result = parseMachineWithAST(EXTRACT_HEADER + '[doc -> extract -> text]', extractDefinitions());
   assertEqual(result.nodeMedia.get('doc').toString(), canonical('media:document;ext=pdf'), 'doc');
-  assertEqual(result.nodeMedia.get('text').toString(), canonical('media:enc=utf-8;ext=txt'), 'text');
+  assertEqual(result.nodeMedia.get('text').toString(), canonical('media:enc=utf8;ext=txt;plain-text'), 'text');
   assertEqual(result.nodeMedia.size, 2, 'two nodes');
   assertEqual(result.nodeNames[0].get('doc'), result.machine.strands()[0].inputAnchorIds()[0], 'the input, by name');
 }
@@ -2601,7 +2601,7 @@ function test6462_Machine_toMermaid_linearChain() {
   assert(mermaid.startsWith('flowchart LR'), mermaid);
   assert(mermaid.includes('s0["edge_0"]'), mermaid);
   assert(mermaid.includes(`n0(["n0: ${canonical('media:document;ext=pdf')}"])`), mermaid);
-  assert(mermaid.includes(`n1(["n1: ${canonical('media:enc=utf-8;ext=txt')}"])`), mermaid);
+  assert(mermaid.includes(`n1(["n1: ${canonical('media:enc=utf8;ext=txt;plain-text')}"])`), mermaid);
   assert(mermaid.includes('n0 -- "input" --> s0'), mermaid);
   assert(mermaid.includes('s0 -- "output" --> n1'), mermaid);
 }
