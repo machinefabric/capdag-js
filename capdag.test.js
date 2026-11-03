@@ -3187,6 +3187,80 @@ function test6272_isCollection() {
 
 // TEST557: N/A for JS (audio_media_urn_for_ext helper not in JS)
 
+// TEST852: LUB of identical URNs returns the same URN
+function test852_lubIdentical() {
+  const pdf = MediaUrn.fromString('media:document;ext=pdf');
+  assert(MediaUrn.leastUpperBound([pdf, pdf]).isEquivalent(pdf), 'LUB of pdf and pdf is pdf');
+}
+
+// TEST853: LUB promotes a shared key with differing values to "some value": both
+// inputs HAVE an ext (pdf vs png), so the bound is media:ext — the denominator
+// generic caps like in="media:ext" accept — not the trivial media:. The image
+// marker is only on one side, so it is dropped.
+function test853_lubSharedKeyPromotesToWildcard() {
+  const pdf = MediaUrn.fromString('media:document;ext=pdf');
+  const png = MediaUrn.fromString('media:ext=png;image');
+  const lub = MediaUrn.leastUpperBound([pdf, png]);
+  assert(lub.isEquivalent(MediaUrn.fromString('media:ext')),
+    `LUB of ext=pdf and ext=png;image should be media:ext but got ${lub.toString()}`);
+  assert(pdf.conformsTo(lub) && png.conformsTo(lub), 'every input conforms to the LUB');
+}
+
+// TEST854: LUB keeps common tags, drops differing ones. Both inputs are UTF-8
+// text (shared enc=utf8) but differ in structure (list vs record).
+function test854_lubPartialOverlap() {
+  const lub = MediaUrn.leastUpperBound([
+    MediaUrn.fromString('media:enc=utf8;list'),
+    MediaUrn.fromString('media:enc=utf8;record'),
+  ]);
+  assert(lub.isEquivalent(MediaUrn.fromString('media:enc=utf8')),
+    `LUB should be media:enc=utf8 but got ${lub.toString()}`);
+}
+
+// TEST855: LUB of list and non-list drops list tag
+function test855_lubListVsScalar() {
+  const lub = MediaUrn.leastUpperBound([
+    MediaUrn.fromString('media:enc=utf8;fmt=json;list'),
+    MediaUrn.fromString('media:enc=utf8;fmt=json'),
+  ]);
+  assert(lub.isEquivalent(MediaUrn.fromString('media:enc=utf8;fmt=json')),
+    `LUB should drop list tag, got ${lub.toString()}`);
+}
+
+// TEST856: LUB of empty input returns universal type
+function test856_lubEmpty() {
+  assert(MediaUrn.leastUpperBound([]).isEquivalent(MediaUrn.fromString('media:')), 'LUB of nothing is media:');
+}
+
+// TEST857: LUB of single input returns that input
+function test857_lubSingle() {
+  const pdf = MediaUrn.fromString('media:document;ext=pdf');
+  assert(MediaUrn.leastUpperBound([pdf]).isEquivalent(pdf), 'LUB of pdf alone is pdf');
+}
+
+// TEST858: LUB with three+ inputs narrows correctly
+function test858_lubThreeInputs() {
+  const a = MediaUrn.fromString('media:enc=utf8;fmt=json;list;record');
+  const b = MediaUrn.fromString('media:enc=utf8;fmt=csv;list;record');
+  const c = MediaUrn.fromString('media:enc=utf8;fmt=ndjson;list');
+  const lub = MediaUrn.leastUpperBound([a, b, c]);
+  // All three are UTF-8 lists and all three HAVE a fmt (json/csv/ndjson —
+  // differing values → "some fmt"); record is on a and b only → dropped.
+  assert(lub.isEquivalent(MediaUrn.fromString('media:enc=utf8;fmt;list')),
+    `LUB should be media:enc=utf8;fmt;list but got ${lub.toString()}`);
+  assert(a.conformsTo(lub) && b.conformsTo(lub) && c.conformsTo(lub), 'every input conforms to the LUB');
+}
+
+// TEST859: LUB with valued tags (non-marker) that differ promotes the key
+function test859_lubValuedTags() {
+  const lub = MediaUrn.leastUpperBound([
+    MediaUrn.fromString('media:ext=png;image'),
+    MediaUrn.fromString('media:ext=jpeg;image'),
+  ]);
+  assert(lub.isEquivalent(MediaUrn.fromString('media:ext;image')),
+    `LUB should promote conflicting ext to some ext, got ${lub.toString()}`);
+}
+
 // TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates
 function test558_predicateConstantConsistency() {
   // MEDIA_INTEGER must be numeric, scalar, NOT enc-bearing/bool/image/list.
@@ -3206,11 +3280,11 @@ function test558_predicateConstantConsistency() {
   assert(boolUrn.isScalar(), 'MEDIA_BOOLEAN must be scalar');
   assert(!boolUrn.isNumeric(), 'MEDIA_BOOLEAN must not be numeric');
 
-  // MEDIA_JSON must be json, record, scalar, NOT list — and carries no enc
-  // (fmt= is the content-format axis, orthogonal to enc=).
+  // MEDIA_JSON must be json, record, scalar, NOT list — and, being characters,
+  // carries enc=utf8 (fmt= says how the characters are structured).
   const jsonUrn = MediaUrn.fromString(MEDIA_JSON);
   assert(jsonUrn.isJson(), 'MEDIA_JSON must be json');
-  assert(jsonUrn.getTag('enc') === undefined, 'MEDIA_JSON must not carry enc');
+  assert(jsonUrn.getTag('enc') === 'utf8', 'MEDIA_JSON must carry enc=utf8');
   assert(jsonUrn.isRecord(), 'MEDIA_JSON must be record');
   assert(jsonUrn.isScalar(), 'MEDIA_JSON must be scalar (no list marker)');
   assert(!jsonUrn.isList(), 'MEDIA_JSON must not be list');
@@ -7538,6 +7612,14 @@ async function runTests() {
   runTest('TEST1299: is_file_path', test551_isFilePath);
   runTest('TEST553: is_live_feed', test553_isLiveFeed);
   runTest('TEST1302: predicate_constant_consistency', test558_predicateConstantConsistency);
+  runTest('TEST852: lub_identical', test852_lubIdentical);
+  runTest('TEST853: lub_shared_key_promotes_to_wildcard', test853_lubSharedKeyPromotesToWildcard);
+  runTest('TEST854: lub_partial_overlap', test854_lubPartialOverlap);
+  runTest('TEST855: lub_list_vs_scalar', test855_lubListVsScalar);
+  runTest('TEST856: lub_empty', test856_lubEmpty);
+  runTest('TEST857: lub_single', test857_lubSingle);
+  runTest('TEST858: lub_three_inputs', test858_lubThreeInputs);
+  runTest('TEST859: lub_valued_tags', test859_lubValuedTags);
 
   // cap_urn.rs: TEST1303-TEST1307 (CapUrn tier tests)
   console.log('\n--- cap_urn.rs (tier tests) ---');

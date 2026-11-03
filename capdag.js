@@ -1840,6 +1840,23 @@ class MediaUrn {
   isEquivalent(other) { return this._urn.isEquivalent(other._urn); }
 
   /**
+   * The most specific media type every one of `urns` conforms to: their common
+   * denominator, as a gather's element type or the meeting point where branches
+   * of different media converge.
+   *
+   * Made by tagged-urn's proved model (`TaggedUrn.leastUpperBound`): key by key,
+   * the bound allows every state some input allows, and where no single form says
+   * exactly that, it is the least bound that excludes only values the inputs name.
+   * `[media:document;ext=pdf, media:ext=png;image]` gives `media:ext`; no inputs
+   * give `media:`.
+   * @param {MediaUrn[]} urns
+   * @returns {MediaUrn}
+   */
+  static leastUpperBound(urns) {
+    return new MediaUrn(TaggedUrn.leastUpperBound('media', urns.map((u) => u._urn)));
+  }
+
+  /**
    * Check if two media URNs are comparable (on the same specialization chain).
    * isComparable(other) ≡ accepts(other) || other.accepts(this)
    * @param {MediaUrn} other
