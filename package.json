@@ -1,9 +1,9 @@
 {
   "author": "Bahram Joharshamshiri",
   "dependencies": {
-    "lungo-ts": "1.117.0",
+    "lungo-ts": "file:../../.sdx/disposable/build/lungo/distribution/ts",
     "peggy": "^5.1.0",
-    "tagged-urn": "^1.158.9"
+    "tagged-urn": "file:../../tagged-urn/tagged-urn-js"
   },
   "description": "JavaScript implementation of Cap URN (Capability Uniform Resource Names) with strict validation and matching",
   "engines": {
