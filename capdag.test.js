@@ -3206,11 +3206,11 @@ function test558_predicateConstantConsistency() {
   assert(boolUrn.isScalar(), 'MEDIA_BOOLEAN must be scalar');
   assert(!boolUrn.isNumeric(), 'MEDIA_BOOLEAN must not be numeric');
 
-  // MEDIA_JSON must be json, record, scalar, NOT list — and carries no enc
-  // (fmt= is the content-format axis, orthogonal to enc=).
+  // MEDIA_JSON must be json, record, scalar, NOT list — and, being characters,
+  // carries enc=utf8 (fmt= says how the characters are structured).
   const jsonUrn = MediaUrn.fromString(MEDIA_JSON);
   assert(jsonUrn.isJson(), 'MEDIA_JSON must be json');
-  assert(jsonUrn.getTag('enc') === undefined, 'MEDIA_JSON must not carry enc');
+  assert(jsonUrn.getTag('enc') === 'utf8', 'MEDIA_JSON must carry enc=utf8');
   assert(jsonUrn.isRecord(), 'MEDIA_JSON must be record');
   assert(jsonUrn.isScalar(), 'MEDIA_JSON must be scalar (no list marker)');
   assert(!jsonUrn.isList(), 'MEDIA_JSON must not be list');
