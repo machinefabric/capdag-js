@@ -4495,6 +4495,28 @@ async function test6468_registryReadsAMediaDefinitionStrictly() {
   }
 }
 
+// TEST8048: the universal type `media:` is a definition like any other: a cap
+// that names it is held with its definition, read at the version the manifest
+// pins, and a cap whose manifest does not hold it is not held.
+async function test8048_registryReadsTheUniversalTypeACapNames() {
+  const universal = served => {
+    served.cap.args.push({ media_urn: 'media:', name: 'anything', required: false, sources: [{ cli_flag: '--anything' }] });
+    served.manifest.media['media:'] = 2;
+    served.media['media:'] = mediaJSON('media:', 'Any Media', 2);
+  };
+  const { client, asked } = await fakeRegistry(universal);
+  await client.getCap(EXTRACT_URN);
+  const any = client.mediaDefinition('media:');
+  assert(any !== null, 'the universal type is held with the cap');
+  assertEqual(any.title, 'Any Media', 'its title');
+  const at = `/defs/media/${await sha256OfText('media:')}/v2.json`;
+  assertEqual(asked.filter(url => url.endsWith(at)).length, 1, 'read at its pinned version');
+
+  const { client: lost } = await fakeRegistry(served => { universal(served); delete served.manifest.media['media:']; });
+  await refusedRegistry(lost.getCap(EXTRACT_URN), FabricRegistryErrorCodes.NOT_FOUND, 'a manifest without the universal type');
+  assertEqual(lost.capDefinition(EXTRACT_URN), null, 'a cap without it is not held');
+}
+
 // TEST6469: a client is pinned to one manifest: what it does not name is not
 // found, never read from another snapshot; a manifest that is not whole, or
 // reports another version, is refused; and there is no client of no manifest.
@@ -7716,6 +7738,7 @@ async function runTests() {
   console.log('\n--- registry/client ---');
   await runTest('TEST6467: registry_reads_a_cap_with_every_media_it_names', test6467_registryReadsACapWithEveryMediaItNames);
   await runTest('TEST6468: registry_reads_a_media_definition_strictly', test6468_registryReadsAMediaDefinitionStrictly);
+  await runTest('TEST8048: registry_reads_the_universal_type_a_cap_names', test8048_registryReadsTheUniversalTypeACapNames);
   await runTest('TEST6469: registry_is_pinned_to_one_manifest', test6469_registryIsPinnedToOneManifest);
   await runTest('TEST6470: registry_aliases_and_machines_read_against_it', test6470_registryAliasesAndMachinesReadAgainstIt);
 

@@ -11794,13 +11794,10 @@ class FabricRegistryClient {
     const defver = await this._defver('caps', canonical, `cap '${canonical}'`);
     const url = await this._definitionUrl('caps', canonical, defver);
     const cap = capFromStored(await this._get(url, `cap '${canonical}'`), canonical, defver);
-    // Every media URN the cap names, the bare `media:` aside (it is the
-    // universal type, not a definition).
+    // Every media URN the cap names, the universal type `media:` among
+    // them: the fabric defines it like any other media URN.
     const named = new Set();
-    const name = text => {
-      const media = MediaUrn.fromString(text);
-      if (!media.isTop()) named.add(media.toString());
-    };
+    const name = text => named.add(MediaUrn.fromString(text).toString());
     name(cap.urn.getInSpec());
     name(cap.urn.getOutSpec());
     for (const arg of cap.args) {
