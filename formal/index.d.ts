@@ -201,6 +201,65 @@ export type Grade =
 ;
 export function gradeType(): L.Type<Grade>;
 
+/** Lean's CapDAG.Run.Control.RunPhase. */
+export type RunPhase =
+  | { readonly kind: "running" }
+  | { readonly kind: "stopping" }
+  | { readonly kind: "aborting" }
+  | { readonly kind: "ended" }
+;
+export function runPhaseType(): L.Type<RunPhase>;
+
+/** Lean's CapDAG.Run.Control.RunOutcome. */
+export type RunOutcome =
+  | { readonly kind: "completed" }
+  | { readonly kind: "tolerated" }
+  | { readonly kind: "stopped" }
+  | { readonly kind: "failed" }
+  | { readonly kind: "aborted" }
+;
+export function runOutcomeType(): L.Type<RunOutcome>;
+
+/** Lean's CapDAG.Run.Control.RunAsk. */
+export type RunAsk =
+  | { readonly kind: "interrupt" }
+  | { readonly kind: "stop" }
+  | { readonly kind: "abort" }
+  | { readonly kind: "drained" }
+  | { readonly kind: "graceOver" }
+;
+export function runAskType(): L.Type<RunAsk>;
+
+/** Lean's CapDAG.Run.Control.RunNext. */
+export interface RunNext {
+  readonly phase: RunPhase;
+  readonly act: RunAct;
+}
+export function runNextType(): L.Type<RunNext>;
+
+/** Lean's CapDAG.Run.Step.StepState. */
+export type StepState =
+  | { readonly kind: "waiting" }
+  | { readonly kind: "running" }
+  | { readonly kind: "done" }
+  | { readonly kind: "skipped" }
+  | { readonly kind: "tolerated" }
+  | { readonly kind: "failed" }
+  | { readonly kind: "notRun" }
+  | { readonly kind: "cancelled" }
+;
+export function stepStateType(): L.Type<StepState>;
+
+/** Lean's CapDAG.Run.Step.StepReport. */
+export type StepReport =
+  | { readonly kind: "progress"; readonly complete: boolean }
+  | { readonly kind: "skipped" }
+  | { readonly kind: "tolerated" }
+  | { readonly kind: "failed" }
+  | { readonly kind: "runEnded"; readonly completed: boolean; readonly aborted: boolean }
+;
+export function stepReportType(): L.Type<StepReport>;
+
 /** Lean's TaggedUrn.Constraint. */
 export type Constraint =
   | { readonly kind: "missing" }
@@ -229,6 +288,16 @@ export type WfAsk =
   | { readonly kind: "same"; readonly u: Wf }
 ;
 export function wfAskType(): L.Type<WfAsk>;
+
+/** Lean's CapDAG.Run.Control.RunAct. */
+export type RunAct =
+  | { readonly kind: "none" }
+  | { readonly kind: "stop" }
+  | { readonly kind: "cancel" }
+  | { readonly kind: "kill" }
+  | { readonly kind: "finish" }
+;
+export function runActType(): L.Type<RunAct>;
 
 /** The layout fingerprint and descriptor of each type, by Lean name, for modules using them. */
 export const leanTypes: {
@@ -352,6 +421,20 @@ export class CapdagFormal {
   select(candidates: Array<WfCap>, request: WfCap): L.Option<WfCap>;
   /** Lean's CapDAG.Exec.specificity : CapDAG.Exec.WfCap → Nat */
   specificity(c: WfCap): bigint;
+  /** Lean's CapDAG.Run.Control.admits : CapDAG.Run.Control.RunPhase → Bool */
+  admits(a: RunPhase): boolean;
+  /** Lean's CapDAG.Run.Control.exitStatus : CapDAG.Run.Control.RunOutcome → Nat */
+  exitStatus(a: RunOutcome): bigint;
+  /** Lean's CapDAG.Run.Control.joinOutcomes : CapDAG.Run.Control.RunOutcome → CapDAG.Run.Control.RunOutcome → CapDAG.Run.Control.RunOutcome */
+  joinOutcomes(a: RunOutcome, b: RunOutcome): RunOutcome;
+  /** Lean's CapDAG.Run.Control.next : CapDAG.Run.Control.RunPhase → CapDAG.Run.Control.RunAsk → CapDAG.Run.Control.RunNext */
+  next(a: RunPhase, a2: RunAsk): RunNext;
+  /** Lean's CapDAG.Run.Control.outcome : CapDAG.Run.Control.RunPhase → Bool → Bool → CapDAG.Run.Control.RunOutcome */
+  outcome(a: RunPhase, a2: boolean, a3: boolean): RunOutcome;
+  /** Lean's CapDAG.Run.Step.StepState.final : CapDAG.Run.Step.StepState → Bool */
+  final(a: StepState): boolean;
+  /** Lean's CapDAG.Run.Step.on : CapDAG.Run.Step.StepState → CapDAG.Run.Step.StepReport → Option CapDAG.Run.Step.StepState */
+  on(a: StepState, a2: StepReport): L.Option<StepState>;
   /** Lean's TaggedUrn.Exec.make : String → List (String × TaggedUrn.Constraint) → Option TaggedUrn.Exec.Wf */
   make(scheme: string, tags: Array<[string, Constraint]>): L.Option<Wf>;
 }
