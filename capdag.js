@@ -7392,52 +7392,6 @@ function hashCartridgeDirectory(dir) {
   return hasher.digest('hex');
 }
 
-// ---------------------------------------------------------------------------
-// Bundled-cartridge integrity (non-macOS).
-// ---------------------------------------------------------------------------
-//
-// Mirrors capdag::cartridge_discovery::verify_bundled_cartridge_hash and the
-// BUNDLED_CARTRIDGE_HASHES const codegen'd by build.rs. Under a plain build —
-// and in this mirror, which bundles no cartridges — the set is empty, so any
-// `installed_from: bundle` cartridge has no baked hash and is rejected.
-const BUNDLED_CARTRIDGE_HASHES = Object.freeze([]); // [name, version, hash] triples
-
-/**
- * Look up the baked expected directory hash for a bundled cartridge, or null if
- * (name, version) was not recorded at build time.
- * @returns {string|null}
- */
-function bundledCartridgeExpectedHash(name, version) {
-  for (const [n, v, h] of BUNDLED_CARTRIDGE_HASHES) {
-    if (n === name && v === version) return h;
-  }
-  return null;
-}
-
-/**
- * Verify a bundled cartridge's on-disk content against the hash baked into this
- * build. Returns null on success, or an error-reason string. Mirrors
- * verify_bundled_cartridge_hash. Non-macOS only: macOS bundled-cartridge
- * integrity is the OS code-signature, so the engine there neither bakes nor
- * checks these hashes.
- *
- * @returns {string|null} null on OK, else the failure reason.
- */
-function verifyBundledCartridgeHash(name, version, versionDir) {
-  const expected = bundledCartridgeExpectedHash(name, version);
-  if (expected === null) {
-    return `no baked hash for bundled cartridge ${name} ${version} — this build did not record it (MFR_BUNDLED_CARTRIDGE_HASHES)`;
-  }
-  let actual;
-  try {
-    actual = hashCartridgeDirectory(versionDir);
-  } catch (e) {
-    return `failed to hash bundled cartridge directory: ${e.message}`;
-  }
-  if (actual === expected) return null;
-  return `content hash mismatch — baked ${expected}, on-disk ${actual}; the shipped cartridge differs from what this build was compiled to ship`;
-}
-
 /**
  * The identity a host accepts cartridges for. A cartridge whose cartridge.json
  * diverges from this on channel, registry URL, registry scheme, or fabric
@@ -7806,25 +7760,30 @@ function newestVersionDir(versionDirs) {
 }
 
 /**
- * Why a cartridge whose cartridge.json reads as `cj`, installed in
- * `versionDir`, is not attached under `terms` ({channel,
- * fabricManifestVersion}); `null` when it may be. The one rule every host
+ * Whether, and how, a cartridge whose cartridge.json reads as `cj` is attached
+ * under `terms` ({channel, fabricManifestVersion}). The one rule every host
  * decides by: discovery's roster and a run that attaches the installed
- * cartridge a cap needs both call it.
+ * cartridge a cap needs both call it. It reads nothing on disk.
  *
- * Mirrors capdag::cartridge_discovery::refusal.
+ * The answer is `{refusal, bundled}`. `refusal` is why the cartridge is not
+ * attached, or `null` when it is. `bundled` is, for a bundled cartridge, what
+ * its build's signed bundle manifest records of it; this library verifies no
+ * bundle manifest, so it never admits a bundled cartridge and `bundled` is
+ * always `null`: the host learns an admitted cartridge's caps by starting it.
+ *
+ * Mirrors capdag::cartridge_discovery::admission.
  *
  * @param {CartridgeJson} cj
- * @param {string} versionDir
  * @param {{channel: string, fabricManifestVersion: number}} terms
- * @returns {{kind: string, message: string}|null}
+ * @returns {{refusal: {kind: string, message: string}|null, bundled: null}}
  */
-function cartridgeRefusal(cj, versionDir, terms) {
+function cartridgeAdmission(cj, terms) {
+  const refused = (kind, message) => ({ refusal: { kind, message }, bundled: null });
   if (cj.channel !== terms.channel) {
-    return {
-      kind: CartridgeAttachmentErrorKind.MISPLACED,
-      message: `Channel mismatch: cartridge declares '${cj.channel}' but host is pinned to '${terms.channel}'. Release and nightly artefacts must not mix.`,
-    };
+    return refused(
+      CartridgeAttachmentErrorKind.MISPLACED,
+      `Channel mismatch: cartridge declares '${cj.channel}' but host is pinned to '${terms.channel}'. Release and nightly artefacts must not mix.`
+    );
   }
 
   const bundled = cj.installedFrom === CartridgeInstallSource.BUNDLE;
@@ -7842,29 +7801,25 @@ function cartridgeRefusal(cj, versionDir, terms) {
     } else {
       remedy = `Rebuild it with MFR_FABRIC_MANIFEST_VERSION=${ours} and install it again.`;
     }
-    return {
-      kind: CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH,
-      message: `${cj.name} ${cj.version} was installed for fabric manifest ${cj.fabricManifestVersion}, and this host reads fabric manifest ${ours}. ${remedy}`,
-    };
+    return refused(
+      CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH,
+      `${cj.name} ${cj.version} was installed for fabric manifest ${cj.fabricManifestVersion}, and this host reads fabric manifest ${ours}. ${remedy}`
+    );
   }
 
-  // Bundled-cartridge integrity. A cartridge marked installed_from=bundle is
-  // shipped INSIDE this build and has no upstream registry to verify against,
-  // so it needs its own integrity proof. Platform-split: on macOS the OS
-  // code-signature is the guard (baked-hash verification intentionally
-  // skipped); on non-macOS the on-disk directory must hash to the baked
-  // value, else BadInstallation.
-  if (bundled && process.platform !== 'darwin') {
-    const reason = verifyBundledCartridgeHash(cj.name, cj.version, versionDir);
-    if (reason !== null) {
-      return {
-        kind: CartridgeAttachmentErrorKind.MISPLACED,
-        message: `bundled cartridge integrity check failed: ${reason}`,
-      };
-    }
+  // A bundled cartridge. A cartridge marked installed_from=bundle is shipped
+  // INSIDE a build and has no upstream registry to verify against: only that
+  // build's signed bundle manifest proves it, on every platform. This library
+  // verifies no bundle manifest, so nothing here can vouch for it, and it is
+  // refused for that rather than hosted unproven.
+  if (bundled) {
+    return refused(
+      CartridgeAttachmentErrorKind.MISPLACED,
+      'bundled cartridge integrity check failed: capdag\'s JavaScript library does not verify bundle manifests, so it attaches no cartridge that says it was bundled; a bundled cartridge is attached by the capdag command, the engine or the cartridge host, which verify the bundle it came in'
+    );
   }
 
-  return null;
+  return { refusal: null, bundled: null };
 }
 
 /**
@@ -8011,7 +7966,7 @@ async function scanChannelRoot(scanRoot, slugDir, folder, folderError, identity,
       continue;
     }
 
-    const refused = cartridgeRefusal(cj, versionDir, {
+    const { refusal: refused } = cartridgeAdmission(cj, {
       channel: identity.channel,
       fabricManifestVersion: identity.fabricManifestVersion,
     });
@@ -12748,13 +12703,11 @@ export {
   CartridgeJsonError,
   CartridgeJson,
   hashCartridgeDirectory,
-  BUNDLED_CARTRIDGE_HASHES,
-  verifyBundledCartridgeHash,
   DiscoveryIdentity,
   DiscoveredCartridge,
   probeCartridgeCapGroups,
   discoverCartridges,
-  cartridgeRefusal,
+  cartridgeAdmission,
   newestVersionDir,
   // Registry charters
   CHARTER_FORMAT,
