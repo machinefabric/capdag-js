@@ -7776,6 +7776,117 @@ function probeCartridgeCapGroups(entryPath) {
 }
 
 /**
+ * Order two version strings: part by dotted part, numerically where both
+ * parts are numbers, as text otherwise; a version that runs out of parts
+ * first is the older.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function compareVersions(a, b) {
+  const left = a.split('.');
+  const right = b.split('.');
+  for (let i = 0; ; i++) {
+    if (i >= left.length && i >= right.length) return 0;
+    if (i >= left.length) return -1;
+    if (i >= right.length) return 1;
+    const numeric = /^[0-9]+$/;
+    let order;
+    if (numeric.test(left[i]) && numeric.test(right[i])) {
+      const x = BigInt(left[i]);
+      const y = BigInt(right[i]);
+      order = x < y ? -1 : x > y ? 1 : 0;
+    } else {
+      order = left[i] < right[i] ? -1 : left[i] > right[i] ? 1 : 0;
+    }
+    if (order !== 0) return order;
+  }
+}
+
+/**
+ * The newest of a cartridge's installed version directories, by their names:
+ * dotted numbers compare as numbers (1.174.0 is newer than 1.99.0), anything
+ * else as text. Every host attaches this one and only this one, so what a
+ * roster shows for a cartridge is what a run uses. `null` for none.
+ *
+ * Mirrors capdag::cartridge_discovery::newest_version_dir.
+ *
+ * @param {Array<string>} versionDirs
+ * @returns {string|null}
+ */
+function newestVersionDir(versionDirs) {
+  const { path } = nodeModules('choosing a cartridge version');
+  let newest = null;
+  for (const dir of versionDirs) {
+    if (newest === null || compareVersions(path.basename(dir), path.basename(newest)) > 0) newest = dir;
+  }
+  return newest;
+}
+
+/**
+ * Why a cartridge whose cartridge.json reads as `cj`, installed in
+ * `versionDir`, is not attached under `terms` ({channel,
+ * fabricManifestVersion}); `null` when it may be. The one rule every host
+ * decides by: discovery's roster and a run that attaches the installed
+ * cartridge a cap needs both call it.
+ *
+ * Mirrors capdag::cartridge_discovery::refusal.
+ *
+ * @param {CartridgeJson} cj
+ * @param {string} versionDir
+ * @param {{channel: string, fabricManifestVersion: number}} terms
+ * @returns {{kind: string, message: string}|null}
+ */
+function cartridgeRefusal(cj, versionDir, terms) {
+  if (cj.channel !== terms.channel) {
+    return {
+      kind: CartridgeAttachmentErrorKind.MISPLACED,
+      message: `Channel mismatch: cartridge declares '${cj.channel}' but host is pinned to '${terms.channel}'. Release and nightly artefacts must not mix.`,
+    };
+  }
+
+  const bundled = cj.installedFrom === CartridgeInstallSource.BUNDLE;
+  if (cj.fabricManifestVersion !== terms.fabricManifestVersion) {
+    const ours = terms.fabricManifestVersion;
+    // What to do differs by where the cartridge came from, told as every host
+    // tells it: `installed_from: bundle` is the one provenance with meaning,
+    // and otherwise a registryUrl is a registry install and none a dev
+    // cartridge.
+    let remedy;
+    if (bundled) {
+      remedy = 'The build that bundled it is inconsistent: its bundle holds a cartridge for another fabric manifest.';
+    } else if (cj.registryUrl !== null && cj.registryUrl !== undefined) {
+      remedy = 'Remove it and install it again from its registry.';
+    } else {
+      remedy = `Rebuild it with MFR_FABRIC_MANIFEST_VERSION=${ours} and install it again.`;
+    }
+    return {
+      kind: CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH,
+      message: `${cj.name} ${cj.version} was installed for fabric manifest ${cj.fabricManifestVersion}, and this host reads fabric manifest ${ours}. ${remedy}`,
+    };
+  }
+
+  // Bundled-cartridge integrity. A cartridge marked installed_from=bundle is
+  // shipped INSIDE this build and has no upstream registry to verify against,
+  // so it needs its own integrity proof. Platform-split: on macOS the OS
+  // code-signature is the guard (baked-hash verification intentionally
+  // skipped); on non-macOS the on-disk directory must hash to the baked
+  // value, else BadInstallation.
+  if (bundled && process.platform !== 'darwin') {
+    const reason = verifyBundledCartridgeHash(cj.name, cj.version, versionDir);
+    if (reason !== null) {
+      return {
+        kind: CartridgeAttachmentErrorKind.MISPLACED,
+        message: `bundled cartridge integrity check failed: ${reason}`,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Discover every cartridge under `{cartridgesRoot}/{slug}/{channel}/`. Scans
  * EVERY registry folder present on disk (full parity) — the host's baked
  * `identity.registryUrl` does NOT restrict which folders are scanned; each
@@ -7869,13 +7980,7 @@ async function scanChannelRoot(scanRoot, slugDir, folder, folderError, identity,
     }
     if (versionDirs.length === 0) continue;
 
-    // Prefer the newest version (lexical-descending on the version folder name).
-    versionDirs.sort((a, b) => {
-      const va = path.basename(a);
-      const vb = path.basename(b);
-      return vb < va ? -1 : vb > va ? 1 : 0;
-    });
-    const versionDir = versionDirs[0];
+    const versionDir = newestVersionDir(versionDirs);
 
     const pathDerivedName = path.basename(nameDir);
     const pathDerivedVersion = path.basename(versionDir);
@@ -7925,63 +8030,20 @@ async function scanChannelRoot(scanRoot, slugDir, folder, folderError, identity,
       continue;
     }
 
-    if (cj.channel !== identity.channel) {
+    const refused = cartridgeRefusal(cj, versionDir, {
+      channel: identity.channel,
+      fabricManifestVersion: identity.fabricManifestVersion,
+    });
+    if (refused !== null) {
       discovered.push(DiscoveredCartridge.incompatible({
         version_dir: versionDir,
         id: cj.name,
         channel: cj.channel,
         registry_url: cj.registryUrl,
         version: cj.version,
-        error: new CartridgeAttachmentError(
-          CartridgeAttachmentErrorKind.MISPLACED,
-          `Channel mismatch: cartridge declares '${cj.channel}' but host is pinned to '${identity.channel}'. Release and nightly artefacts must not mix.`,
-          detectedAt
-        ),
+        error: new CartridgeAttachmentError(refused.kind, refused.message, detectedAt),
       }));
       continue;
-    }
-
-    if (cj.fabricManifestVersion !== identity.fabricManifestVersion) {
-      discovered.push(DiscoveredCartridge.incompatible({
-        version_dir: versionDir,
-        id: cj.name,
-        channel: cj.channel,
-        registry_url: cj.registryUrl,
-        version: cj.version,
-        error: new CartridgeAttachmentError(
-          CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH,
-          `Cartridge built against fabric manifest version ${cj.fabricManifestVersion}, but host is pinned to ${identity.fabricManifestVersion}. Rebuild the cartridge with MFR_FABRIC_MANIFEST_VERSION=${identity.fabricManifestVersion}.`,
-          detectedAt
-        ),
-      }));
-      continue;
-    }
-
-    // Bundled-cartridge integrity. A cartridge marked installed_from=bundle is
-    // shipped INSIDE this build and has no upstream registry to verify against,
-    // so it needs its own integrity proof. Platform-split: on macOS the OS
-    // code-signature is the guard (baked-hash verification intentionally
-    // skipped); on non-macOS the on-disk directory must hash to the baked
-    // value, else BadInstallation.
-    if (cj.installedFrom === CartridgeInstallSource.BUNDLE) {
-      if (process.platform !== 'darwin') {
-        const reason = verifyBundledCartridgeHash(cj.name, cj.version, versionDir);
-        if (reason !== null) {
-          discovered.push(DiscoveredCartridge.incompatible({
-            version_dir: versionDir,
-            id: cj.name,
-            channel: cj.channel,
-            registry_url: cj.registryUrl,
-            version: cj.version,
-            error: new CartridgeAttachmentError(
-              CartridgeAttachmentErrorKind.MISPLACED,
-              `bundled cartridge integrity check failed: ${reason}`,
-              detectedAt
-            ),
-          }));
-          continue;
-        }
-      }
     }
 
     const entryPoint = cj.resolveEntryPoint(versionDir);
@@ -12711,6 +12773,8 @@ export {
   DiscoveredCartridge,
   probeCartridgeCapGroups,
   discoverCartridges,
+  cartridgeRefusal,
+  newestVersionDir,
   // Registry charters
   CHARTER_FORMAT,
   CHARTER_FILE,

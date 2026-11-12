@@ -20,7 +20,7 @@ import {
   CartridgeInstallSource, Charter, CharterError, CharterErrorKind, RegistryKind, RegistryFolder,
   fetchCharter, readStoredCharter, storedCharterFor, DEV_SLUG, CHARTER_FILE, CHARTER_SIG_FILE,
   CartridgeJson, CartridgeJsonError, CartridgeJsonErrorKind, hashCartridgeDirectory,
-  DiscoveryIdentity, DiscoveredCartridge, discoverCartridges,
+  DiscoveryIdentity, DiscoveredCartridge, discoverCartridges, cartridgeRefusal, newestVersionDir,
   CartridgeAttachmentErrorKind, CartridgeChannel,
   RegistryVerdict, RegistryVerdictState, ChainFailureReason,
   REGISTRY_VERDICT_STATES, CHAIN_FAILURE_REASONS,
@@ -3051,6 +3051,65 @@ async function test13010_aSlugIsOneRegistrys() {
   await own.fetchRegistry(first);
   await own.fetchRegistry(second);
   assertEqual(own.charter(second).slug, 'second', 'a slug of its own is admitted');
+}
+
+// TEST1907: a cartridge's installed version is its newest, dotted numbers
+// compared as numbers: 1.174.414 is newer than 1.99.0, though it sorts before
+// it as text. Discovery shows that version, and a run uses it.
+async function test1907_theNewestVersionIsChosenByNumberNotText() {
+  const dirs = ['1.99.0', '1.174.414', '1.9.12', '1.174.9'].map(v => path.join('cart', v));
+  assertEqual(newestVersionDir(dirs), path.join('cart', '1.174.414'), 'the newest by number');
+  assertEqual(newestVersionDir([]), null, 'none for no directories');
+  const root = discoveryMakeTempRoot();
+  try {
+    for (const [version, manifest] of [['1.99.0', 1], ['1.174.414', 999]]) {
+      const json = JSON.stringify({
+        name: 'cart', version, channel: 'nightly', registry_url: null, entry: 'cart',
+        installed_at: '2024-01-01T00:00:00Z', fabric_manifest_version: manifest,
+      });
+      discoveryInstallFixture(root, 'dev', 'nightly', 'cart', version, json, 'cart');
+    }
+    const out = await discoverCartridges(root, new DiscoveryIdentity({ channel: 'nightly', registryUrl: null, fabricManifestVersion: 1, cartridgeRegistryVersion: 1 }));
+    // 1.174.414 is the one shown, and it is stamped for another manifest, so
+    // the cartridge is refused rather than 1.99.0 being probed.
+    discoveryExpectIncompatible(out, CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH);
+    assertEqual(out[0].version, '1.174.414', 'the newest version is the one shown');
+  } finally {
+    discoveryRemoveRoot(root);
+  }
+}
+
+// TEST1908: a cartridge stamped for another fabric manifest is refused naming
+// it, its version, its manifest and the host's, with the remedy that fits
+// where it came from: a registry install is installed again, a dev cartridge
+// rebuilt, and a bundled one means the build is wrong.
+function test1908_aManifestRefusalNamesBothManifestsAndTheRemedy() {
+  const terms = { channel: 'release', fabricManifestVersion: 13 };
+  const stamped = (installedFrom, registryUrl, fabricManifestVersion) => new CartridgeJson({
+    name: 'imagecartridge', version: '1.174.414', channel: 'release', registryUrl, entry: 'imagecartridge',
+    installedAt: '2024-01-01T00:00:00Z', installedFrom, fabricManifestVersion,
+  });
+  const dir = path.join('imagecartridge', '1.174.414');
+  assertEqual(cartridgeRefusal(stamped(CartridgeInstallSource.REGISTRY, CARTRIDGES_ANCHOR, 13), dir, terms), null,
+    'a cartridge stamped for this host is attached');
+  const refused = (installedFrom, registryUrl) => {
+    const r = cartridgeRefusal(stamped(installedFrom, registryUrl, 12), dir, terms);
+    assert(r !== null, 'stamped for 12, refused by a host at 13');
+    return r;
+  };
+  const installed = refused(CartridgeInstallSource.REGISTRY, CARTRIDGES_ANCHOR);
+  assertEqual(installed.kind, CartridgeAttachmentErrorKind.FABRIC_MANIFEST_VERSION_MISMATCH, 'the kind');
+  assertEqual(installed.message,
+    'imagecartridge 1.174.414 was installed for fabric manifest 12, and this host reads '
+    + 'fabric manifest 13. Remove it and install it again from its registry.', 'the message');
+  // Provenance other than `bundle` carries no meaning: a registryUrl is what
+  // makes it a registry install.
+  assertEqual(refused(null, CARTRIDGES_ANCHOR).message, installed.message, 'provenance aside from bundle is not read');
+  const rebuild = 'Rebuild it with MFR_FABRIC_MANIFEST_VERSION=13 and install it again.';
+  assert(refused(CartridgeInstallSource.DEV, null).message.endsWith(rebuild), 'a dev cartridge is rebuilt');
+  assert(refused(null, null).message.endsWith(rebuild), 'no registry is a dev cartridge');
+  assert(refused(CartridgeInstallSource.BUNDLE, CARTRIDGES_ANCHOR).message
+    .endsWith('its bundle holds a cartridge for another fabric manifest.'), 'a bundled one is the build\'s');
 }
 
 // TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in
@@ -7601,6 +7660,8 @@ async function runTests() {
   await runTest('TEST13005: a_cartridge_registry_is_read_through_its_charter', test13005_aCartridgeRegistryIsReadThroughItsCharter);
   await runTest('TEST13010: a_slug_is_one_registrys', test13010_aSlugIsOneRegistrys);
   await runTest('TEST1878: bundled_cartridge_without_baked_hash_is_rejected', test1878_bundledCartridgeWithoutBakedHashIsRejected);
+  await runTest('TEST1907: the_newest_version_is_chosen_by_number_not_text', test1907_theNewestVersionIsChosenByNumberNotText);
+  runTest('TEST1908: a_manifest_refusal_names_both_manifests_and_the_remedy', test1908_aManifestRefusalNamesBothManifestsAndTheRemedy);
 
   // media_urn.rs: TEST1312-TEST1315, TEST1298-TEST1302 (MediaUrn predicates)
   console.log('\n--- media_urn.rs (predicates) ---');
