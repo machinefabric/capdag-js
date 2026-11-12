@@ -6291,6 +6291,30 @@ function _validChannel(c) {
  * `CartridgeInfo` returned carries the channel it came from so consumers
  * can render the release/nightly distinction without re-deriving.
  */
+/**
+ * Order two cartridge version strings by their dotted numeric parts; a
+ * missing part, or one that is not a number, counts as 0. The one order
+ * cartridge versions have: the registry's latest, and the installed version a
+ * host attaches (newestVersionDir).
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function compareVersions(a, b) {
+  const partsA = a.split('.').map(x => parseInt(x) || 0);
+  const partsB = b.split('.').map(x => parseInt(x) || 0);
+
+  for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+    const numA = partsA[i] || 0;
+    const numB = partsB[i] || 0;
+    if (numA !== numB) {
+      return numA - numB;
+    }
+  }
+  return 0;
+}
+
 class CartridgeRepoServer {
   constructor(registry) {
     this.registry = registry;
@@ -6346,20 +6370,6 @@ class CartridgeRepoServer {
     }
   }
 
-  compareVersions(a, b) {
-    const partsA = a.split('.').map(x => parseInt(x) || 0);
-    const partsB = b.split('.').map(x => parseInt(x) || 0);
-
-    for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-      const numA = partsA[i] || 0;
-      const numB = partsB[i] || 0;
-      if (numA !== numB) {
-        return numA - numB;
-      }
-    }
-    return 0;
-  }
-
   /**
    * Convert one channel-entry into a flat CartridgeInfo. Throws if the
    * entry's `latestVersion` is not present in `versions` or if the
@@ -6373,7 +6383,7 @@ class CartridgeRepoServer {
     }
     this.validateVersionData(channel, id, latestVersion, versionData);
 
-    const availableVersions = Object.keys(cartridge.versions).sort((a, b) => this.compareVersions(b, a));
+    const availableVersions = Object.keys(cartridge.versions).sort((a, b) => compareVersions(b, a));
 
     if (!Array.isArray(cartridge.cap_groups)) {
       throw new Error(`Cartridge ${id} (${channel}): missing cap_groups array`);
@@ -7776,38 +7786,9 @@ function probeCartridgeCapGroups(entryPath) {
 }
 
 /**
- * Order two version strings: part by dotted part, numerically where both
- * parts are numbers, as text otherwise; a version that runs out of parts
- * first is the older.
- *
- * @param {string} a
- * @param {string} b
- * @returns {number}
- */
-function compareVersions(a, b) {
-  const left = a.split('.');
-  const right = b.split('.');
-  for (let i = 0; ; i++) {
-    if (i >= left.length && i >= right.length) return 0;
-    if (i >= left.length) return -1;
-    if (i >= right.length) return 1;
-    const numeric = /^[0-9]+$/;
-    let order;
-    if (numeric.test(left[i]) && numeric.test(right[i])) {
-      const x = BigInt(left[i]);
-      const y = BigInt(right[i]);
-      order = x < y ? -1 : x > y ? 1 : 0;
-    } else {
-      order = left[i] < right[i] ? -1 : left[i] > right[i] ? 1 : 0;
-    }
-    if (order !== 0) return order;
-  }
-}
-
-/**
- * The newest of a cartridge's installed version directories, by their names:
- * dotted numbers compare as numbers (1.174.0 is newer than 1.99.0), anything
- * else as text. Every host attaches this one and only this one, so what a
+ * The newest of a cartridge's installed version directories, by their names,
+ * in the order the registry gives versions (compareVersions: dotted numbers
+ * compared as numbers, so 1.174.0 is newer than 1.99.0). Every host attaches this one and only this one, so what a
  * roster shows for a cartridge is what a run uses. `null` for none.
  *
  * Mirrors capdag::cartridge_discovery::newest_version_dir.
