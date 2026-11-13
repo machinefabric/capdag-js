@@ -57,6 +57,7 @@ import {
   CapDefinitions,
   parseMachine,
   machineFromCapPath,
+  MachineAbstractionError, MachineAbstractionErrorCodes, MachineSyntaxError, MachineSyntaxErrorCodes,
 } from './capdag.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -4475,7 +4476,19 @@ async function fakeRegistry(change = () => {}) {
     const body = objects.get(bare);
     return { status: 200, ok: true, json: async () => JSON.parse(JSON.stringify(body)) };
   };
-  return { client: new FabricRegistryClient(REGISTRY, 8, { fetch }), asked, goOffline: () => { offline = true; } };
+  return { client: new FabricRegistryClient(REGISTRY, 8, { fetch }), fetch, asked, goOffline: () => { offline = true; } };
+}
+
+/** A synchronous lookup that throws the FabricRegistryError of `code`. */
+function notHeld(lookup, code, what) {
+  try {
+    lookup();
+  } catch (error) {
+    assert(error instanceof FabricRegistryError, `${what}: ${error.stack}`);
+    assertEqual(error.code, code, `${what}: ${error.message}`);
+    return error;
+  }
+  throw new Error(`Assertion failed: ${what}: expected the lookup to say why it is not held`);
 }
 
 async function refusedRegistry(promise, code, what) {
@@ -4489,13 +4502,204 @@ async function refusedRegistry(promise, code, what) {
   throw new Error(`Assertion failed: ${what}: expected a refusal`);
 }
 
+// ---------------------------------------------------------------------------
+// A fetch the registry refused, or did not answer, is reported as itself — the
+// URL, the status and the manifest version — and never as a definition the
+// registry does not have.
+// ---------------------------------------------------------------------------
+
+/**
+ * A client over the fake registry whose answer to every URL `matches` picks
+ * is `answer` — an HTTP status, or 'timeout' for a fetch that gets none.
+ */
+async function answeringRegistry(answer, matches = url => url.includes('/defs/')) {
+  const { fetch } = await fakeRegistry();
+  const asked = [];
+  const answering = async url => {
+    if (!matches(url)) return fetch(url);
+    asked.push(url);
+    if (answer === 'timeout') {
+      const error = new Error('The operation timed out.');
+      error.name = 'TimeoutError';
+      throw error;
+    }
+    return { status: answer, ok: answer >= 200 && answer < 300, json: async () => ({}) };
+  };
+  return { client: new FabricRegistryClient(REGISTRY, 8, { fetch: answering }), asked };
+}
+
+const isManifest = url => url.endsWith('/snapshots/8.json');
+
+// TEST7167: a manifest fetch the registry refuses (403) is reported as the
+// refusal — the URL, the status and the manifest version — and not as a
+// manifest that is not found.
+async function test7167_aRefusedManifestFetchIsReportedAsTheRefusal() {
+  const { client, asked } = await answeringRegistry(403, isManifest);
+  const error = await refusedRegistry(client.manifest(), FabricRegistryErrorCodes.FETCH_FAILED, 'a refused manifest');
+  assertEqual(error.what, 'manifest v8', 'what was fetched');
+  assertEqual(error.url, `${REGISTRY}/snapshots/8.json`, 'where');
+  assertEqual(error.manifestVersion, 8, 'for which manifest');
+  assertEqual(error.cause, 'status', 'the registry answered');
+  assertEqual(error.httpStatus, 403, 'with 403');
+  for (const part of ['refused', 'HTTP 403', error.url, 'fabric manifest v8']) {
+    assert(error.message.includes(part), `'${part}' is missing from: ${error.message}`);
+  }
+  assert(!error.message.toLowerCase().includes('not found'), error.message);
+  assertEqual(asked.length, 1, 'asked once');
+}
+
+// TEST7168: a manifest the registry answers 404 for is the registry's word
+// that it has no such manifest: NotFound, naming the URL and the status.
+async function test7168_aManifestTheRegistryDoesNotHaveIsNotFound() {
+  const { client } = await answeringRegistry(404, isManifest);
+  const error = await refusedRegistry(client.manifest(), FabricRegistryErrorCodes.NOT_FOUND, 'an absent manifest');
+  assert(error.message.includes('HTTP 404') && error.message.includes(`${REGISTRY}/snapshots/8.json`), error.message);
+}
+
+// TEST7169: a refused fetch of a cap, a media def, an alias or a dim is
+// reported as the refusal, each with its own URL, the status and the manifest
+// version it was fetched for.
+async function test7169_aRefusedDefinitionFetchIsReportedAsTheRefusal() {
+  const { client, asked } = await answeringRegistry(403);
+  const fetches = [
+    [client.getCap(EXTRACT_URN), `cap '${EXTRACT_URN}'`],
+    [client.getMediaDef(PDF), `media definition '${MediaUrn.fromString(PDF).toString()}'`],
+    [client.getAlias('extract'), "alias 'extract'"],
+    [client.getDim('language'), "dim 'language'"],
+  ];
+  for (const [fetching, what] of fetches) {
+    const error = await refusedRegistry(fetching, FabricRegistryErrorCodes.FETCH_FAILED, what);
+    assertEqual(error.what, what, 'what was fetched');
+    assertEqual(error.httpStatus, 403, `${what}: the status`);
+    assertEqual(error.manifestVersion, 8, `${what}: the manifest`);
+    assertEqual(asked.filter(url => url === error.url).length, 1, `${what} was fetched from ${error.url}`);
+    assert(error.message.includes(error.url) && error.message.includes('403'), error.message);
+  }
+}
+
+// TEST7170: a registry that answers 503 is reported with the 503 — never as a
+// missing definition. (This mirror has no retry layer: the reference asks a
+// 503 again before it reports it.)
+async function test7170_aRegistryThatKeepsFailingIsReportedWithItsStatus() {
+  const { client } = await answeringRegistry(503);
+  const error = await refusedRegistry(client.getMediaDef(PDF), FabricRegistryErrorCodes.FETCH_FAILED, 'a 503');
+  assertEqual(error.httpStatus, 503, 'the status');
+}
+
+// TEST7171: a registry that does not answer is reported as a fetch that timed
+// out, with the URL and the manifest version.
+async function test7171_aRegistryThatDoesNotAnswerIsReportedAsATimeout() {
+  const { client } = await answeringRegistry('timeout');
+  const error = await refusedRegistry(client.getMediaDef(PDF), FabricRegistryErrorCodes.FETCH_FAILED, 'no answer');
+  assertEqual(error.cause, 'timed_out', 'timed out');
+  assertEqual(error.manifestVersion, 8, 'the manifest');
+  assert(error.message.includes('timed out') && error.message.includes(error.url), error.message);
+}
+
+// TEST7172: a definition the registry answers 404 for is the registry's word
+// that it does not have it, and only that is NotFound.
+async function test7172_aDefinitionTheRegistryDoesNotHaveIsNotFound() {
+  const { client } = await answeringRegistry(404);
+  for (const fetching of [client.getCap(EXTRACT_URN), client.getMediaDef(PDF), client.getAlias('extract')]) {
+    const error = await refusedRegistry(fetching, FabricRegistryErrorCodes.NOT_FOUND, 'an absent definition');
+    assert(error.message.includes('HTTP 404') && error.message.includes(REGISTRY), error.message);
+  }
+}
+
+// TEST7173: the synchronous lookups report a refused fetch as the refusal,
+// where they used to come back empty — and answer that a definition the
+// manifest does not name is not there.
+async function test7173_aSynchronousLookupReportsARefusedFetch() {
+  const { client } = await answeringRegistry(403);
+  await refusedRegistry(client.getMediaDef(PDF), FabricRegistryErrorCodes.FETCH_FAILED, 'refused media');
+  await refusedRegistry(client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.FETCH_FAILED, 'refused cap');
+  assertEqual(notHeld(() => client.mediaDefinition(PDF), FabricRegistryErrorCodes.FETCH_FAILED, 'the media lookup').httpStatus, 403, 'with its status');
+  assertEqual(notHeld(() => client.capDefinition(EXTRACT_URN), FabricRegistryErrorCodes.FETCH_FAILED, 'the cap lookup').httpStatus, 403, 'with its status');
+  assertEqual(client.mediaDefinition('media:named-by-no-manifest'), null, 'a media def the manifest does not name');
+}
+
+// TEST7174: a machine whose cap alias the registry refused to serve fails
+// with the refusal, never as an undefined alias; an alias the registry does
+// not have is still undefined.
+async function test7174_aRefusedAliasIsReportedAsTheRefusalNotAsUndefined() {
+  const { client } = await answeringRegistry(403);
+  await refusedRegistry(client.getAlias('extract'), FabricRegistryErrorCodes.FETCH_FAILED, 'refused alias');
+  let caught = null;
+  try {
+    parseMachine('[doc -> extract -> text]', client);
+  } catch (error) {
+    caught = error;
+  }
+  assert(caught instanceof MachineAbstractionError, `a resolution error: ${caught && caught.stack}`);
+  assertEqual(caught.code, MachineAbstractionErrorCodes.DEFINITION_UNAVAILABLE, caught.message);
+  assertEqual(caught.urn, 'extract', 'the alias');
+  assertEqual(caught.error.httpStatus, 403, 'the refusal it carries');
+  for (const part of ['refused', '403', 'extract', 'fabric manifest v8', REGISTRY]) {
+    assert(caught.message.includes(part), `'${part}' is missing from: ${caught.message}`);
+  }
+  let undefinedAlias = null;
+  try {
+    parseMachine('[doc -> named-by-no-manifest -> text]', client);
+  } catch (error) {
+    undefinedAlias = error;
+  }
+  assert(undefinedAlias instanceof MachineSyntaxError && undefinedAlias.code === MachineSyntaxErrorCodes.UNDEFINED_ALIAS,
+    `an undefined alias: ${undefinedAlias && undefinedAlias.stack}`);
+}
+
+// TEST7175: what a fetch came to is kept: a lookup that never fetches reports
+// the refusal the fetch got, says a definition that has not been fetched is
+// pending, and finds an alias the manifest does not name to be no alias.
+async function test7175_aRefusedFetchIsRememberedByLookupsThatCannotWait() {
+  const { client } = await answeringRegistry(403);
+  notHeld(() => client.aliasTarget('extract'), FabricRegistryErrorCodes.PENDING, 'not fetched yet');
+  await client.manifest();
+  notHeld(() => client.mediaDefinition(PDF), FabricRegistryErrorCodes.PENDING, 'not fetched yet');
+  await refusedRegistry(client.getAlias('extract'), FabricRegistryErrorCodes.FETCH_FAILED, 'refused alias');
+  const refusal = notHeld(() => client.aliasTarget('extract'), FabricRegistryErrorCodes.FETCH_FAILED, 'remembered');
+  assertEqual(refusal.httpStatus, 403, 'with its status');
+  assertEqual(client.aliasTarget('named-by-no-manifest'), null, 'no alias by that name');
+}
+
+// TEST7176: a constant whose arg's media definition is in the registry, and
+// whose fetch the registry refused, is reported as the refusal — the URL, the
+// status and the manifest version — not as a definition that is not
+// available.
+async function test7176_aConstantWhoseDefinitionWasRefusedReportsTheRefusal() {
+  const { client } = await fakeRegistry();
+  await client.loadAll();
+  const refusal = await refusedRegistry((await answeringRegistry(403)).client.getMediaDef(PAGES),
+    FabricRegistryErrorCodes.FETCH_FAILED, 'the page limit refused');
+  // The cap is held, and its page limit's definition is what the registry
+  // refused.
+  const definitions = {
+    capDefinition: urn => client.capDefinition(urn),
+    aliasTarget: name => client.aliasTarget(name),
+    mediaDefinition: urn => {
+      if (MediaUrn.fromString(urn).isEquivalent(MediaUrn.fromString(PAGES))) throw refusal;
+      return client.mediaDefinition(urn);
+    },
+  };
+  let caught = null;
+  try {
+    parseMachine('[(document=doc, max_pages=20) -> extract -> text]', definitions);
+  } catch (error) {
+    caught = error;
+  }
+  assert(caught instanceof MachineAbstractionError, `a resolution error: ${caught && caught.stack}`);
+  assertEqual(caught.code, MachineAbstractionErrorCodes.DEFINITION_UNAVAILABLE, caught.message);
+  assertEqual(caught.error, refusal, 'the refusal it carries');
+  assert(!caught.message.includes('not available'), caught.message);
+  assert(caught.message.includes('refused') && caught.message.includes('403'), caught.message);
+}
+
 // TEST6467: a cap is read from its versioned address, held to the definition
 // rules, and cached together with every media definition it names; after
 // that the client answers synchronously, as the definitions a machine is
 // parsed against.
 async function test6467_registryReadsACapWithEveryMediaItNames() {
   const { client, asked } = await fakeRegistry();
-  assertEqual(client.capDefinition(EXTRACT_URN), null, 'nothing before a fetch');
+  notHeld(() => client.capDefinition(EXTRACT_URN), FabricRegistryErrorCodes.PENDING, 'nothing before a fetch');
   // Any spelling of the URN finds the one definition.
   const cap = await client.getCap(`cap:extract;out="${TEXT}";in="${PDF}"`);
   assertEqual(cap.title, 'Extract Text', 'the cap');
@@ -4520,11 +4724,11 @@ async function test6467_registryReadsACapWithEveryMediaItNames() {
   // A cap whose definition breaks a rule is refused where it is read, and not held.
   const broken = await fakeRegistry(served => { served.cap.args[1].name = 'max pages'; });
   await refusedRegistry(broken.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.VALIDATION, 'a definition that breaks a rule');
-  assertEqual(broken.client.capDefinition(EXTRACT_URN), null, 'not held');
+  notHeld(() => broken.client.capDefinition(EXTRACT_URN), FabricRegistryErrorCodes.VALIDATION, 'not held');
   // A cap one of whose media cannot be read is not held either.
   const lost = await fakeRegistry(served => { delete served.manifest.media[MediaUrn.fromString(PAGES).toString()]; });
   await refusedRegistry(lost.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.NOT_FOUND, 'a media definition the manifest does not name');
-  assertEqual(lost.client.capDefinition(EXTRACT_URN), null, 'a cap without its media is not held');
+  notHeld(() => lost.client.capDefinition(EXTRACT_URN), FabricRegistryErrorCodes.NOT_FOUND, 'a cap without its media is not held');
   // A definition that says another version than the manifest pins is not it.
   const stale = await fakeRegistry(served => { served.cap.version = 2; });
   await refusedRegistry(stale.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.PARSE, 'another version');
@@ -4603,7 +4807,7 @@ async function test6470_registryAliasesAndMachinesReadAgainstIt() {
   assertThrowsMessage(() => parseMachine('[(document=doc, max_pages=0) -> extract -> text]', whole), 'minimum value 1', 'the rules hold');
   assert(JSON.parse(machine.toRenderPayloadJson(whole)).strands[0].nodes.every(node => node.title.length > 0), 'titles from the registry');
   whole.invalidate();
-  assertEqual(whole.capDefinition(EXTRACT_URN), null, 'forgotten');
+  notHeld(() => whole.capDefinition(EXTRACT_URN), FabricRegistryErrorCodes.PENDING, 'forgotten');
 }
 
 // ============================================================================
@@ -7193,14 +7397,15 @@ async function test1970_mediaDefDimsSurviveAndRefuseUnknownKeys() {
 async function test1971_definitionsAreHeldOnlyWithTheirPinnedDims() {
   const naming = served => { served.cap.dims = [{ dim: 'language', value: 'en' }]; };
   const stale = await fakeRegistry(served => { naming(served); served.dims.language.version = 2; });
-  const error = await refusedRegistry(stale.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.NOT_FOUND, 'a cap whose dim is at another version');
-  assert(error.message.includes(`cap '${EXTRACT_URN}' names dim 'language', which could not be fetched`) && error.message.includes('manifest pins defver 1'), error.message);
+  // The dim's own refusal, as it is: another version is not the dim asked for.
+  const error = await refusedRegistry(stale.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.PARSE, 'a cap whose dim is at another version');
+  assert(error.message.includes("dim 'language'") && error.message.includes('manifest pins defver 1'), error.message);
   assertEqual(stale.client.getCachedDim('language'), null, 'the dim at another version is not held');
-  assertEqual(stale.client.capDefinition(EXTRACT_URN), null, 'nor the cap naming it');
+  notHeld(() => stale.client.capDefinition(EXTRACT_URN), FabricRegistryErrorCodes.PARSE, 'nor the cap naming it');
 
   const staleMedia = await fakeRegistry(served => { served.media[TEXT].dims = [{ dim: 'medium', value: 'text' }]; served.dims.medium.version = 1; });
-  await refusedRegistry(staleMedia.client.getMediaDef(TEXT), FabricRegistryErrorCodes.NOT_FOUND, 'a media def whose dim is at another version');
-  assertEqual(staleMedia.client.mediaDefinition(TEXT), null, 'nor the media def naming it');
+  await refusedRegistry(staleMedia.client.getMediaDef(TEXT), FabricRegistryErrorCodes.PARSE, 'a media def whose dim is at another version');
+  notHeld(() => staleMedia.client.mediaDefinition(TEXT), FabricRegistryErrorCodes.PARSE, 'nor the media def naming it');
 
   const { client } = await fakeRegistry(naming);
   await client.getCap(EXTRACT_URN);
@@ -7226,18 +7431,18 @@ async function test1972_aDefinitionNeedsEveryDimItNames() {
   const fr = await fakeRegistry(served => { served.cap.dims = [{ dim: 'language', value: 'fr' }]; });
   let error = await refusedRegistry(fr.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.VALIDATION, 'a value the dim lacks');
   assertEqual(error.message, `cap '${EXTRACT_URN}' names value 'fr' of dim 'language', which the dim does not declare`, 'names all three');
-  assertEqual(fr.client.capDefinition(EXTRACT_URN), null, 'not held');
+  notHeld(() => fr.client.capDefinition(EXTRACT_URN), FabricRegistryErrorCodes.VALIDATION, 'not held');
 
   const tone = await fakeRegistry(served => { served.cap.dims = [{ dim: 'tone', value: 'formal' }]; });
   error = await refusedRegistry(tone.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.NOT_FOUND, 'a dim the manifest lacks');
   assertEqual(error.message, `cap '${EXTRACT_URN}' names dim 'tone', which is not in manifest v8`, 'names the definition, the dim and the manifest');
   assert(!tone.asked.some(url => url.includes('/dims/')), 'no dim fetched');
-  assertEqual(tone.client.capDefinition(EXTRACT_URN), null, 'not held');
+  notHeld(() => tone.client.capDefinition(EXTRACT_URN), FabricRegistryErrorCodes.NOT_FOUND, 'not held');
 
   const media = await fakeRegistry(served => { served.media[PDF].dims = [{ dim: 'language', value: 'fr' }]; });
   error = await refusedRegistry(media.client.getMediaDef(PDF), FabricRegistryErrorCodes.VALIDATION, 'a media def with a value the dim lacks');
   assertEqual(error.message, `media def '${MediaUrn.fromString(PDF).toString()}' names value 'fr' of dim 'language', which the dim does not declare`, 'a media def alike');
-  assertEqual(media.client.mediaDefinition(PDF), null, 'the media def is not held');
+  notHeld(() => media.client.mediaDefinition(PDF), FabricRegistryErrorCodes.VALIDATION, 'the media def is not held');
 
   const twice = await fakeRegistry(served => { served.cap.dims = [{ dim: 'language', value: 'en' }, { dim: 'language', value: 'en' }]; });
   error = await refusedRegistry(twice.client.getCap(EXTRACT_URN), FabricRegistryErrorCodes.PARSE, 'one dim named twice');
@@ -7773,6 +7978,16 @@ async function runTests() {
   await runTest('TEST6468: registry_reads_a_media_definition_strictly', test6468_registryReadsAMediaDefinitionStrictly);
   await runTest('TEST6469: registry_is_pinned_to_one_manifest', test6469_registryIsPinnedToOneManifest);
   await runTest('TEST6470: registry_aliases_and_machines_read_against_it', test6470_registryAliasesAndMachinesReadAgainstIt);
+  await runTest('TEST7167: a_refused_manifest_fetch_is_reported_as_the_refusal', test7167_aRefusedManifestFetchIsReportedAsTheRefusal);
+  await runTest('TEST7168: a_manifest_the_registry_does_not_have_is_not_found', test7168_aManifestTheRegistryDoesNotHaveIsNotFound);
+  await runTest('TEST7169: a_refused_definition_fetch_is_reported_as_the_refusal', test7169_aRefusedDefinitionFetchIsReportedAsTheRefusal);
+  await runTest('TEST7170: a_registry_that_keeps_failing_is_reported_with_its_status', test7170_aRegistryThatKeepsFailingIsReportedWithItsStatus);
+  await runTest('TEST7171: a_registry_that_does_not_answer_is_reported_as_a_timeout', test7171_aRegistryThatDoesNotAnswerIsReportedAsATimeout);
+  await runTest('TEST7172: a_definition_the_registry_does_not_have_is_not_found', test7172_aDefinitionTheRegistryDoesNotHaveIsNotFound);
+  await runTest('TEST7173: a_synchronous_lookup_reports_a_refused_fetch', test7173_aSynchronousLookupReportsARefusedFetch);
+  await runTest('TEST7174: a_refused_alias_is_reported_as_the_refusal_not_as_undefined', test7174_aRefusedAliasIsReportedAsTheRefusalNotAsUndefined);
+  await runTest('TEST7175: a_refused_fetch_is_remembered_by_lookups_that_cannot_wait', test7175_aRefusedFetchIsRememberedByLookupsThatCannotWait);
+  await runTest('TEST7176: a_constant_whose_definition_was_refused_reports_the_refusal', test7176_aConstantWhoseDefinitionWasRefusedReportsTheRefusal);
 
   // cap-fab-renderer pure helpers (no DOM dependency)
   console.log('\n--- cap-fab-renderer helpers ---');

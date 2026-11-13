@@ -8397,6 +8397,13 @@ class MachineAbstractionError extends Error {
 const MachineAbstractionErrorCodes = Object.freeze({
   NO_CAPABILITY_STEPS: 'NoCapabilitySteps',
   UNKNOWN_CAP: 'UnknownCap',
+  /**
+   * A definition the machine needs is in the registry and could not be had
+   * from it: its fetch was refused or got no answer, or it is not fetched
+   * yet. `error` is the registry's account. Never raised for a definition the
+   * registry does not hold.
+   */
+  DEFINITION_UNAVAILABLE: 'DefinitionUnavailable',
   UNMATCHED_SOURCE_IN_CAP_ARGS: 'UnmatchedSourceInCapArgs',
   AMBIGUOUS_MACHINE_NOTATION: 'AmbiguousMachineNotation',
   CYCLIC_MACHINE_STRAND: 'CyclicMachineStrand',
@@ -8461,11 +8468,31 @@ const atStatement = (code, position, message, fields) => new MachineAbstractionE
   code, `statement ${position}: ${message}`, { position, ...fields });
 const AE = MachineAbstractionErrorCodes;
 
+/**
+ * `lookup(urn)`, a synchronous lookup of a definition: the definition;
+ * `absent()`, thrown, when the definitions hold none; and DEFINITION_UNAVAILABLE
+ * carrying the registry's account when the registry could not give it.
+ */
+function lookupDefinition(lookup, urn, absent) {
+  let found;
+  try {
+    found = lookup(urn);
+  } catch (error) {
+    if (error instanceof FabricRegistryError) throw abstractionError.definitionUnavailable(urn, error);
+    throw error;
+  }
+  if (found === null || found === undefined) throw absent();
+  return found;
+}
+
 const abstractionError = Object.freeze({
   noCapabilitySteps: () => new MachineAbstractionError(
     AE.NO_CAPABILITY_STEPS, 'strand or wiring set contains no capability steps'),
   unknownCap: capUrn => new MachineAbstractionError(
     AE.UNKNOWN_CAP, `cap URN '${capUrn}' is not in the cap registry cache`, { capUrn }),
+  definitionUnavailable: (urn, error) => new MachineAbstractionError(
+    AE.DEFINITION_UNAVAILABLE,
+    `the definition of '${urn}' could not be had from the registry: ${error.message}`, { urn, error }),
   unmatchedSourceInCapArgs: (strandIndex, capUrn, sourceUrn) => new MachineAbstractionError(
     AE.UNMATCHED_SOURCE_IN_CAP_ARGS,
     `in strand ${strandIndex}, cap '${capUrn}': source URN '${sourceUrn}' does not conform to any of the cap's input arguments`,
@@ -9853,10 +9880,10 @@ function checkConstant(definitions, capUrn, arg, value, strandIndex) {
     strandIndex, capUrn, arg.name, constantText(value), reason);
   // Without the definition there is nothing to hold the constant to, and a
   // constant nobody checked is not bound.
-  const definition = definitions.mediaDefinition(arg.media_urn);
-  if (definition === null) {
-    throw refused(`the media definition of '${arg.media_urn}' is not available, so the constant cannot be validated`);
-  }
+  // The constant is refused only when the definitions hold no such
+  // definition; one the registry could not give is reported as what kept it.
+  const definition = lookupDefinition(urn => definitions.mediaDefinition(urn), arg.media_urn,
+    () => refused(`the media definition of '${arg.media_urn}' is not available, so the constant cannot be validated`));
   if (definition.validation !== null && definition.validation !== undefined) {
     let rule;
     try {
@@ -10137,8 +10164,8 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
   const wiringOutputs = [];
   for (const wiring of wirings) {
     const capUrn = wiring.capUrn.toString();
-    const definition = definitions.capDefinition(capUrn);
-    if (definition === null) throw abstractionError.unknownCap(capUrn);
+    const definition = lookupDefinition(urn => definitions.capDefinition(urn), capUrn,
+      () => abstractionError.unknownCap(capUrn));
     defs.push(definition);
     const outputs = [];
     for (const target of wiring.targets) {
@@ -10626,8 +10653,8 @@ function giveMedia(nodeMedia, node, media) {
 function typeNodes(wirings, aliasMap, machines, includedMedia, definitions, strandIndex) {
   const capOf = wiring => {
     const capUrn = aliasMap.get(wiring.capAlias).capUrn;
-    const definition = definitions.capDefinition(capUrn.toString());
-    if (definition === null) throw abstractionError.unknownCap(capUrn.toString());
+    const definition = lookupDefinition(urn => definitions.capDefinition(urn), capUrn.toString(),
+      () => abstractionError.unknownCap(capUrn.toString()));
     return [capUrn, definition];
   };
   const media = text => mustMedia(text, "a definition's media URNs");
@@ -11015,7 +11042,17 @@ function parseProgram(input, definitions, source, id, including) {
     const name = wiring.capAlias;
     if (aliasMap.has(name) || machines.has(name) || seenUnresolved.has(name)) continue;
     seenUnresolved.add(name);
-    const target = typeof definitions.aliasTarget === 'function' ? definitions.aliasTarget(name) : null;
+    // No alias by this name → the undefined-alias error. An alias the
+    // registry has and could not give is reported as what kept it.
+    let target = null;
+    if (typeof definitions.aliasTarget === 'function') {
+      try {
+        target = definitions.aliasTarget(name);
+      } catch (error) {
+        if (error instanceof FabricRegistryError) throw abstractionError.definitionUnavailable(name, error);
+        throw error;
+      }
+    }
     if (target === null || target === undefined) continue;
     let resolved;
     try {
@@ -11345,13 +11382,13 @@ Machine.prototype.toRenderPayloadJson = function toRenderPayloadJson(definitions
   if (this.isEmpty()) return '{"strands":[]}';
   const plans = serializationPlan(this, null);
   const mediaTitle = urn => {
-    const found = definitions.mediaDefinition(urn);
-    if (found === null || typeof found.title !== 'string') throw abstractionError.uncachedMediaDef(urn);
+    const found = lookupDefinition(u => definitions.mediaDefinition(u), urn, () => abstractionError.uncachedMediaDef(urn));
+    if (typeof found.title !== 'string') throw abstractionError.uncachedMediaDef(urn);
     return found.title;
   };
   const capDefinition = urn => {
-    const found = definitions.capDefinition(urn);
-    if (found === null || typeof found.title !== 'string') throw abstractionError.uncachedCap(urn);
+    const found = lookupDefinition(u => definitions.capDefinition(u), urn, () => abstractionError.uncachedCap(urn));
+    if (typeof found.title !== 'string') throw abstractionError.uncachedCap(urn);
     return found;
   };
   const text = value => JSON.stringify(value);
@@ -11464,10 +11501,23 @@ async function sha256Hex(s) {
 }
 
 const FabricRegistryErrorCodes = Object.freeze({
-  /** The registry holds no such object, or the manifest names no such definition. */
+  /**
+   * The registry's answer is that it does not hold the definition: the pinned
+   * manifest does not name it, or the registry answered 404 (or 410) for it.
+   * Nothing else is reported as a missing definition.
+   */
   NOT_FOUND: 'NotFound',
-  /** The registry could not be reached, or answered with an error status. */
-  HTTP: 'Http',
+  /**
+   * A fetch brought back no body: the registry refused it, or did not answer.
+   * The error carries `what`, `url`, `manifestVersion` and `cause` (`status`,
+   * with `httpStatus`; `timed_out`; or `transport`, with `detail`).
+   */
+  FETCH_FAILED: 'FetchFailed',
+  /**
+   * The pinned manifest names the definition, it is not held, and it has not
+   * been fetched. Only a synchronous lookup, which never fetches, says this.
+   */
+  PENDING: 'Pending',
   /** What the registry served is not the object it was asked for. */
   PARSE: 'Parse',
   /** What the registry served breaks a definition rule. */
@@ -11478,11 +11528,44 @@ const FabricRegistryErrorCodes = Object.freeze({
 
 /** Why the fabric registry did not give a definition. */
 class FabricRegistryError extends Error {
-  constructor(code, message) {
+  /**
+   * @param {string} code - One of FabricRegistryErrorCodes
+   * @param {string} message
+   * @param {Object} [fields] - What the error is about, by name
+   */
+  constructor(code, message, fields = {}) {
     super(message);
     this.name = 'FabricRegistryError';
     this.code = code;
+    Object.assign(this, fields);
   }
+}
+
+/** Why a fetch from the registry brought back no body. */
+const FetchCause = Object.freeze({
+  /** The registry answered with a status that is neither a success nor 404/410. */
+  STATUS: 'status',
+  /** The registry did not answer in time. */
+  TIMED_OUT: 'timed_out',
+  /** The request could not be made or its answer could not be read. */
+  TRANSPORT: 'transport',
+});
+
+/**
+ * A fetch of `what` at `url`, made for fabric manifest `manifestVersion`, that
+ * brought back no body — said as itself, never as a missing definition.
+ */
+function fetchFailed(what, url, manifestVersion, cause, { httpStatus = null, detail = null } = {}) {
+  let message;
+  if (cause === FetchCause.STATUS) {
+    message = `the registry refused the fetch of ${what} for fabric manifest v${manifestVersion}: HTTP ${httpStatus} from ${url}`;
+  } else if (cause === FetchCause.TIMED_OUT) {
+    message = `the registry did not answer the fetch of ${what} for fabric manifest v${manifestVersion}: the request to ${url} timed out`;
+  } else {
+    message = `the fetch of ${what} for fabric manifest v${manifestVersion} from ${url} failed: ${detail}`;
+  }
+  return new FabricRegistryError(FabricRegistryErrorCodes.FETCH_FAILED, message,
+    { what, url, manifestVersion, cause, httpStatus, detail });
 }
 
 const isPositiveWhole = value => Number.isInteger(value) && value >= 1;
@@ -11659,6 +11742,10 @@ class FabricRegistryClient {
     // A fetch under way, by what it fetches: one asked for again while it
     // runs is the same fetch.
     this._pending = new Map();
+    // What the last failed fetch of each definition came to, by what it
+    // fetched, until a fetch of it succeeds: a synchronous lookup says this
+    // rather than "not fetched yet" when the registry already answered.
+    this._failures = new Map();
   }
 
   /**
@@ -11711,18 +11798,30 @@ class FabricRegistryClient {
     return this._manifestVersion;
   }
 
+  /**
+   * The body of one registry object. A success is the body; 404 or 410 is the
+   * registry's answer that it does not hold the object, and only that is
+   * NOT_FOUND. Any other status, and a fetch that got no answer, is
+   * FETCH_FAILED, saying the URL, the status or what happened, and the
+   * manifest version: a refused fetch is never reported as a missing
+   * definition.
+   */
   async _get(url, what) {
     let response;
     try {
       response = await this._fetch(url);
     } catch (error) {
-      throw new FabricRegistryError(FabricRegistryErrorCodes.HTTP, `${what}: the registry could not be reached at ${url}: ${error.message}`);
+      const timedOut = error !== null && typeof error === 'object' && (error.name === 'TimeoutError' || error.name === 'AbortError');
+      throw timedOut
+        ? fetchFailed(what, url, this._manifestVersion, FetchCause.TIMED_OUT)
+        : fetchFailed(what, url, this._manifestVersion, FetchCause.TRANSPORT, { detail: error.message });
     }
-    if (response.status === 404) {
-      throw new FabricRegistryError(FabricRegistryErrorCodes.NOT_FOUND, `${what}: the registry holds nothing at ${url}`);
+    if (response.status === 404 || response.status === 410) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.NOT_FOUND,
+        `the registry has no ${what} for fabric manifest v${this._manifestVersion} (HTTP ${response.status} from ${url})`);
     }
     if (!response.ok) {
-      throw new FabricRegistryError(FabricRegistryErrorCodes.HTTP, `${what}: the registry answered HTTP ${response.status} at ${url}`);
+      throw fetchFailed(what, url, this._manifestVersion, FetchCause.STATUS, { httpStatus: response.status });
     }
     try {
       return await response.json();
@@ -11741,13 +11840,35 @@ class FabricRegistryClient {
     });
   }
 
-  /** Fetch `key` once, however many ask for it while it runs. */
+  /**
+   * Fetch `key` once, however many ask for it while it runs, and keep what
+   * it came to: a failure is remembered for the synchronous lookups, and a
+   * success forgets the failure before it.
+   */
   _once(key, fetchIt) {
     if (!this._pending.has(key)) {
-      const running = fetchIt().finally(() => this._pending.delete(key));
+      const running = fetchIt()
+        .then(value => { this._failures.delete(key); return value; },
+          error => { this._failures.set(key, error); throw error; })
+        .finally(() => this._pending.delete(key));
       this._pending.set(key, running);
     }
     return this._pending.get(key);
+  }
+
+  /**
+   * Why a definition a synchronous lookup was asked for is not held: null
+   * when the registry's answer is that it has none (the manifest, once
+   * fetched, does not name it), else what its last fetch — or the manifest's
+   * — came to, or PENDING when it has not been fetched. `key` is the fetch's
+   * key, `section` the manifest's map, `name` its key there.
+   */
+  _notHeld(key, section, name, what) {
+    if (this._manifest !== null && this._manifest[section][name] === undefined) return null;
+    const failure = this._failures.get(key) || (this._manifest === null ? this._failures.get('manifest') : undefined);
+    if (failure !== undefined) throw failure;
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PENDING,
+      `${what} is not held: it has not been fetched for fabric manifest v${this._manifestVersion}`);
   }
 
   async _defver(section, name, what) {
@@ -11916,12 +12037,9 @@ class FabricRegistryClient {
           throw new FabricRegistryError(FabricRegistryErrorCodes.NOT_FOUND,
             `${owner} names dim '${r.dim}', which is not in manifest v${this._manifestVersion}`);
         }
-        try {
-          dim = await this._once(`dim ${r.dim}`, () => this._fetchDim(r.dim, defver));
-        } catch (error) {
-          throw new FabricRegistryError(FabricRegistryErrorCodes.NOT_FOUND,
-            `${owner} names dim '${r.dim}', which could not be fetched: ${error.message}`);
-        }
+        // The dim's own failure, as it is: a refused fetch stays a refused
+        // fetch, and only the registry's 404 is NOT_FOUND.
+        dim = await this._once(`dim ${r.dim}`, () => this._fetchDim(r.dim, defver));
       }
       if (dim.value(r.value) === null) {
         throw new FabricRegistryError(FabricRegistryErrorCodes.VALIDATION,
@@ -11966,21 +12084,36 @@ class FabricRegistryClient {
     return [...this._media.values()];
   }
 
-  /** The fetched definition of the cap a URN names, or null. */
+  /**
+   * The fetched definition of the cap a URN names; null when the registry
+   * has none; and, thrown, why it is not held when it may well exist: its
+   * fetch failed (FETCH_FAILED, or another refusal), or it is PENDING.
+   */
   capDefinition(urn) {
-    return this._caps.get(CapUrn.fromString(urn).toString()) || null;
+    const canonical = CapUrn.fromString(urn).toString();
+    if (this._caps.has(canonical)) return this._caps.get(canonical);
+    return this._notHeld(`cap ${canonical}`, 'caps', canonical, `cap '${canonical}'`);
   }
 
-  /** The fetched definition of the media a URN names, or null. */
+  /** The fetched definition of the media a URN names, as `capDefinition` answers. */
   mediaDefinition(urn) {
-    return this._media.get(MediaUrn.fromString(urn).toString()) || null;
+    const canonical = MediaUrn.fromString(urn).toString();
+    if (this._media.has(canonical)) return this._media.get(canonical);
+    return this._notHeld(`media ${canonical}`, 'media', canonical, `media definition '${canonical}'`);
   }
 
-  /** The URN a fetched alias names, or null. */
+  /**
+   * The URN a fetched alias names; null when the registry has no alias by
+   * that name (or the name is none an alias can have); and, thrown, why it
+   * is not held when the manifest names it — it exists, so it is never
+   * reported as undefined.
+   */
   aliasTarget(name) {
     if (!isAliasToken(name)) return null;
-    const alias = this._aliases.get(normalizeAliasName(name));
-    return alias ? alias.target : null;
+    const normalized = normalizeAliasName(name);
+    const alias = this._aliases.get(normalized);
+    if (alias) return alias.target;
+    return this._notHeld(`alias ${normalized}`, 'aliases', normalized, `alias '${normalized}'`);
   }
 
   /**
@@ -12032,6 +12165,7 @@ class FabricRegistryClient {
     this._aliases.clear();
     this._dims.clear();
     this._pending.clear();
+    this._failures.clear();
   }
 }
 
