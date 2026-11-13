@@ -1,10 +1,10 @@
 // Cap URN JavaScript Implementation
 // Follows the exact same rules as Rust, Go, and Objective-C implementations
 //
-// Dispatch, acceptance, equivalence and specificity are decided by code
-// generated from the proved model in ../formal (Lean) by lungo, in ./formal,
-// not written here. It runs as WebAssembly, instantiated once when this module
-// is first imported.
+// Dispatch, acceptance, equivalence, specificity and what a file is are
+// decided by code generated from the proved model in ../formal (Lean) by
+// lungo, in ./formal, not written here. It runs as WebAssembly, instantiated
+// once when this module is first imported.
 
 import { TaggedUrn } from 'tagged-urn';
 import * as machineParser from './machine-parser.js';
@@ -2258,82 +2258,6 @@ function resolveMediaUrn(mediaUrn, mediaDefs = []) {
     MediaDefErrorCodes.UNRESOLVABLE_MEDIA_URN,
     `Cannot resolve media URN: '${mediaUrn}'. Not found in mediaDefs array.`
   );
-}
-
-/**
- * Build an extension index from a mediaDefs array.
- * Maps lowercase extension strings to arrays of media URNs that use that extension.
- *
- * @param {Array} mediaDefs - The mediaDefs array
- * @returns {Map<string, string[]>} Map from extension to list of URNs
- */
-function buildExtensionIndex(mediaDefs) {
-  const index = new Map();
-  if (!mediaDefs || !Array.isArray(mediaDefs)) {
-    return index;
-  }
-
-  for (const spec of mediaDefs) {
-    if (!spec.urn || !Array.isArray(spec.extensions)) continue;
-    for (const ext of spec.extensions) {
-      const extLower = ext.toLowerCase();
-      if (!index.has(extLower)) {
-        index.set(extLower, []);
-      }
-      const urns = index.get(extLower);
-      if (!urns.includes(spec.urn)) {
-        urns.push(spec.urn);
-      }
-    }
-  }
-  return index;
-}
-
-/**
- * Look up all media URNs that match a file extension (synchronous, no network).
- *
- * Returns all media URNs registered for the given file extension.
- * Multiple URNs may match the same extension (e.g., with different form= parameters).
- *
- * The extension should NOT include the leading dot (e.g., "pdf" not ".pdf").
- * Lookup is case-insensitive.
- *
- * @param {string} extension - The file extension to look up (without leading dot)
- * @param {Array} mediaDefs - The mediaDefs array
- * @returns {string[]} Array of media URNs for the extension
- * @throws {MediaDefError} If no media def is registered for the given extension
- *
- * @example
- * const urns = mediaUrnsForExtension('pdf', mediaDefs);
- * // May return ['media:document;ext=pdf']
- */
-function mediaUrnsForExtension(extension, mediaDefs) {
-  const index = buildExtensionIndex(mediaDefs);
-  const extLower = extension.toLowerCase();
-  const urns = index.get(extLower);
-
-  if (!urns || urns.length === 0) {
-    throw new MediaDefError(
-      MediaDefErrorCodes.UNRESOLVABLE_MEDIA_URN,
-      `No media def registered for extension '${extension}'. ` +
-      `Ensure the media def is defined with an 'extensions' array containing '${extension}'.`
-    );
-  }
-
-  return urns;
-}
-
-/**
- * Get all registered extensions and their corresponding media URNs.
- *
- * Returns an array of [extension, urns] pairs for debugging and introspection.
- *
- * @param {Array} mediaDefs - The mediaDefs array
- * @returns {Array<[string, string[]]>} Array of [extension, urns] pairs
- */
-function getExtensionMappings(mediaDefs) {
-  const index = buildExtensionIndex(mediaDefs);
-  return Array.from(index.entries());
 }
 
 /**
@@ -11524,6 +11448,13 @@ const FabricRegistryErrorCodes = Object.freeze({
   VALIDATION: 'Validation',
   /** The registry's charter could not be had, or was refused: nothing it serves is used. */
   CHARTER: 'Charter',
+  /**
+   * The fabric's file media types could not all be loaded, or the pinned
+   * manifest names a media definition by something that is no media URN.
+   * Raised by `fileMediaForExtension`; a failure to load carries `failures`,
+   * one `<media URN>: <why>` line for each file type that could not be had.
+   */
+  FILE_TYPES: 'FileTypes',
 });
 
 /** Why the fabric registry did not give a definition. */
@@ -11573,6 +11504,32 @@ const isPositiveWhole = value => Number.isInteger(value) && value >= 1;
 /** How many definitions `loadAll` fetches at once. */
 const LOAD_ALL_AT_ONCE = 16;
 
+/** How many file media definitions `fileMediaForExtension` fetches at once. */
+const FILE_MEDIA_FETCHES_AT_ONCE = 16;
+
+/**
+ * The media definitions of `manifest` that are file types: those whose URN
+ * carries the `ext=` file-type tag, each as `[canonical media URN, defver]`,
+ * in URN order. A definition without the tag is content, never a file type,
+ * whatever extensions it lists. A manifest entry that is no media URN is a
+ * FILE_TYPES error naming the manifest version and the entry.
+ */
+function fileTypesOf(manifest) {
+  const fileTypes = [];
+  for (const [urn, defver] of Object.entries(manifest.media)) {
+    let parsed;
+    try {
+      parsed = MediaUrn.fromString(urn);
+    } catch (error) {
+      throw new FabricRegistryError(FabricRegistryErrorCodes.FILE_TYPES,
+        `manifest v${manifest.version} names '${urn}' as a media definition, and it is no media URN: ${error.message}`,
+        { manifestVersion: manifest.version, entry: urn });
+    }
+    if (parsed.getTag('ext') !== undefined) fileTypes.push([parsed.toString(), defver]);
+  }
+  return fileTypes.sort(([a], [b]) => compareCodePoints(a, b));
+}
+
 /**
  * Read a manifest as the registry serves it, refusing one that is not whole:
  * `version` and `previous` are whole numbers, and `caps`, `media`, `aliases`
@@ -11620,7 +11577,9 @@ function mediaDefFromStored(obj, expectedUrn, expectedVersion) {
   if (obj.version !== expectedVersion) {
     throw refused(`reports version ${JSON.stringify(obj.version)} but the manifest pins ${expectedVersion}`);
   }
-  if (obj.extensions !== undefined && !Array.isArray(obj.extensions)) throw refused("has 'extensions' that are not a list");
+  if (obj.extensions !== undefined && !(Array.isArray(obj.extensions) && obj.extensions.every(ext => typeof ext === 'string'))) {
+    throw refused("has 'extensions' that are not a list of strings");
+  }
   let dims;
   try {
     dims = dimRefsFromJSON(obj.dims, `media def '${expectedUrn}'`);
@@ -11746,6 +11705,10 @@ class FabricRegistryClient {
     // fetched, until a fetch of it succeeds: a synchronous lookup says this
     // rather than "not fetched yet" when the registry already answered.
     this._failures = new Map();
+    // Lower-case extension → the file media definitions that list it, in
+    // URN order: loaded from the whole manifest the first time a file's
+    // type is asked (`fileMediaForExtension`), never before.
+    this._fileMedia = null;
   }
 
   /**
@@ -12074,6 +12037,73 @@ class FabricRegistryClient {
     await inTurn(Object.keys(manifest.caps), urn => this.getCap(urn));
   }
 
+  /**
+   * The file media types a file with this extension can be: every media
+   * definition the pinned manifest names whose URN carries the `ext=`
+   * file-type tag and whose `extensions` list the extension (any case), in
+   * URN order. Empty when the fabric declares no file type for it.
+   *
+   * The first call loads every file media definition the manifest names:
+   * those this client does not hold yet are fetched, a few at a time, and
+   * held like any other fetched definition; later calls answer from memory.
+   * A definition that cannot be had fails the call (FILE_TYPES), naming
+   * each one and why: an answer from part of the fabric's file types would
+   * be a wrong answer. A failed load is not kept; the next call loads again.
+   * @param {string} extension - Without its leading dot
+   * @returns {Promise<MediaDef[]>}
+   */
+  async fileMediaForExtension(extension) {
+    const index = this._fileMedia !== null
+      ? this._fileMedia
+      : await this._once('file media', () => this._loadFileMedia());
+    return [...(index.get(extension.toLowerCase()) || [])];
+  }
+
+  async _loadFileMedia() {
+    const fileTypes = fileTypesOf(await this.manifest());
+    const defs = [];
+    const missing = [];
+    for (const [urn] of fileTypes) {
+      const held = this._media.get(urn);
+      if (held !== undefined) defs.push(held);
+      else missing.push(urn);
+    }
+    const failures = [];
+    let next = 0;
+    const fetchInTurn = async () => {
+      while (next < missing.length) {
+        const urn = missing[next];
+        next += 1;
+        try {
+          defs.push(await this.getMediaDef(urn));
+        } catch (error) {
+          if (!(error instanceof FabricRegistryError)) throw error;
+          failures.push(`${urn}: ${error.message}`);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(FILE_MEDIA_FETCHES_AT_ONCE, missing.length) }, fetchInTurn));
+    if (failures.length > 0) {
+      failures.sort(compareCodePoints);
+      throw new FabricRegistryError(FabricRegistryErrorCodes.FILE_TYPES,
+        `${failures.length} of the ${fileTypes.length} file media types of manifest v${this._manifestVersion} could not be loaded, ` +
+        `so no file's type can be told from its extension: ${failures.join('; ')}`,
+        { manifestVersion: this._manifestVersion, failures });
+    }
+    const index = new Map();
+    for (const def of defs) {
+      for (const ext of def.extensions) {
+        const key = ext.toLowerCase();
+        if (!index.has(key)) index.set(key, []);
+        const listed = index.get(key);
+        if (!listed.some(each => each.mediaUrn === def.mediaUrn)) listed.push(def);
+      }
+    }
+    for (const listed of index.values()) listed.sort((a, b) => compareCodePoints(a.mediaUrn, b.mediaUrn));
+    this._fileMedia = index;
+    return index;
+  }
+
   /** Every cap fetched so far. */
   cachedCaps() {
     return [...this._caps.values()];
@@ -12166,7 +12196,451 @@ class FabricRegistryClient {
     this._dims.clear();
     this._pending.clear();
     this._failures.clear();
+    this._fileMedia = null;
   }
+}
+
+// ============================================================================
+// What a file is: the one detection every host runs
+// ============================================================================
+//
+// A file's extension names the file media types the fabric declares for it
+// (its candidates: every definition in the pinned manifest that carries the
+// `ext=` file-type tag and lists the extension,
+// `FabricRegistryClient.fileMediaForExtension`). Its content decides between
+// them, by the proved model (formal/CapDAG/Detect.lean, run here from
+// ./formal):
+//
+// - a candidate whose definition declares validation rules the content fails
+//   never stands;
+// - a candidate under a cartridge's content-inspection adapter stands only if
+//   a consulted cartridge claims the file as it or as something more specific
+//   (the adapter speaks for its whole domain);
+// - any other candidate stands if the content met rules it declares, or if it
+//   is a base type of the extension: no other candidate is more general. A
+//   refinement (digitized text of a `.txt`, a JSON record of a `.json`) is a
+//   claim about the content, and an unproven claim is never made.
+//
+// Of what stands, each line of refinement keeps only its most specific
+// member. A `list` tag stays: it says what the content is (a CSV file is a
+// list of records), never how many values are in transit, which is the
+// planner's `is_sequence`. What is left is what the file is; more than one is
+// a genuine alternative a host may offer. `primaryMedia` picks the one a host
+// that cannot ask uses.
+//
+// What is done here is the I/O the model is handed: reading the content,
+// evaluating each definition's rules against it, and asking the cartridges.
+// Reading a file needs Node's file system.
+
+/** How much of a file's content detection reads: its first 100 KiB. */
+const MAX_CONTENT_INSPECTION_BYTES = 100 * 1024;
+
+const FileMediaErrorCodes = Object.freeze({
+  /** The file does not exist. */
+  NOT_FOUND: 'NotFound',
+  /** The file cannot be read for want of permission. */
+  PERMISSION_DENIED: 'PermissionDenied',
+  /** Reading the file failed otherwise; `error` is what the file system said. */
+  IO: 'Io',
+  /** The file's content cannot be told apart, or a definition it is held to is defective. */
+  INSPECTION_FAILED: 'InspectionFailed',
+  /** The file has no extension to tell its type from. */
+  NO_EXTENSION: 'NoExtension',
+  /** The fabric declares no file media type for the file's extension. */
+  UNKNOWN_EXTENSION: 'UnknownExtension',
+  /** The fabric's file media types could not be loaded; `error` is the registry's. */
+  FABRIC_UNAVAILABLE: 'FabricUnavailable',
+});
+
+/**
+ * Why a file's media could not be told. `code` is one of
+ * FileMediaErrorCodes; `path` is the file; `extension`, `reason` and `error`
+ * are there when the code has them.
+ */
+class FileMediaError extends Error {
+  constructor(code, message, fields = {}) {
+    super(message);
+    this.name = 'FileMediaError';
+    this.code = code;
+    Object.assign(this, fields);
+  }
+}
+
+/**
+ * Where a host's content-inspection adapters come from. `adaptersFor(candidates)`
+ * takes a file's candidate media (MediaUrn[]) and returns the cartridges to
+ * consult for it, as `[cartridge id, adapter MediaUrn]` pairs: one for each
+ * cartridge one of whose adapters some candidate conforms to.
+ */
+class AdapterSource {
+  adaptersFor(_candidates) {
+    throw new Error('an AdapterSource says which cartridges inspect a file');
+  }
+}
+
+/** A host with no content-inspection adapters. */
+class NoAdapters extends AdapterSource {
+  adaptersFor() {
+    return [];
+  }
+}
+
+/**
+ * How a host asks a cartridge what a file is. `invokeAdapterSelection(cartridgeId,
+ * filePath)` resolves to the media URNs (strings) the cartridge claims the
+ * file as, or null when it declines. A cartridge that cannot be asked, or
+ * fails, is reported by throwing a FileMediaError; anything else it throws
+ * is a defect of the host, and propagates.
+ */
+class CartridgeAdapterInvoker {
+  async invokeAdapterSelection(_cartridgeId, _filePath) {
+    throw new Error('a CartridgeAdapterInvoker says how a cartridge is asked about a file');
+  }
+}
+
+/** A host that asks no cartridge: it has none to ask, and being asked to is a defect. */
+class NoInvoker extends CartridgeAdapterInvoker {
+  async invokeAdapterSelection(cartridgeId) {
+    throw new Error(`a host with no adapters was asked to consult cartridge '${cartridgeId}'`);
+  }
+}
+
+/** What a file is. */
+class FileMedia {
+  /**
+   * @param {string} path - The file
+   * @param {number} sizeBytes - Its size
+   * @param {string} extension - Its extension, lowercased
+   * @param {string[]} candidates - Every file media type the fabric declares for the extension
+   * @param {string[]} media - What the file is: one entry, or several genuine
+   *   alternatives, in the candidates' order
+   */
+  constructor(path, sizeBytes, extension, candidates, media) {
+    this.path = path;
+    this.sizeBytes = sizeBytes;
+    this.extension = extension;
+    this.candidates = Object.freeze([...candidates]);
+    this.media = Object.freeze([...media]);
+    Object.freeze(this);
+  }
+
+  /** The one media a host that cannot ask uses (`primaryMedia`). */
+  primary() {
+    const primary = primaryMedia(this.media);
+    if (primary === null) throw new Error(`the FileMedia of ${this.path} holds no media`);
+    return primary;
+  }
+}
+
+/** A definition's validation rules that cannot be applied: a defect of the definition. */
+class DefectiveRules extends Error {}
+
+const DETECT_RULES = Object.freeze({
+  unruled: Object.freeze({ kind: 'unruled' }),
+  met: Object.freeze({ kind: 'met' }),
+  unmet: Object.freeze({ kind: 'unmet' }),
+});
+
+const RULE_KEYS = Object.freeze(['pattern', 'min_length', 'max_length', 'allowed_values', 'min', 'max']);
+
+const ruleIsSet = (rules, key) => rules[key] !== undefined && rules[key] !== null;
+
+/** A number as a file's whole text reads as one: decimal, with an exponent, or infinity or NaN. */
+const CONTENT_NUMBER = /^[+-]?(?:(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|inf|infinity|nan)$/i;
+
+function contentNumber(text) {
+  if (!CONTENT_NUMBER.test(text)) return null;
+  const unsigned = text.replace(/^[+-]/, '').toLowerCase();
+  const negative = text.startsWith('-');
+  if (unsigned === 'nan') return NaN;
+  if (unsigned === 'inf' || unsigned === 'infinity') return negative ? -Infinity : Infinity;
+  return Number(text);
+}
+
+/**
+ * Does the content meet the rules? The content is bytes; a rule about text
+ * is met only by content that is UTF-8. Lengths are in bytes. An invalid
+ * pattern is a defect of the definition, thrown as DefectiveRules naming it.
+ */
+function contentMeets(content, text, urn, rules) {
+  if (ruleIsSet(rules, 'pattern')) {
+    let compiled;
+    try {
+      compiled = new RegExp(rules.pattern, 'u');
+    } catch (error) {
+      throw new DefectiveRules(
+        `the media definition '${urn}' declares an invalid validation pattern '${rules.pattern}': ${error.message}`);
+    }
+    if (text === null || !compiled.test(text)) return false;
+  }
+  if (ruleIsSet(rules, 'min_length') && content.length < rules.min_length) return false;
+  if (ruleIsSet(rules, 'max_length') && content.length > rules.max_length) return false;
+  if (ruleIsSet(rules, 'allowed_values')) {
+    if (text === null || !rules.allowed_values.includes(text.trim())) return false;
+  }
+  if (ruleIsSet(rules, 'min') || ruleIsSet(rules, 'max')) {
+    const value = text === null ? null : contentNumber(text.trim());
+    if (value === null) return false;
+    if ((ruleIsSet(rules, 'min') && value < rules.min) || (ruleIsSet(rules, 'max') && value > rules.max)) return false;
+  }
+  return true;
+}
+
+/** The content as text, or null when it is not UTF-8. */
+function contentText(content) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(content);
+  } catch (_notUtf8) {
+    return null;
+  }
+}
+
+/**
+ * The rules a definition declares, held to their kinds: a pattern is a
+ * string, a length a whole number from 0 up, the allowed values strings, and
+ * a bound a finite number. A rule of another kind is a defect of the
+ * definition, thrown as DefectiveRules naming it and the rule.
+ */
+function checkedRules(urn, rules) {
+  if (typeof rules !== 'object' || Array.isArray(rules)) {
+    throw new DefectiveRules(`the media definition '${urn}' declares validation that is not an object`);
+  }
+  const defect = (key, kind) => new DefectiveRules(
+    `the media definition '${urn}' declares the validation rule '${key}' as ${JSON.stringify(rules[key])}, which is not ${kind}`);
+  if (ruleIsSet(rules, 'pattern') && typeof rules.pattern !== 'string') throw defect('pattern', 'a string');
+  for (const key of ['min_length', 'max_length']) {
+    if (ruleIsSet(rules, key) && !(Number.isInteger(rules[key]) && rules[key] >= 0)) throw defect(key, 'a whole number from 0 up');
+  }
+  if (ruleIsSet(rules, 'allowed_values') &&
+      !(Array.isArray(rules.allowed_values) && rules.allowed_values.every(value => typeof value === 'string'))) {
+    throw defect('allowed_values', 'a list of strings');
+  }
+  for (const key of ['min', 'max']) {
+    if (ruleIsSet(rules, key) && !(typeof rules[key] === 'number' && Number.isFinite(rules[key]))) throw defect(key, 'a finite number');
+  }
+  return rules;
+}
+
+/** What a candidate's rules say of the content, as the model takes it. */
+function rulesVerdict(content, text, candidate) {
+  const declared = candidate.validation;
+  if (declared === null || declared === undefined) return DETECT_RULES.unruled;
+  const rules = checkedRules(candidate.urn, declared);
+  if (!RULE_KEYS.some(key => ruleIsSet(rules, key))) return DETECT_RULES.unruled;
+  return contentMeets(content, text, candidate.urn, rules) ? DETECT_RULES.met : DETECT_RULES.unmet;
+}
+
+/**
+ * The candidates that stand (the model's `stands`), in the candidates'
+ * order. `candidates` are `{ urn: MediaUrn, validation }`; `verdict` is
+ * `{ owners: MediaUrn[], claimed: MediaUrn[] }`.
+ * @returns {MediaUrn[]}
+ */
+function survivingCandidates(content, candidates, verdict) {
+  const text = contentText(content);
+  const modelled = candidates.map(c => ({ urn: modelUrn(c.urn._urn), rules: rulesVerdict(content, text, c) }));
+  const owners = verdict.owners.map(u => modelUrn(u._urn));
+  const claims = verdict.claimed.map(u => modelUrn(u._urn));
+  return candidates.filter((_c, i) => model.stands(modelled, owners, claims, modelled[i])).map(c => c.urn);
+}
+
+/**
+ * Keep only the most specific member of each line of refinement among what
+ * stands (the model's `mostSpecific`), in order.
+ * @returns {string[]}
+ */
+function settle(survivors) {
+  const distinct = [];
+  for (const urn of survivors) {
+    if (!distinct.some(seen => seen.isEquivalent(urn))) distinct.push(urn);
+  }
+  const all = distinct.map(u => modelUrn(u._urn));
+  return distinct.filter((_u, i) => model.mostSpecific(all, all[i])).map(u => u.toString());
+}
+
+/**
+ * The one media a host that cannot ask uses: the most specific, the first of
+ * them on a tie (the model's `primary`). Null only for an empty list; a
+ * member that is no media URN is an error naming it.
+ * @param {string[]} media
+ * @returns {string|null}
+ */
+function primaryMedia(media) {
+  const all = media.map(m => {
+    let urn;
+    try {
+      urn = MediaUrn.fromString(m);
+    } catch (error) {
+      throw new Error(`'${m}' is no media URN: ${error.message}`);
+    }
+    return modelUrn(urn._urn);
+  });
+  const at = model.primary(all);
+  return at === null ? null : media[Number(at)];
+}
+
+/** A file's extension, lowercased; empty when it has none. */
+function lowercaseExtension(filePath) {
+  const { path } = nodeModules('telling a file\'s media');
+  return path.extname(filePath).slice(1).toLowerCase();
+}
+
+/**
+ * The file media types a file with this extension can be, with their
+ * validation rules: the fabric's answer, loaded when first asked.
+ */
+async function candidatesFor(filePath, extension, registry) {
+  if (extension.length === 0) {
+    throw new FileMediaError(FileMediaErrorCodes.NO_EXTENSION,
+      `${filePath} has no extension to tell its type from`, { path: filePath });
+  }
+  let defs;
+  try {
+    defs = await registry.fileMediaForExtension(extension);
+  } catch (error) {
+    if (!(error instanceof FabricRegistryError)) throw error;
+    throw new FileMediaError(FileMediaErrorCodes.FABRIC_UNAVAILABLE,
+      `the type of ${filePath} cannot be told: ${error.message}`, { path: filePath, reason: error.message, error });
+  }
+  if (defs.length === 0) {
+    throw new FileMediaError(FileMediaErrorCodes.UNKNOWN_EXTENSION,
+      `the fabric declares no file type for the extension .${extension} of ${filePath}`, { path: filePath, extension });
+  }
+  return defs.map(def => {
+    let urn;
+    try {
+      urn = MediaUrn.fromString(def.mediaUrn);
+    } catch (error) {
+      const reason = `the fabric's media definition '${def.mediaUrn}' has no valid URN: ${error.message}`;
+      throw new FileMediaError(FileMediaErrorCodes.INSPECTION_FAILED,
+        `Content inspection failed for ${filePath}: ${reason}`, { path: filePath, reason });
+    }
+    return { urn, validation: def.validation };
+  });
+}
+
+/** The file's size and its first MAX_CONTENT_INSPECTION_BYTES. */
+async function readPrefix(filePath) {
+  const { fs } = nodeModules('reading a file to tell its media');
+  const failed = error => {
+    if (error.code === 'ENOENT') {
+      return new FileMediaError(FileMediaErrorCodes.NOT_FOUND, `Path not found: ${filePath}`, { path: filePath });
+    }
+    if (error.code === 'EACCES' || error.code === 'EPERM') {
+      return new FileMediaError(FileMediaErrorCodes.PERMISSION_DENIED, `Permission denied: ${filePath}`, { path: filePath });
+    }
+    return new FileMediaError(FileMediaErrorCodes.IO, `IO error at ${filePath}: ${error.message}`, { path: filePath, error });
+  };
+  let handle;
+  try {
+    handle = await fs.promises.open(filePath, 'r');
+  } catch (error) {
+    throw failed(error);
+  }
+  try {
+    const size = (await handle.stat()).size;
+    const buffer = new Uint8Array(Math.min(size, MAX_CONTENT_INSPECTION_BYTES));
+    let filled = 0;
+    while (filled < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, filled, buffer.length - filled, filled);
+      if (bytesRead === 0) break;
+      filled += bytesRead;
+    }
+    return { size, content: buffer.subarray(0, filled) };
+  } catch (error) {
+    throw failed(error);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Ask every cartridge whose adapter covers a candidate what the file is. A
+ * cartridge that declines, or fails, claims nothing; its domain stays
+ * covered, so its candidates fall.
+ * @returns {Promise<{owners: MediaUrn[], claimed: MediaUrn[]}>}
+ */
+async function consult(filePath, candidates, adapters, invoker) {
+  const pairs = adapters.adaptersFor(candidates.map(c => c.urn));
+  const verdict = { owners: [], claimed: [] };
+  const asked = new Set();
+  for (const [cartridgeId, adapterUrn] of pairs) {
+    if (typeof cartridgeId !== 'string' || !(adapterUrn instanceof MediaUrn)) {
+      throw new Error('an AdapterSource answers with [cartridge id, adapter MediaUrn] pairs');
+    }
+    verdict.owners.push(adapterUrn);
+    if (asked.has(cartridgeId)) continue;
+    asked.add(cartridgeId);
+    let claims;
+    try {
+      claims = await invoker.invokeAdapterSelection(cartridgeId, filePath);
+    } catch (error) {
+      if (!(error instanceof FileMediaError)) throw error;
+      console.error(`[capdag] cartridge '${cartridgeId}' could not inspect ${filePath} (adapter ${adapterUrn}): ${error.message}`);
+      continue;
+    }
+    if (claims === null) continue;
+    if (!Array.isArray(claims) || !claims.every(claim => typeof claim === 'string')) {
+      throw new Error(`the invoker answered for cartridge '${cartridgeId}' with something that is neither null nor a list of media URNs`);
+    }
+    for (const claim of claims) {
+      try {
+        verdict.claimed.push(MediaUrn.fromString(claim));
+      } catch (error) {
+        console.error(`[capdag] cartridge '${cartridgeId}' claimed ${filePath} as '${claim}', which is no media URN: ${error.message}`);
+      }
+    }
+  }
+  return verdict;
+}
+
+/**
+ * What a file is, by its extension and its content: the one detection every
+ * host runs. A host with no cartridges passes `new NoAdapters()` and
+ * `new NoInvoker()`. Fails with a FileMediaError: NO_EXTENSION,
+ * UNKNOWN_EXTENSION, FABRIC_UNAVAILABLE, NOT_FOUND, PERMISSION_DENIED, IO, or
+ * INSPECTION_FAILED when no candidate stands or a definition's rules are
+ * defective.
+ * @param {string} filePath
+ * @param {FabricRegistryClient} registry
+ * @param {AdapterSource} adapters
+ * @param {CartridgeAdapterInvoker} invoker
+ * @returns {Promise<FileMedia>}
+ */
+async function detectFileMedia(filePath, registry, adapters, invoker) {
+  const extension = lowercaseExtension(filePath);
+  const candidates = await candidatesFor(filePath, extension, registry);
+  const { size, content } = await readPrefix(filePath);
+  const verdict = await consult(filePath, candidates, adapters, invoker);
+  const failed = reason => new FileMediaError(FileMediaErrorCodes.INSPECTION_FAILED,
+    `Content inspection failed for ${filePath}: ${reason}`, { path: filePath, reason });
+  let survivors;
+  try {
+    survivors = survivingCandidates(content, candidates, verdict);
+  } catch (error) {
+    if (error instanceof DefectiveRules) throw failed(error.message);
+    throw error;
+  }
+  if (survivors.length === 0) {
+    throw failed(`its content is none of the ${candidates.length} media types the fabric declares for .${extension}`);
+  }
+  return new FileMedia(filePath, size, extension, candidates.map(c => c.urn.toString()), settle(survivors));
+}
+
+/**
+ * What a file with this extension is before its content is read: the
+ * extension's base types (no candidate is more general), in the candidates'
+ * order — the model's rule with no rules read and no cartridge asked. A host
+ * that names a file's media from its name alone uses this, and
+ * `primaryMedia` when it needs one.
+ * @param {string} extension - Without its leading dot, any case
+ * @param {FabricRegistryClient} registry
+ * @returns {Promise<string[]>}
+ */
+async function extensionMedia(extension, registry) {
+  const candidates = await candidatesFor(`*.${extension}`, extension.toLowerCase(), registry);
+  const unread = candidates.map(c => ({ urn: c.urn, validation: null }));
+  return survivingCandidates(new Uint8Array(0), unread, { owners: [], claimed: [] }).map(u => u.toString());
 }
 
 // ===========================================================================
@@ -12685,9 +13159,6 @@ export {
   isJSONCapUrn,
   isStructuredCapUrn,
   resolveMediaUrn,
-  buildExtensionIndex,
-  mediaUrnsForExtension,
-  getExtensionMappings,
   validateNoMediaDefRedefinition,
   validateNoMediaDefRedefinitionSync,
   validateNoMediaDefDuplicates,
@@ -12916,6 +13387,18 @@ export {
   FabricRegistryClient,
   FabricRegistryError,
   FabricRegistryErrorCodes,
+  // What a file is
+  MAX_CONTENT_INSPECTION_BYTES,
+  FileMediaError,
+  FileMediaErrorCodes,
+  AdapterSource,
+  NoAdapters,
+  CartridgeAdapterInvoker,
+  NoInvoker,
+  FileMedia,
+  detectFileMedia,
+  extensionMedia,
+  primaryMedia,
 };
 
 // Unified configurable planner vocabulary (mirrors Rust plan_space.rs and the

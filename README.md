@@ -92,6 +92,16 @@ specific to it. A definition is held only together with every dim it names,
 so `fabric.getCachedDim(name)` gives the dim's title and documentation and
 those of each of its values (`getDim(name)` fetches one by name).
 
+A file's media is told from its extension and its content, as the fabric's
+file types say. `fabric.fileMediaForExtension(ext)` gives the media
+definitions the pinned manifest declares as file types (those with the `ext=`
+tag) that list an extension; the first call loads every one of them. Under
+Node.js, `detectFileMedia(path, fabric, new NoAdapters(), new NoInvoker())`
+reads the file and resolves to a `FileMedia`: its `media` is what the file is,
+and `primary()` the one a host that cannot ask uses. A host whose cartridges
+inspect content passes its own `AdapterSource` and `CartridgeAdapterInvoker`.
+`extensionMedia(ext, fabric)` is what a file is from its name alone.
+
 `parseMachineWithAST` also returns every statement with where each part of it
 stands in the text, and the name the text gave each node. A machine that names
 other machines in step position is read with a `MachineSource`

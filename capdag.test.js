@@ -13,7 +13,7 @@ import {
   CapUrn, CapKind, CapEffect, CapUrnBuilder, CapMatcher, CapQuery, MatchGrade, CapUrnError, ErrorCodes,
   MediaUrn, MediaUrnError, MediaUrnErrorCodes,
   Cap, CapGroup, CapManifest, MediaDef, MediaDefError, MediaDefErrorCodes,
-  resolveMediaUrn, buildExtensionIndex, mediaUrnsForExtension, getExtensionMappings,
+  resolveMediaUrn,
   CartridgeInfo, CartridgeCapSummary, CartridgeSuggestion, CartridgeRepoClient, CartridgeRepoServer,
   hostPlatform, CompatStatus, primaryPackage, CartridgeCompatibilityResolution,
   registryUrlFromBuildEnv,
@@ -59,6 +59,12 @@ import {
   machineFromCapPath,
   MachineAbstractionError, MachineAbstractionErrorCodes, MachineSyntaxError, MachineSyntaxErrorCodes,
 } from './capdag.js';
+import * as capdagModule from './capdag.js';
+
+const {
+  FileMediaError, FileMediaErrorCodes, AdapterSource, NoAdapters, CartridgeAdapterInvoker, NoInvoker,
+  detectFileMedia, extensionMedia, primaryMedia,
+} = capdagModule;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1730,67 +1736,11 @@ function test312_allUrnBuildersProduceValidUrns() {
 }
 
 // ============================================================================
-// Additional JS-specific tests (extension index, media URN resolution, Cap JSON)
+// Additional JS-specific tests (media URN resolution, Cap JSON)
 // ============================================================================
 
 // These tests cover JS-specific functionality not in the Rust numbering scheme
 // but are important for capdag-js correctness.
-
-function test6232_JS_buildExtensionIndex() {
-  const mediaDefs = [
-    { urn: 'media:document;ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
-    { urn: 'media:ext=jpeg;image', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] },
-    { urn: 'media:enc=utf8;fmt=json', media_type: 'application/json', extensions: ['json'] }
-  ];
-  const index = buildExtensionIndex(mediaDefs);
-  assert(index instanceof Map, 'Should return a Map');
-  assertEqual(index.size, 4, 'Should have 4 extensions');
-  assert(index.has('pdf'), 'Should have pdf');
-  assert(index.has('jpg'), 'Should have jpg');
-  assert(index.has('jpeg'), 'Should have jpeg');
-  assert(index.has('json'), 'Should have json');
-  assertEqual(index.get('pdf')[0], 'media:document;ext=pdf', 'pdf should map correctly');
-}
-
-// TEST6236: J s media urns for extension
-function test6236_JS_mediaUrnsForExtension() {
-  const mediaDefs = [
-    { urn: 'media:document;ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
-    { urn: 'media:enc=utf8;fmt=json;record', media_type: 'application/json', extensions: ['json'] },
-    { urn: 'media:enc=utf8;fmt=json;list', media_type: 'application/json', extensions: ['json'] }
-  ];
-
-  const pdfUrns = mediaUrnsForExtension('pdf', mediaDefs);
-  assertEqual(pdfUrns.length, 1, 'Should find 1 URN for pdf');
-
-  // Case insensitivity
-  const pdfUrnsUpper = mediaUrnsForExtension('PDF', mediaDefs);
-  assertEqual(pdfUrnsUpper.length, 1, 'Should find URN with uppercase extension');
-
-  // Multiple URNs for same extension
-  const jsonUrns = mediaUrnsForExtension('json', mediaDefs);
-  assertEqual(jsonUrns.length, 2, 'Should find 2 URNs for json');
-
-  // Unknown extension throws
-  let thrownError = null;
-  try {
-    mediaUrnsForExtension('unknown', mediaDefs);
-  } catch (e) {
-    thrownError = e;
-  }
-  assert(thrownError instanceof MediaDefError, 'Should throw MediaDefError for unknown ext');
-}
-
-// TEST6240: J s get extension mappings
-function test6240_JS_getExtensionMappings() {
-  const mediaDefs = [
-    { urn: 'media:document;ext=pdf', media_type: 'application/pdf', extensions: ['pdf'] },
-    { urn: 'media:ext=jpeg;image', media_type: 'image/jpeg', extensions: ['jpg', 'jpeg'] }
-  ];
-  const mappings = getExtensionMappings(mediaDefs);
-  assert(Array.isArray(mappings), 'Should return an array');
-  assertEqual(mappings.length, 3, 'Should have 3 mappings');
-}
 
 // TEST6242: J s resolve media urn from specs
 function test6242_JS_resolveMediaUrnFromSpecs() {
@@ -4811,6 +4761,397 @@ async function test6470_registryAliasesAndMachinesReadAgainstIt() {
 }
 
 // ============================================================================
+// The file media types a file's extension names, from the whole manifest,
+// and what a file is.
+//
+// The fixture registry serves, at its charter's `definition` location, every
+// media definition of fabric manifest 13 that carries the `ext=` file-type
+// tag, and the JSON records that list an extension without one, as published
+// (fixtures/fabric13_file_media.json). Its manifest names them all; what the
+// client holds is what a test has it fetch first.
+// ============================================================================
+
+const FILE_MEDIA_FIXTURE = JSON.parse(fs.readFileSync(path.join(here, 'fixtures', 'fabric13_file_media.json'), 'utf8'));
+const FILE_MEDIA_ANCHOR = 'https://fabric13.example';
+const FILE_MEDIA_MANIFEST_VERSION = 13;
+const CSV_FILE = 'media:enc=utf8;ext=csv;fmt=csv;list;record';
+const TXT_FILE = 'media:enc=utf8;ext=txt;plain-text';
+const DOWNLOAD_RESULT = 'media:download-result;enc=utf8;fmt=json;record';
+const DIGITIZED_TEXT = 'media:digitized;enc=utf8;ext=txt;plain-text';
+
+/** A media definition as the registry publishes it. */
+function fileTypeJSON(urn, title, mediaType, extensions, extra = {}) {
+  return Object.assign({ urn: MediaUrn.fromString(urn).toString(), version: 1, media_type: mediaType, title, extensions }, extra);
+}
+
+/**
+ * A registry pinned at manifest 13 whose manifest names every one of
+ * `definitions` (URN → published JSON; the fixture's when not given), served
+ * where its charter says. `served` lists every media definition it answered
+ * with; `goOffline` makes every later fetch fail as an unreachable registry
+ * does, and `goOnline` undoes it.
+ */
+async function fileMediaRegistry(definitions = FILE_MEDIA_FIXTURE.definitions) {
+  const objects = new Map();
+  objects.set(`${FILE_MEDIA_ANCHOR}/charter.json`, fabricCharterJSON(FILE_MEDIA_ANCHOR));
+  const media = {};
+  for (const def of Object.values(definitions)) {
+    const urn = MediaUrn.fromString(def.urn).toString();
+    media[urn] = def.version;
+    objects.set(`${FILE_MEDIA_ANCHOR}/media/${await sha256OfText(urn)}/${def.version}.json`, def);
+  }
+  objects.set(`${FILE_MEDIA_ANCHOR}/manifest/${FILE_MEDIA_MANIFEST_VERSION}.json`,
+    { version: FILE_MEDIA_MANIFEST_VERSION, previous: FILE_MEDIA_MANIFEST_VERSION - 1, caps: {}, media, aliases: {}, dims: {} });
+  const served = [];
+  let offline = false;
+  const fetch = async url => {
+    if (offline) throw new Error('the registry cannot be reached');
+    const bare = url.split('?')[0];
+    if (!objects.has(bare)) return { status: 404, ok: false, json: async () => ({}) };
+    if (bare.startsWith(`${FILE_MEDIA_ANCHOR}/media/`)) served.push(bare);
+    const body = objects.get(bare);
+    return { status: 200, ok: true, json: async () => JSON.parse(JSON.stringify(body)) };
+  };
+  return {
+    client: new FabricRegistryClient(FILE_MEDIA_ANCHOR, FILE_MEDIA_MANIFEST_VERSION, { fetch }),
+    served,
+    goOffline: () => { offline = true; },
+    goOnline: () => { offline = false; },
+  };
+}
+
+async function fileMediaUrns(client, extension) {
+  return (await client.fileMediaForExtension(extension)).map(def => def.mediaUrn);
+}
+
+function assertSameList(actual, expected, message) {
+  assertEqual(JSON.stringify(actual), JSON.stringify(expected), message);
+}
+
+// TEST607: file_media_for_extension answers no file type for an extension no
+// definition of the manifest declares
+async function test607_fileMediaForAnUnknownExtensionIsNone() {
+  const { client } = await fileMediaRegistry({ pdf: fileTypeJSON('media:document;ext=pdf', 'PDF Document', 'application/pdf', ['pdf']) });
+  assertSameList(await fileMediaUrns(client, 'zzzzunknown'), [], 'no definition declares .zzzzunknown');
+}
+
+// TEST608: file_media_for_extension answers the file media definitions that
+// list the extension, whatever its case
+async function test608_fileMediaForExtensionListsTheDeclaringDefinitions() {
+  const { client } = await fileMediaRegistry({ pdf: fileTypeJSON('media:document;ext=pdf', 'PDF Document', 'application/pdf', ['pdf']) });
+  const lower = await fileMediaUrns(client, 'pdf');
+  assertSameList(lower, ['media:document;ext=pdf'], '.pdf');
+  assertSameList(await fileMediaUrns(client, 'PDF'), lower, '.PDF');
+}
+
+// TEST609: a definition that lists an extension but carries no `ext=`
+// file-type tag is content, not a file type: it is never a file type of the
+// extension, even when it is held
+async function test609_contentTypesThatListAnExtensionAreNoFileTypes() {
+  const { client } = await fileMediaRegistry({
+    result: fileTypeJSON(DOWNLOAD_RESULT, 'Model Download Result', 'application/json', ['json']),
+    json: fileTypeJSON('media:enc=utf8;ext=json;fmt=json', 'JSON File', 'application/json', ['json']),
+  });
+  await client.getMediaDef(DOWNLOAD_RESULT);
+  assertSameList(await fileMediaUrns(client, 'json'), ['media:enc=utf8;ext=json;fmt=json'], '.json');
+}
+
+function isFileTypeUrn(urn) {
+  return MediaUrn.fromString(urn).getTag('ext') !== undefined;
+}
+
+// TEST7177: on a cold cache, a file's extension names every file media type
+// the manifest declares for it, fetched from the registry: .csv and .yaml are
+// known although nothing has fetched them, and the content-only JSON records
+// a machine has fetched (a model download result) are no file types
+async function test7177_extensionsNameTheManifestsFileTypesOnAColdCache() {
+  const { client, served } = await fileMediaRegistry();
+  await client.getMediaDef(DOWNLOAD_RESULT);
+  const before = served.length;
+
+  assertSameList(await fileMediaUrns(client, 'csv'), [CSV_FILE], '.csv');
+  const yaml = [
+    'media:enc=utf8;ext=yaml;fmt=yaml',
+    'media:enc=utf8;ext=yaml;fmt=yaml;list',
+    'media:enc=utf8;ext=yaml;fmt=yaml;list;record',
+    'media:enc=utf8;ext=yaml;fmt=yaml;record',
+  ];
+  assertSameList(await fileMediaUrns(client, 'yaml'), yaml, '.yaml');
+  assertSameList(await fileMediaUrns(client, 'YML'), yaml, '.YML');
+  assertSameList(await fileMediaUrns(client, 'json'), [
+    'media:enc=utf8;ext=json;fmt=json',
+    'media:enc=utf8;ext=json;fmt=json;list',
+    'media:enc=utf8;ext=json;fmt=json;list;record',
+    'media:enc=utf8;ext=json;fmt=json;record',
+  ], '.json');
+  assertSameList(await fileMediaUrns(client, 'txt'), [
+    DIGITIZED_TEXT,
+    'media:enc=utf8;ext=requirements',
+    'media:enc=utf8;ext=txt;image-description;plain-text',
+    'media:enc=utf8;ext=txt;page;plain-text',
+    TXT_FILE,
+  ], '.txt');
+
+  const fileTypes = Object.keys(FILE_MEDIA_FIXTURE.definitions).filter(isFileTypeUrn).length;
+  assertEqual(fileTypes, 156, 'manifest 13 has 156 file media types');
+  const fetched = served.slice(before);
+  assertEqual(fetched.length, fileTypes, 'every file media type is fetched, and nothing else');
+  assertEqual(new Set(fetched).size, fetched.length, 'each once');
+}
+
+// TEST7178: the file media types load only when a file's type is first asked,
+// once: making the client and reading other definitions fetches none of
+// them, and a second question fetches nothing more
+async function test7178_fileMediaTypesLoadLazilyAndOnce() {
+  const { client, served } = await fileMediaRegistry();
+  assertEqual(served.length, 0, 'making the client fetches nothing');
+  await client.getMediaDef('media:enc=utf8;fmt=json;model-list;record');
+  assertEqual(served.length, 1, 'only the definition asked for is fetched');
+
+  await fileMediaUrns(client, 'pdf');
+  const afterFirst = served.length;
+  assertEqual(afterFirst, 1 + 156, 'the first question loads every file media type');
+  await fileMediaUrns(client, 'csv');
+  await fileMediaUrns(client, 'md');
+  assertEqual(served.length, afterFirst, 'the index is loaded once');
+}
+
+// TEST7179: file media types already held are not fetched again
+async function test7179_cachedFileMediaTypesAreNotFetched() {
+  const { client, served } = await fileMediaRegistry();
+  for (const urn of Object.keys(FILE_MEDIA_FIXTURE.definitions)) await client.getMediaDef(urn);
+  const before = served.length;
+  assertSameList(await fileMediaUrns(client, 'csv'), [CSV_FILE], '.csv');
+  assertEqual(served.length, before, 'nothing is fetched again');
+}
+
+// TEST7180: offline with a cold cache, a file's type cannot be told: the
+// question fails, naming every file media type it could not load and why,
+// and never answers from the part of the fabric that is held
+async function test7180_offlineOnAColdCacheFailsNamingWhatItCouldNotLoad() {
+  const { client, served, goOffline, goOnline } = await fileMediaRegistry();
+  await client.getMediaDef(TXT_FILE);
+  await client.getMediaDef('media:document;ext=pdf');
+  const before = served.length;
+  goOffline();
+
+  const error = await refusedRegistry(client.fileMediaForExtension('txt'), FabricRegistryErrorCodes.FILE_TYPES, 'offline');
+  assert(error.message.startsWith(`154 of the 156 file media types of manifest v${FILE_MEDIA_MANIFEST_VERSION} could not be loaded`), error.message);
+  assert(error.message.includes(`${CSV_FILE}: the fetch of media definition '${CSV_FILE}' for fabric manifest v13`), error.message);
+  assert(error.message.includes('the registry cannot be reached'), error.message);
+  assert(!error.message.includes(`${TXT_FILE}:`), `a held type is not reported: ${error.message}`);
+  assertEqual(error.failures.length, 154, 'one failure for each file type it could not load');
+  assertEqual(served.length, before, 'nothing is served offline');
+
+  goOnline();
+  assertSameList(await fileMediaUrns(client, 'csv'), [CSV_FILE], '.csv once the registry answers');
+}
+
+// ---------------------------------------------------------------------------
+// What a file is
+// ---------------------------------------------------------------------------
+
+function fileMediaTempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'capdag-file-media-'));
+}
+
+function writeFileIn(dir, name, content) {
+  const filePath = path.join(dir, name);
+  fs.writeFileSync(filePath, content);
+  return filePath;
+}
+
+/** A client over the fixture holding what a machine that has run a model download and an OCR cap holds. */
+async function warmMachineRegistry() {
+  const { client } = await fileMediaRegistry();
+  await client.getMediaDef(DOWNLOAD_RESULT);
+  await client.getMediaDef(DIGITIZED_TEXT);
+  return client;
+}
+
+/** A detection that must fail with the FileMediaError of `code`. */
+async function refusedDetection(promise, code, what) {
+  try {
+    await promise;
+  } catch (error) {
+    assert(error instanceof FileMediaError, `${what}: ${error.stack}`);
+    assertEqual(error.code, code, `${what}: ${error.message}`);
+    return error;
+  }
+  throw new Error(`Assertion failed: ${what}: expected the detection to fail`);
+}
+
+/**
+ * One file of each common kind, its content, and the media a host with no
+ * cartridge to ask takes it as.
+ */
+const NO_ADAPTER_TABLE = [
+  ['notes.txt', 'A line of text.\n', TXT_FILE],
+  ['people.csv', 'name,age\nann,30\n', CSV_FILE],
+  ['rows.tsv', 'name\tage\nann\t30\n', 'media:enc=utf8;ext=tsv;fmt=tsv;list;record'],
+  ['config.yaml', 'name: ann\nage: 30\n', 'media:enc=utf8;ext=yaml;fmt=yaml'],
+  ['config.yml', 'name: ann\n', 'media:enc=utf8;ext=yaml;fmt=yaml'],
+  ['a.json', '{"name": "ann"}', 'media:enc=utf8;ext=json;fmt=json'],
+  ['events.ndjson', '{"a":1}\n{"a":2}\n', 'media:enc=utf8;ext=ndjson;fmt=ndjson'],
+  ['events.jsonl', '{"a":1}\n', 'media:enc=utf8;ext=ndjson;fmt=ndjson'],
+  ['data.xml', '<a><b/></a>', 'media:enc=utf8;ext=xml;fmt=xml'],
+  ['config.toml', 'a = 1\n', 'media:enc=utf8;ext=toml'],
+  ['README.md', '# Title\n', 'media:enc=utf8;ext=md;plain-text'],
+  ['run.log', 'started\n', 'media:enc=utf8;ext=log;plain-text'],
+  ['page.html', '<html></html>', 'media:enc=utf8;ext=html'],
+  ['notebook.ipynb', '{"cells": []}', 'media:enc=utf8;ext=jupyter;record'],
+  ['report.pdf', '%PDF-1.4\n', 'media:document;ext=pdf'],
+  ['letter.docx', 'PK', 'media:document;ext=docx'],
+  ['sheet.xlsx', 'PK', 'media:document;ext=xlsx'],
+  ['photo.png', '\u0089PNG', 'media:ext=png;image'],
+  ['photo.jpg', 'ÿØ', 'media:ext=jpeg;image'],
+  ['song.mp3', 'ID3', 'media:audio;ext=mp3'],
+  ['clip.mp4', 'ftyp', 'media:ext=mp4;video'],
+  ['bundle.zip', 'PK', 'media:archive;ext=zip'],
+];
+
+// TEST7181: with no cartridge to ask (a host before its cartridges attach),
+// each common extension is the file type the fabric declares for it: a .txt
+// is plain text, not digitized text; a .json is JSON, not a model download
+// result; .csv, .tsv, .yaml and .yml are known; a refinement nothing proves
+// (a JSON record, digitized text, a filing document) is never claimed
+async function test7181_commonExtensionsAreTheirFileTypesWithoutAdapters() {
+  const registry = await warmMachineRegistry();
+  const dir = fileMediaTempDir();
+  try {
+    const wrong = [];
+    for (const [name, content, expected] of NO_ADAPTER_TABLE) {
+      const filePath = writeFileIn(dir, name, content);
+      let got;
+      try {
+        got = (await detectFileMedia(filePath, registry, new NoAdapters(), new NoInvoker())).primary();
+      } catch (error) {
+        got = `error: ${error.message}`;
+      }
+      if (got !== expected) wrong.push(`${name}: ${got}, expected ${expected}`);
+    }
+    assert(wrong.length === 0, `wrongly identified:\n  ${wrong.join('\n  ')}`);
+
+    const unknown = writeFileIn(dir, 'thing.zzzz', 'x');
+    const error = await refusedDetection(detectFileMedia(unknown, registry, new NoAdapters(), new NoInvoker()),
+      FileMediaErrorCodes.UNKNOWN_EXTENSION, 'an extension the fabric does not declare');
+    assertEqual(error.extension, 'zzzz', 'the extension');
+    const bare = writeFileIn(dir, 'Makefile', 'all:\n');
+    await refusedDetection(detectFileMedia(bare, registry, new NoAdapters(), new NoInvoker()),
+      FileMediaErrorCodes.NO_EXTENSION, 'a file with no extension');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// TEST7182: with the bundled cartridges' adapters (a desktop client), what a
+// cartridge claims proves a refinement: a JSON object is a JSON record, an
+// array of objects a list of records, and a .txt the cartridge reads as
+// plain text is plain text, never digitized text
+async function test7182_cartridgeClaimsProveRefinements() {
+  // The adapter URNs datacartridge and txtcartridge declare: a host's
+  // adapters, consulted one cartridge at a time for the first adapter of it
+  // some candidate conforms to.
+  class BundledAdapterSource extends AdapterSource {
+    constructor() {
+      super();
+      this.registered = [];
+      const register = (cartridgeId, urns) => {
+        for (const urn of urns) this.registered.push([cartridgeId, MediaUrn.fromString(urn)]);
+      };
+      register('datacartridge', ['media:enc=utf8;fmt=json', 'media:enc=utf8;fmt=ndjson', 'media:enc=utf8;fmt=csv',
+        'media:ext=tsv', 'media:ext=psv', 'media:enc=utf8;fmt=yaml', 'media:ext=xml', 'media:ext=toml']);
+      register('txtcartridge', ['media:plain-text', 'media:ext=html']);
+    }
+
+    adaptersFor(candidates) {
+      const pairs = [];
+      const seen = new Set();
+      for (const [cartridgeId, adapterUrn] of this.registered) {
+        if (seen.has(cartridgeId) || !candidates.some(c => c.conformsTo(adapterUrn))) continue;
+        seen.add(cartridgeId);
+        pairs.push([cartridgeId, adapterUrn]);
+      }
+      return pairs;
+    }
+  }
+
+  // What each cartridge claims the table's files are: its adapter's answer
+  // for that content.
+  class BundledAdapters extends CartridgeAdapterInvoker {
+    async invokeAdapterSelection(cartridgeId, filePath) {
+      const claims = {
+        'datacartridge record.json': ['media:enc=utf8;ext=json;fmt=json;record', 'media:enc=utf8;ext=json;fmt=json'],
+        'datacartridge rows.json': ['media:enc=utf8;ext=json;fmt=json;list;record', 'media:enc=utf8;ext=json;fmt=json;list',
+          'media:enc=utf8;ext=json;fmt=json'],
+        'datacartridge people.csv': [CSV_FILE],
+        'txtcartridge notes.txt': [TXT_FILE],
+      }[`${cartridgeId} ${path.basename(filePath)}`];
+      if (claims === undefined) throw new Error(`${cartridgeId} was not expected to be asked about ${path.basename(filePath)}`);
+      return claims;
+    }
+  }
+
+  const registry = await warmMachineRegistry();
+  const dir = fileMediaTempDir();
+  try {
+    const detect = (name, content) =>
+      detectFileMedia(writeFileIn(dir, name, content), registry, new BundledAdapterSource(), new BundledAdapters());
+
+    assertSameList((await detect('record.json', '{"name": "ann"}')).media, ['media:enc=utf8;ext=json;fmt=json;record'], 'a JSON object');
+    assertSameList((await detect('rows.json', '[{"name": "ann"}]')).media, ['media:enc=utf8;ext=json;fmt=json;list;record'],
+      'an array of objects');
+    assertSameList((await detect('people.csv', 'name\nann\n')).media, [CSV_FILE], 'a CSV file');
+
+    // pip's requirements files claim .txt too, and no cartridge speaks for
+    // them, so a .txt is offered as either; a host that cannot ask takes the
+    // plain text, the more specific.
+    const notes = await detect('notes.txt', 'A line of text.\n');
+    assertSameList(notes.media, ['media:enc=utf8;ext=requirements', TXT_FILE], 'a .txt');
+    assertEqual(notes.primary(), TXT_FILE, 'the primary of a .txt');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// TEST7183: what a file is from its name alone is its extension's base
+// types, never a refinement
+async function test7183_aFilesMediaByNameAloneIsItsExtensionsBaseTypes() {
+  const registry = await warmMachineRegistry();
+  assertSameList(await extensionMedia('json', registry), ['media:enc=utf8;ext=json;fmt=json'], '.json');
+  const txt = await extensionMedia('TXT', registry);
+  assertSameList(txt, ['media:enc=utf8;ext=requirements', TXT_FILE], '.TXT');
+  assertEqual(primaryMedia(txt), TXT_FILE, 'the primary of a .txt');
+  await refusedDetection(extensionMedia('zzzz', registry), FileMediaErrorCodes.UNKNOWN_EXTENSION, '.zzzz');
+}
+
+// TEST7184: a refinement whose declared validation rules the content meets
+// stands without a cartridge; one whose rules it fails falls; a definition
+// with an invalid pattern is an error naming it
+async function test7184_validationRulesProveOrDisproveARefinement() {
+  const script = (urn, pattern) => fileTypeJSON(urn, 't', 'text/plain', ['txt'], { validation: { pattern } });
+  const { client: registry } = await fileMediaRegistry({
+    base: fileTypeJSON(TXT_FILE, 'Plain Text', 'text/plain', ['txt']),
+    shebang: script('media:enc=utf8;ext=txt;plain-text;shebang', '^#!'),
+  });
+  const { client: broken } = await fileMediaRegistry({ broken: script('media:broken;enc=utf8;ext=txt;plain-text', '((') });
+  const dir = fileMediaTempDir();
+  try {
+    const media = async (name, content) =>
+      (await detectFileMedia(writeFileIn(dir, name, content), registry, new NoAdapters(), new NoInvoker())).media;
+    assertSameList(await media('run.txt', '#!/bin/sh\n'), ['media:enc=utf8;ext=txt;plain-text;shebang'], 'a script');
+    assertSameList(await media('prose.txt', 'hello\n'), [TXT_FILE], 'prose');
+
+    const error = await refusedDetection(
+      detectFileMedia(writeFileIn(dir, 'x.txt', 'x'), broken, new NoAdapters(), new NoInvoker()),
+      FileMediaErrorCodes.INSPECTION_FAILED, 'an invalid pattern');
+    assert(error.message.includes('media:broken;enc=utf8;ext=txt;plain-text'), error.message);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// ============================================================================
 // cap-fab-renderer helpers — pure functions that do not require a DOM.
 // The renderer class itself needs cytoscape + DOM and is exercised by hand
 // in the browser; these tests cover the pure data transforms underneath it.
@@ -7799,9 +8140,6 @@ async function runTests() {
 
   // JS-specific tests (no Rust number)
   console.log('\n--- JS-specific ---');
-  runTest('JS: build_extension_index', test6232_JS_buildExtensionIndex);
-  runTest('JS: media_urns_for_extension', test6236_JS_mediaUrnsForExtension);
-  runTest('JS: get_extension_mappings', test6240_JS_getExtensionMappings);
   runTest('JS: resolve_media_urn_from_specs', test6242_JS_resolveMediaUrnFromSpecs);
   runTest('JS: cap_json_serialization', test6246_JS_capJSONSerialization);
   runTest('JS: cap_documentation_round_trip', test6249_JS_capDocumentationRoundTrip);
@@ -7988,6 +8326,21 @@ async function runTests() {
   await runTest('TEST7174: a_refused_alias_is_reported_as_the_refusal_not_as_undefined', test7174_aRefusedAliasIsReportedAsTheRefusalNotAsUndefined);
   await runTest('TEST7175: a_refused_fetch_is_remembered_by_lookups_that_cannot_wait', test7175_aRefusedFetchIsRememberedByLookupsThatCannotWait);
   await runTest('TEST7176: a_constant_whose_definition_was_refused_reports_the_refusal', test7176_aConstantWhoseDefinitionWasRefusedReportsTheRefusal);
+
+  // The file media types an extension names, and what a file is
+  console.log('\n--- registry/file_media ---');
+  await runTest('TEST607: file_media_for_an_unknown_extension_is_none', test607_fileMediaForAnUnknownExtensionIsNone);
+  await runTest('TEST608: file_media_for_extension_lists_the_declaring_definitions', test608_fileMediaForExtensionListsTheDeclaringDefinitions);
+  await runTest('TEST609: content_types_that_list_an_extension_are_no_file_types', test609_contentTypesThatListAnExtensionAreNoFileTypes);
+  await runTest('TEST7177: extensions_name_the_manifests_file_types_on_a_cold_cache', test7177_extensionsNameTheManifestsFileTypesOnAColdCache);
+  await runTest('TEST7178: file_media_types_load_lazily_and_once', test7178_fileMediaTypesLoadLazilyAndOnce);
+  await runTest('TEST7179: cached_file_media_types_are_not_fetched', test7179_cachedFileMediaTypesAreNotFetched);
+  await runTest('TEST7180: offline_on_a_cold_cache_fails_naming_what_it_could_not_load', test7180_offlineOnAColdCacheFailsNamingWhatItCouldNotLoad);
+  await runTest('TEST7181: common_extensions_are_their_file_types_without_adapters', test7181_commonExtensionsAreTheirFileTypesWithoutAdapters);
+  await runTest('TEST7182: cartridge_claims_prove_refinements', test7182_cartridgeClaimsProveRefinements);
+  await runTest('TEST7183: a_files_media_by_name_alone_is_its_extensions_base_types', test7183_aFilesMediaByNameAloneIsItsExtensionsBaseTypes);
+  await runTest('TEST7184: validation_rules_prove_or_disprove_a_refinement', test7184_validationRulesProveOrDisproveARefinement);
+  console.log('  SKIP TEST7186-7187: N/A for JS (FabricRegistryClient holds what it fetches in memory only: it has no on-disk definition cache, so there is no cached manifest file to keep the file types beside)');
 
   // cap-fab-renderer pure helpers (no DOM dependency)
   console.log('\n--- cap-fab-renderer helpers ---');
