@@ -20,7 +20,7 @@ import {
   CartridgeInstallSource, Charter, CharterError, CharterErrorKind, RegistryKind, RegistryFolder,
   fetchCharter, readStoredCharter, storedCharterFor, DEV_SLUG, CHARTER_FILE, CHARTER_SIG_FILE,
   CartridgeJson, CartridgeJsonError, CartridgeJsonErrorKind, hashCartridgeDirectory,
-  DiscoveryIdentity, DiscoveredCartridge, discoverCartridges, cartridgeRefusal, newestVersionDir,
+  DiscoveryIdentity, DiscoveredCartridge, discoverCartridges, cartridgeAdmission, newestVersionDir,
   CartridgeAttachmentErrorKind, CartridgeChannel,
   RegistryVerdict, RegistryVerdictState, ChainFailureReason,
   REGISTRY_VERDICT_STATES, CHAIN_FAILURE_REASONS,
@@ -3089,11 +3089,11 @@ function test1908_aManifestRefusalNamesBothManifestsAndTheRemedy() {
     name: 'imagecartridge', version: '1.174.414', channel: 'release', registryUrl, entry: 'imagecartridge',
     installedAt: '2024-01-01T00:00:00Z', installedFrom, fabricManifestVersion,
   });
-  const dir = path.join('imagecartridge', '1.174.414');
-  assertEqual(cartridgeRefusal(stamped(CartridgeInstallSource.REGISTRY, CARTRIDGES_ANCHOR, 13), dir, terms), null,
-    'a cartridge stamped for this host is attached');
+  const admitted = cartridgeAdmission(stamped(CartridgeInstallSource.REGISTRY, CARTRIDGES_ANCHOR, 13), terms);
+  assertEqual(admitted.refusal, null, 'a cartridge stamped for this host is attached');
+  assertEqual(admitted.bundled, null, 'and its caps are learned by starting it');
   const refused = (installedFrom, registryUrl) => {
-    const r = cartridgeRefusal(stamped(installedFrom, registryUrl, 12), dir, terms);
+    const r = cartridgeAdmission(stamped(installedFrom, registryUrl, 12), terms).refusal;
     assert(r !== null, 'stamped for 12, refused by a host at 13');
     return r;
   };
@@ -3112,22 +3112,16 @@ function test1908_aManifestRefusalNamesBothManifestsAndTheRemedy() {
     .endsWith('its bundle holds a cartridge for another fabric manifest.'), 'a bundled one is the build\'s');
 }
 
-// TEST1878: a cartridge marked `installed_from: bundle` with no baked hash in
-// BUNDLED_CARTRIDGE_HASHES (empty in this mirror) is rejected as BadInstallation
-// — the bundled-integrity gate fires before the probe. Non-macOS only: on macOS
-// the baked-hash path is intentionally absent (OS code-signature is the guard),
-// so a bundled cartridge is accepted there and would instead end at the probe.
-async function test1878_bundledCartridgeWithoutBakedHashIsRejected() {
-  if (process.platform === 'darwin') {
-    // Mirrors the Rust #[cfg(not(target_os = "macos"))] gate: on macOS the
-    // baked-hash path does not exist, so this scenario is not exercised.
-    return;
-  }
+// TEST1878: a cartridge marked `installed_from: bundle` that nothing vouches
+// for is refused as misplaced before the probe, on every platform. This
+// library verifies no bundle manifest, so every bundled cartridge it finds is
+// one nothing vouches for.
+async function test1878_aBundledCartridgeIsRefusedWhereNothingProvesIt() {
   const root = discoveryMakeTempRoot();
   try {
     // Dev slug (null registry) but installed_from=bundle — placement is
     // self-consistent (null→dev), so it passes readFromDir and reaches the
-    // bundled-hash gate, which has no baked entry → BadInstallation.
+    // bundled-cartridge gate, which has nothing to vouch for it.
     const json = JSON.stringify({
       name: 'cart', version: '1.0.0', channel: 'nightly', registry_url: null, entry: 'cart',
       installed_at: '2024-01-01T00:00:00Z', installed_from: 'bundle', fabric_manifest_version: 1,
@@ -7659,7 +7653,7 @@ async function runTests() {
   await runTest('TEST12922: registry_folders_are_found_by_their_charters', test12922_registryFoldersAreFoundByTheirCharters);
   await runTest('TEST13005: a_cartridge_registry_is_read_through_its_charter', test13005_aCartridgeRegistryIsReadThroughItsCharter);
   await runTest('TEST13010: a_slug_is_one_registrys', test13010_aSlugIsOneRegistrys);
-  await runTest('TEST1878: bundled_cartridge_without_baked_hash_is_rejected', test1878_bundledCartridgeWithoutBakedHashIsRejected);
+  await runTest('TEST1878: a_bundled_cartridge_is_refused_where_nothing_proves_it', test1878_aBundledCartridgeIsRefusedWhereNothingProvesIt);
   await runTest('TEST1907: the_newest_version_is_chosen_by_number_not_text', test1907_theNewestVersionIsChosenByNumberNotText);
   runTest('TEST1908: a_manifest_refusal_names_both_manifests_and_the_remedy', test1908_aManifestRefusalNamesBothManifestsAndTheRemedy);
 
