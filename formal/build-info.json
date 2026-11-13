@@ -1,5 +1,5 @@
 {
-  "build_key": "aef198f00ea7cf0ecf1020e26b9af749e37b3e7b9374a8759ffab8be73e0c2ed",
+  "build_key": "224ee59e812693ebd6cdd63dbf1b97aced99eb64790e793f0793bfafa1312c3d",
   "lean_version": "4.34.1",
   "lean_githash": "5045d0056413266e57c625dcd7c365b10e377c52",
   "bir_version": 3,
@@ -41,6 +41,7 @@
     "CapDAG/Bifaci/Pools.lean": "d908a12c733e27c4801581bedae058898e702ea27ad9e597a28cd123a94c8ace",
     "CapDAG/Bifaci/Request.lean": "604c9ab7c41ee1d61431c2a4bcaafd172b8dc8db5d31bda2f47feb226024b674",
     "CapDAG/Cap.lean": "c191594b3fd6cbe30eaa17d7534087f3e6336c941c44cd1b2d5f2fb762d976ed",
+    "CapDAG/Detect.lean": "3164083da542785c8b9e365522c6f065b438f2da734128a233f71450e8dd8853",
     "CapDAG/Exec.lean": "c2febae2b84aef6588712fe88bd8266b2f84ba73f659113142b42f227e2bbfa2",
     "CapDAG/Query.lean": "34b70954d6515f24ac05517178d63ca6c0588ac9ab353b500756858ba5fba834",
     "CapDAG/Ranking.lean": "bc91e49b36aa687a2eaa72164ed4c9040e759b3a31f3a705b57932a584f8abf5",
@@ -56,9 +57,9 @@
   "project": ".",
   "link_directives": [],
   "output_digests": {
-    "assurance.json": "aa97660f19bef50bf9b1b922dc4d173f4a88a44a903d26b333c98384481045e2",
-    "index.d.ts": "a6b03c76274b281e358a6af50b778c8e41962e89cad7edf78cc4de1a7845969d",
-    "index.js": "bd066d5e11c15837b83a31554dd73bd7eb5dc0ea662a49008845637e315f1fc2"
+    "assurance.json": "5c696d5f89c7085a7f93cba4edaedaba1a039f22e9af7bc3ec35cd19e3772708",
+    "index.d.ts": "5e69c41788fb6508988711318f9f7aad3f82a3d0f14756d487fdfbd211bf2407",
+    "index.js": "a6fcc495c4ac2221995da35044eaf758c8f2d7e775b12c6054ad07fa7357ea8e"
   },
   "platform_products": [
     "program.wasm"

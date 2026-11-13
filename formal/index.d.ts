@@ -203,6 +203,19 @@ export type Write =
 ;
 export function writeType(): L.Type<Write>;
 
+/** Lean's TaggedUrn.Exec.Wf, held by handle: only the program's functions make and read its values. */
+export class Wf extends L.Opaque {
+  private constructor();
+}
+export function wfType(): L.Type<Wf>;
+
+/** Lean's CapDAG.Detect.Candidate. */
+export interface Candidate {
+  readonly urn: Wf;
+  readonly rules: Rules;
+}
+export function candidateType(): L.Type<Candidate>;
+
 /** Lean's CapDAG.Exec.WfCap. */
 export interface WfCap {
   readonly input: Wf;
@@ -229,12 +242,6 @@ export interface WfQuery {
   readonly effect: Effect;
 }
 export function wfQueryType(): L.Type<WfQuery>;
-
-/** Lean's TaggedUrn.Exec.Wf, held by handle: only the program's functions make and read its values. */
-export class Wf extends L.Opaque {
-  private constructor();
-}
-export function wfType(): L.Type<Wf>;
 
 /** Lean's CapDAG.Grade. */
 export type Grade =
@@ -323,6 +330,14 @@ export interface Pool {
   readonly active: bigint;
 }
 export function poolType(): L.Type<Pool>;
+
+/** Lean's CapDAG.Detect.Rules. */
+export type Rules =
+  | { readonly kind: "unruled" }
+  | { readonly kind: "met" }
+  | { readonly kind: "unmet" }
+;
+export function rulesType(): L.Type<Rules>;
 
 /** Lean's CapDAG.Exec.WfAsk. */
 export type WfAsk =
@@ -435,6 +450,12 @@ export class CapdagFormal {
   terminalOf(a: FrameType): L.Option<Terminal>;
   /** Lean's CapDAG.Bifaci.Request.write : Bool → CapDAG.Bifaci.Flow.FrameType → CapDAG.Bifaci.Request.Write */
   write(over: boolean, frame: FrameType): Write;
+  /** Lean's CapDAG.Detect.mostSpecific : List TaggedUrn.Exec.Wf → TaggedUrn.Exec.Wf → Bool */
+  mostSpecific(us: Array<Wf>, u: Wf): boolean;
+  /** Lean's CapDAG.Detect.primary : List TaggedUrn.Exec.Wf → Option Nat */
+  primary(us: Array<Wf>): L.Option<bigint>;
+  /** Lean's CapDAG.Detect.stands : List CapDAG.Detect.Candidate → List TaggedUrn.Exec.Wf → List TaggedUrn.Exec.Wf → CapDAG.Detect.Candidate → Bool */
+  stands(cs: Array<Candidate>, owners: Array<Wf>, claims: Array<Wf>, c: Candidate): boolean;
   /** Lean's CapDAG.Exec.accepts : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
   accepts(pattern: WfCap, cap: WfCap): boolean;
   /** Lean's CapDAG.Exec.comparable : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
