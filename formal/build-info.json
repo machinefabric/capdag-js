@@ -1,12 +1,12 @@
 {
-  "build_key": "7b3658818105381efa03acaf5dc489ba6c49fd4e7ebb3726712ae9f0e77ca4b9",
+  "build_key": "54d7189a7c2d399b50ee708e1d302250be27a1c8d8ff129e08edbb9e33fe987c",
   "lean_version": "4.34.1",
   "lean_githash": "5045d0056413266e57c625dcd7c365b10e377c52",
   "bir_version": 3,
   "adapter_version": 3,
-  "lungo_version": "1.120.164",
+  "lungo_version": "1.126.0",
   "runtime_abi": 3,
-  "worker_identity": "220c75476c1cb448ffb8272efd216c9332c7c8dd21e39d0b226a3e618bebbe57",
+  "worker_identity": "863f6dcb35972ec9a6e5acbb360ebe8502f41bd9700f137cfe0190ae9d020008",
   "input_digests": {
     "<package:lungo>/Lungo.lean": "907fc01dbbb840d774f0f22e2bf9af390d4ac57af2eca14b664034e2d13aba06",
     "<package:lungo>/Lungo/Async.lean": "5b5187ca9099ae0182b68f25078f48b8ae001497000392d662643e236c71642a",
@@ -22,7 +22,7 @@
     "<package:lungo>/Lungo/Spec/Model.lean": "5082edc39c7d67b908ab470ae61b6f97fa547b910dd0915b6f72b27ee54b90a7",
     "<package:lungo>/Lungo/Spec/State.lean": "a5a5aa8ccb208f06dd45005e5740c4e7096b1a7f8d484f6cc19d4835e816979e",
     "<package:lungo>/Lungo/Trace.lean": "f6f0735df8f533ef42e71cc5f5be73462fcac902c38f56f3d3411b28816a57bf",
-    "<package:lungo>/lakefile.toml": "97e0e471de3aaddef73988624b6126e1cf80b8c6f1f51ce3f3a8153d8c13d046",
+    "<package:lungo>/lakefile.toml": "d6a857de67de91b379d34e3ed2e497ff1adb9ab9b98bbc1520cc3edbe6274bbd",
     "<package:tagged_urn_formal>/TaggedUrn.lean": "cbc3ea3aff7c971572085e664a00de5ffddbff9d01a384747e1c350688607d4c",
     "<package:tagged_urn_formal>/TaggedUrn/Constraint.lean": "20d93e3ff2482334a7288262c6fb229675e13696af5712dcec1af2f3fe6e4028",
     "<package:tagged_urn_formal>/TaggedUrn/Exec.lean": "d8eb4db6b96b06895cb2b0c89731f81c7335734d712960751e0921bdab0a737e",
@@ -39,6 +39,7 @@
     "CapDAG/Bifaci/Pools.lean": "d908a12c733e27c4801581bedae058898e702ea27ad9e597a28cd123a94c8ace",
     "CapDAG/Bifaci/Request.lean": "604c9ab7c41ee1d61431c2a4bcaafd172b8dc8db5d31bda2f47feb226024b674",
     "CapDAG/Cap.lean": "c191594b3fd6cbe30eaa17d7534087f3e6336c941c44cd1b2d5f2fb762d976ed",
+    "CapDAG/Detect.lean": "3164083da542785c8b9e365522c6f065b438f2da734128a233f71450e8dd8853",
     "CapDAG/Exec.lean": "c2febae2b84aef6588712fe88bd8266b2f84ba73f659113142b42f227e2bbfa2",
     "CapDAG/Query.lean": "34b70954d6515f24ac05517178d63ca6c0588ac9ab353b500756858ba5fba834",
     "CapDAG/Ranking.lean": "bc91e49b36aa687a2eaa72164ed4c9040e759b3a31f3a705b57932a584f8abf5",
@@ -54,9 +55,9 @@
   "project": ".",
   "link_directives": [],
   "output_digests": {
-    "assurance.json": "5c5e30a6db898fb9689ef5da8ee17607c47c7c999a1985abd6e0d4fd6ef11527",
-    "index.d.ts": "36163c11219319e3dc75bc0a84ce605680caeb8e93b14df30b2a756e839a4dda",
-    "index.js": "19a62d68312fcd454bff863e03726e2658eed3464be77db3acfd9beddff8f712"
+    "assurance.json": "01ceffb38b304279f308c985ddf5f0f4ad4adad1882531e27845a636be7df27c",
+    "index.d.ts": "cbff7ae0a5f4bdd28620df04bb8fbed8ed8c819410e53fc76a5eff66ee5a6020",
+    "index.js": "01f48c47cc075bd615aadbc9381db022891754c790857de8e378064c1976e18b"
   },
   "platform_products": [
     "program.wasm"
