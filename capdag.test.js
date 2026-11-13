@@ -4511,14 +4511,17 @@ async function test7168_aManifestTheRegistryDoesNotHaveIsNotFound() {
 // version it was fetched for.
 async function test7169_aRefusedDefinitionFetchIsReportedAsTheRefusal() {
   const { client, asked } = await answeringRegistry(403);
+  // Each fetch starts only when its refusal is awaited: started together,
+  // a later one's rejection could land before anything handled it, and the
+  // process would end on it as unhandled.
   const fetches = [
-    [client.getCap(EXTRACT_URN), `cap '${EXTRACT_URN}'`],
-    [client.getMediaDef(PDF), `media definition '${MediaUrn.fromString(PDF).toString()}'`],
-    [client.getAlias('extract'), "alias 'extract'"],
-    [client.getDim('language'), "dim 'language'"],
+    [() => client.getCap(EXTRACT_URN), `cap '${EXTRACT_URN}'`],
+    [() => client.getMediaDef(PDF), `media definition '${MediaUrn.fromString(PDF).toString()}'`],
+    [() => client.getAlias('extract'), "alias 'extract'"],
+    [() => client.getDim('language'), "dim 'language'"],
   ];
-  for (const [fetching, what] of fetches) {
-    const error = await refusedRegistry(fetching, FabricRegistryErrorCodes.FETCH_FAILED, what);
+  for (const [fetch, what] of fetches) {
+    const error = await refusedRegistry(fetch(), FabricRegistryErrorCodes.FETCH_FAILED, what);
     assertEqual(error.what, what, 'what was fetched');
     assertEqual(error.httpStatus, 403, `${what}: the status`);
     assertEqual(error.manifestVersion, 8, `${what}: the manifest`);
@@ -4550,8 +4553,9 @@ async function test7171_aRegistryThatDoesNotAnswerIsReportedAsATimeout() {
 // that it does not have it, and only that is NotFound.
 async function test7172_aDefinitionTheRegistryDoesNotHaveIsNotFound() {
   const { client } = await answeringRegistry(404);
-  for (const fetching of [client.getCap(EXTRACT_URN), client.getMediaDef(PDF), client.getAlias('extract')]) {
-    const error = await refusedRegistry(fetching, FabricRegistryErrorCodes.NOT_FOUND, 'an absent definition');
+  // Each fetch starts only when its refusal is awaited (see TEST7169).
+  for (const fetch of [() => client.getCap(EXTRACT_URN), () => client.getMediaDef(PDF), () => client.getAlias('extract')]) {
+    const error = await refusedRegistry(fetch(), FabricRegistryErrorCodes.NOT_FOUND, 'an absent definition');
     assert(error.message.includes('HTTP 404') && error.message.includes(REGISTRY), error.message);
   }
 }
