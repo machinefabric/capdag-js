@@ -1040,10 +1040,13 @@ function test1973_plainTextAndUtf8Strings() {
   }
 }
 
-// TEST68: Test is_void returns true when void flag or type=void tag is present
+// TEST68: is_void is true only for the void marker: media:void; not media:!void (must not be void), media:?void (unconstrained), a URN with no void tag, or media:
 function test068_isVoid() {
   assert(MediaUrn.fromString('media:void').isVoid(), 'media:void should be void');
+  assert(!MediaUrn.fromString('media:!void').isVoid(), 'media:!void should not be void');
+  assert(!MediaUrn.fromString('media:?void').isVoid(), 'media:?void should not be void');
   assert(!MediaUrn.fromString(MEDIA_STRING).isVoid(), 'MEDIA_STRING should not be void');
+  assert(!MediaUrn.fromString('media:').isVoid(), 'media: should not be void');
 }
 
 // TEST069-TEST6240: N/A for JS (Rust-only binary_media_urn_for_ext/text_media_urn_for_ext)
@@ -7169,6 +7172,25 @@ function test1810_mediaVoidIsAtomic() {
   }
 }
 
+// TEST1811: atomicity belongs to the void marker alone. media:void;enc=utf8 is refused with VoidNotAtomic, naming enc; media:!void;enc=utf8 (must not be void) and media:?void;enc=utf8 (void left open) name void without the marker, so each parses as an ordinary media URN that is not void.
+function test1811_voidAtomicityReadsTheMarker() {
+  let error = null;
+  try {
+    MediaUrn.fromString('media:void;enc=utf8');
+  } catch (e) {
+    error = e;
+  }
+  assert(error !== null, 'media:void;enc=utf8: expected parse error, but parsed successfully');
+  assertEqual(error.code, MediaUrnErrorCodes.VOID_NOT_ATOMIC, 'media:void;enc=utf8: expected VOID_NOT_ATOMIC');
+  assert(error.message.includes('extra tag(s): enc.'), `media:void;enc=utf8: names enc, got ${error.message}`);
+
+  for (const input of ['media:!void;enc=utf8', 'media:?void;enc=utf8']) {
+    const urn = MediaUrn.fromString(input);
+    assert(!urn.isVoid(), `${input} is not void`);
+    assertEqual(urn.getTag('enc'), 'utf8', `${input} keeps its other tags`);
+  }
+}
+
 // TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. This pins the rule that kind is a property of the cap as a structured object, not of any particular spelling.
 function test1805_kindInvariantUnderCanonicalSpellings() {
   const cases = [
@@ -8495,6 +8517,7 @@ async function runTests() {
 
   console.log('\n--- media:void atomicity (test1810) ---');
   runTest('TEST1810: media_void_is_atomic',                 test1810_mediaVoidIsAtomic);
+  runTest('TEST1811: void_atomicity_reads_the_marker',     test1811_voidAtomicityReadsTheMarker);
 
   console.log('\n--- Truth-table specificity (test1820–test1824) ---');
   runTest('TEST1820: specificity_question_is_zero',         test1820_specificityQuestionIsZero);

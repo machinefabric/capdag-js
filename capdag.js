@@ -1646,9 +1646,10 @@ class MediaUrn {
       );
     }
     // Enforce media:void atomicity. The unit type has no lattice
-    // underneath it; refinements are conceptually wrong.
+    // underneath it; refinements are conceptually wrong. Only the void
+    // marker is atomic: media:!void;… and media:?void;… do not say void.
     const tagKeys = Object.keys(taggedUrn.tags);
-    if (tagKeys.includes('void') && tagKeys.length > 1) {
+    if (taggedUrn.tags.void === '*' && tagKeys.length > 1) {
       const extras = tagKeys.filter((k) => k !== 'void').sort();
       throw new MediaUrnError(
         MediaUrnErrorCodes.VOID_NOT_ATOMIC,
@@ -1730,7 +1731,7 @@ class MediaUrn {
   /** @returns {boolean} True if the "void" marker tag is present —
    *  the **unit type** in the type-theoretic reading. media:void is
    *  the nullary value; NOT "invalid" or "absent". */
-  isVoid() { return this._urn.getTag('void') !== undefined; }
+  isVoid() { return this._hasMarkerTag('void'); }
 
   /** @returns {boolean} True if this is the **top** media URN — the
    *  universal wildcard `media:` with no tags. Order-theoretically,
