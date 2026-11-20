@@ -1741,19 +1741,19 @@ class MediaUrn {
   isTop() { return Object.keys(this._urn.tags).length === 0; }
 
   /** @returns {boolean} True if the "image" marker tag is present */
-  isImage() { return this._urn.getTag('image') !== undefined; }
+  isImage() { return this._hasMarkerTag('image'); }
 
   /** @returns {boolean} True if the "audio" marker tag is present */
-  isAudio() { return this._urn.getTag('audio') !== undefined; }
+  isAudio() { return this._hasMarkerTag('audio'); }
 
   /** @returns {boolean} True if the "video" marker tag is present */
-  isVideo() { return this._urn.getTag('video') !== undefined; }
+  isVideo() { return this._hasMarkerTag('video'); }
 
   /** @returns {boolean} True if the "numeric" marker tag is present */
-  isNumeric() { return this._urn.getTag('numeric') !== undefined; }
+  isNumeric() { return this._hasMarkerTag('numeric'); }
 
   /** @returns {boolean} True if the "bool" marker tag is present */
-  isBool() { return this._urn.getTag('bool') !== undefined; }
+  isBool() { return this._hasMarkerTag('bool'); }
 
   /**
    * Returns true if this value's content format is YAML (`fmt=yaml`).

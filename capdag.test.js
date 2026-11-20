@@ -7191,6 +7191,33 @@ function test1811_voidAtomicityReadsTheMarker() {
   }
 }
 
+// TEST1812: every marker predicate reads its marker, never the key's presence. For each marker x, the predicate is true for media:x and false for media:!x (must not have x) and media:?x (x left open); the negated predicates (is_scalar, is_opaque) are the reverse. JS alone has isCollection, which is covered too.
+function test1812_markerPredicatesReadTheMarker() {
+  const predicates = [
+    ['list', (u) => u.isList()],
+    ['record', (u) => u.isRecord()],
+    ['image', (u) => u.isImage()],
+    ['audio', (u) => u.isAudio()],
+    ['video', (u) => u.isVideo()],
+    ['numeric', (u) => u.isNumeric()],
+    ['bool', (u) => u.isBool()],
+    ['void', (u) => u.isVoid()],
+    ['file-path', (u) => u.isFilePath()],
+    ['live', (u) => u.isLiveFeed()],
+    ['collection', (u) => u.isCollection()],
+  ];
+  for (const [marker, predicate] of predicates) {
+    assert(predicate(MediaUrn.fromString(`media:${marker}`)), `media:${marker}`);
+    assert(!predicate(MediaUrn.fromString(`media:!${marker}`)), `media:!${marker}`);
+    assert(!predicate(MediaUrn.fromString(`media:?${marker}`)), `media:?${marker}`);
+  }
+  for (const [marker, predicate] of [['list', (u) => u.isScalar()], ['record', (u) => u.isOpaque()]]) {
+    assert(!predicate(MediaUrn.fromString(`media:${marker}`)), `media:${marker}`);
+    assert(predicate(MediaUrn.fromString(`media:!${marker}`)), `media:!${marker}`);
+    assert(predicate(MediaUrn.fromString(`media:?${marker}`)), `media:?${marker}`);
+  }
+}
+
 // TEST1805: Kind is invariant under canonicalization. The same morphism written in many surface forms must classify the same way once parsed. This pins the rule that kind is a property of the cap as a structured object, not of any particular spelling.
 function test1805_kindInvariantUnderCanonicalSpellings() {
   const cases = [
@@ -8518,6 +8545,7 @@ async function runTests() {
   console.log('\n--- media:void atomicity (test1810) ---');
   runTest('TEST1810: media_void_is_atomic',                 test1810_mediaVoidIsAtomic);
   runTest('TEST1811: void_atomicity_reads_the_marker',     test1811_voidAtomicityReadsTheMarker);
+  runTest('TEST1812: marker_predicates_read_the_marker',   test1812_markerPredicatesReadTheMarker);
 
   console.log('\n--- Truth-table specificity (test1820–test1824) ---');
   runTest('TEST1820: specificity_question_is_zero',         test1820_specificityQuestionIsZero);
