@@ -528,17 +528,26 @@ function test024_compatibility() {
   assert(broadIn.accepts(cap1), 'Wildcard input should accept specific input');
 }
 
-// TEST25: Test find_best_match returns most specific matching cap
+// TEST25: find_best_match chooses the serving cap closest to the request: an exact match over a refinement
 function test025_bestMatch() {
-  const caps = [
-    CapUrn.fromString('cap:in=*;out=*;op'),
-    CapUrn.fromString(test6204_Urn('generate')),
-    CapUrn.fromString(test6204_Urn('generate;ext=pdf'))
-  ];
+  const op = CapUrn.fromString(test6204_Urn('op'));
+  const pdf = CapUrn.fromString(test6204_Urn('generate;ext=pdf'));
+  const generate = CapUrn.fromString(test6204_Urn('generate'));
   const request = CapUrn.fromString(test6204_Urn('generate'));
-  const best = CapMatcher.findBestMatch(caps, request);
-  assert(best !== null, 'Should find a best match');
-  assertEqual(best.getTag('ext'), 'pdf', 'Best match should be the most specific (ext=pdf)');
+
+  // Both generate caps serve the request; the pdf one is more specific.
+  assert(pdf.isDispatchable(request), 'The pdf cap serves the request');
+  assert(generate.isDispatchable(request), 'The generate cap serves the request');
+  assert(pdf.specificity() > generate.specificity(), 'The pdf cap is the more specific');
+
+  // The exact match wins over the more specific refinement, though it is
+  // registered after it.
+  assert(CapMatcher.findBestMatch([op, pdf, generate], request) === generate,
+    'The exact match is chosen over the refinement');
+
+  // A refinement is chosen when nothing matches exactly.
+  assert(CapMatcher.findBestMatch([op, pdf], request) === pdf,
+    'The refinement is chosen when nothing matches exactly');
 }
 
 // TEST26: Test merge combines tags from both caps, subset keeps only specified tags
@@ -3354,22 +3363,65 @@ function test560_withInOutSpec() {
 
 // TEST562: N/A for JS (canonical_option not in JS CapUrn)
 
-// TEST563: CapMatcher::find_all_matches returns all matching caps sorted by specificity
+// TEST563: CapMatcher::find_all_matches returns every serving cap in ranking order, closest to the request first
 function test563_findAllMatches() {
-  const caps = [
-    CapUrn.fromString('cap:in="media:void";test;out="media:void"'),
-    CapUrn.fromString('cap:in="media:void";test;ext=pdf;out="media:void"'),
-    CapUrn.fromString('cap:in="media:void";different;out="media:void"'),
-  ];
+  const pdf = CapUrn.fromString('cap:in="media:void";test;ext=pdf;out="media:void"');
+  const exact = CapUrn.fromString('cap:in="media:void";test;out="media:void"');
+  const different = CapUrn.fromString('cap:in="media:void";different;out="media:void"');
 
   const request = CapUrn.fromString('cap:in="media:void";test;out="media:void"');
-  const matches = CapMatcher.findAllMatches(caps, request);
+  const matches = CapMatcher.findAllMatches([pdf, exact, different], request);
 
-  // Should find 2 matches (test and test;ext=pdf), not different
-  assertEqual(matches.length, 2, 'Should find 2 matches');
-  // Sorted by specificity descending: ext=pdf first (more specific)
-  assert(matches[0].specificity() >= matches[1].specificity(), 'First match should be more specific');
-  assertEqual(matches[0].getTag('ext'), 'pdf', 'Most specific match should have ext=pdf');
+  // The two test caps serve the request; the different one does not. The
+  // exact match ranks before the more specific refinement.
+  assertEqual(matches.length, 2, 'The two test caps serve the request');
+  assert(matches[0] === exact, 'The exact match ranks first');
+  assert(matches[1] === pdf, 'The refinement ranks second');
+}
+
+// TEST477: CapMatcher keeps the first registered of candidates the ranking cannot tell apart
+function test477_matcherFirstRegisteredOfEqualRankWins() {
+  const zeta = CapUrn.fromString('cap:engine=zeta;in="media:document;ext=pdf";out="media:ext=png;image";thumbnail');
+  const alpha = CapUrn.fromString('cap:engine=alpha;in="media:document;ext=pdf";out="media:ext=png;image";thumbnail');
+  const request = CapUrn.fromString('cap:in="media:document;ext=pdf";out="media:ext=png;image";thumbnail');
+
+  // Both serve the request, and they rank alike.
+  assert(zeta.isDispatchable(request), 'zeta serves the request');
+  assert(alpha.isDispatchable(request), 'alpha serves the request');
+  assertEqual(zeta.specificity(), alpha.specificity(), 'zeta and alpha are equally specific');
+
+  for (const order of [[zeta, alpha], [alpha, zeta]]) {
+    assert(CapMatcher.findBestMatch(order, request) === order[0], 'The first registered is chosen');
+    const matches = CapMatcher.findAllMatches(order, request);
+    assertEqual(matches.length, 2, 'Both serve the request');
+    assert(matches[0] === order[0] && matches[1] === order[1], 'Equal caps keep their registration order');
+  }
+}
+
+// TEST484: CapMatcher chooses among the caps that serve the request, never among those the request accepts as a pattern
+function test484_matcherRanksServingCapsNotAcceptedOnes() {
+  const request = CapUrn.fromString('cap:extract;in="media:document;ext=pdf";out=media:record');
+  // Takes any document, so it takes the pdf the request sends.
+  const broader = CapUrn.fromString('cap:extract;in=media:document;out=media:record');
+  // Takes only a version-2 pdf, so not every pdf the request may send.
+  const narrower = CapUrn.fromString('cap:extract;in="media:document;ext=pdf;v=2";out=media:record');
+
+  assert(broader.isDispatchable(request), 'The broader cap serves the request');
+  assert(!narrower.isDispatchable(request), 'The narrower cap does not serve the request');
+  // Read as a pattern, the request fits the narrower cap and not the broader
+  // one, and the narrower one is the more specific.
+  assert(request.accepts(narrower), 'The request as a pattern fits the narrower cap');
+  assert(!request.accepts(broader), 'The request as a pattern does not fit the broader cap');
+  assert(narrower.specificity() > broader.specificity(), 'The narrower cap is the more specific');
+
+  assert(CapMatcher.findBestMatch([broader, narrower], request) === broader, 'The serving cap is chosen');
+  const matches = CapMatcher.findAllMatches([broader, narrower], request);
+  assertEqual(matches.length, 1, 'Only the broader cap serves');
+  assert(matches[0] === broader, 'Only the broader cap serves');
+
+  // Nothing serves when only the narrower cap is registered.
+  assertEqual(CapMatcher.findBestMatch([narrower], request), null, 'Nothing serves');
+  assertEqual(CapMatcher.findAllMatches([narrower], request).length, 0, 'Nothing serves');
 }
 
 // TEST564: CapMatcher::are_compatible detects bidirectional overlap
@@ -8247,7 +8299,9 @@ async function runTests() {
   console.log('\n--- cap_urn.rs (tier tests) ---');
   runTest('TEST1303: without_tag', test559_withoutTag);
   runTest('TEST1304: with_in_out_spec', test560_withInOutSpec);
-  runTest('TEST1305: find_all_matches', test563_findAllMatches);
+  runTest('TEST563: find_all_matches', test563_findAllMatches);
+  runTest('TEST477: matcher_first_registered_of_equal_rank_wins', test477_matcherFirstRegisteredOfEqualRankWins);
+  runTest('TEST484: matcher_ranks_serving_caps_not_accepted_ones', test484_matcherRanksServingCapsNotAcceptedOnes);
   runTest('TEST1306: are_compatible', test564_areCompatible);
   runTest('TEST1307: with_tag_rejects_structural_keys', test566_withTagRejectsStructuralKeys);
   runTest('TEST1308: builder_rejects_structural_keys', test6544_builderRejectsStructuralKeys);

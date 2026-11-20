@@ -887,6 +887,43 @@ class CapUrn {
   }
 
   /**
+   * The position in `candidates` of the cap the proved ranking chooses to
+   * serve `request` (CapDAG.Exec.select): among the candidates that serve it,
+   * the one whose ranking key is least, and of equal keys the first.
+   *
+   * @param {CapUrn[]} candidates - in registration order
+   * @param {CapUrn} request
+   * @returns {number|null} null when none serves it
+   */
+  static select(candidates, request) {
+    const chosen = model.select(candidates.map(c => c.formal), request.formal);
+    if (chosen === null) {
+      return null;
+    }
+    // The model returns the cap it chose; it is the first candidate that
+    // serves the request with the chosen cap's key, since the model keeps the
+    // first of equal keys.
+    const key = model.rankingKey(chosen, request.formal);
+    const index = candidates.findIndex(c =>
+      c.isDispatchable(request) && compareRankingKeys(c.rankingKey(request), key) === 0);
+    if (index === -1) {
+      throw new Error(`capdag: the model chose a cap to serve ${request.toString()} that is none of the candidates`);
+    }
+    return index;
+  }
+
+  /**
+   * This candidate's key in the proved ranking for `request`
+   * (CapDAG.Exec.rankingKey): the smaller key ranks first.
+   *
+   * @param {CapUrn} request
+   * @returns {[bigint, bigint]}
+   */
+  rankingKey(request) {
+    return model.rankingKey(this.formal, request.formal);
+  }
+
+  /**
    * Whether this candidate COULD serve `request`: not guaranteed, not
    * excluded. For exploring what the fabric might do — never for routing a
    * call, which must be served.
@@ -1255,65 +1292,68 @@ class CapQuery {
 }
 
 /**
- * Cap Matcher utility class
+ * Orders two ranking keys as the model does: by their first part, then by
+ * their second.
+ *
+ * @param {[bigint, bigint]} a
+ * @param {[bigint, bigint]} b
+ * @returns {number} negative when a ranks first, zero when equal
+ */
+function compareRankingKeys(a, b) {
+  if (a[0] !== b[0]) return a[0] < b[0] ? -1 : 1;
+  if (a[1] !== b[1]) return a[1] < b[1] ? -1 : 1;
+  return 0;
+}
+
+/**
+ * Choosing among registered caps for a request, as the proved ranking does
+ * (CapDAG.Exec.select): only the caps that serve the request
+ * (CapUrn.isDispatchable) are considered, the one whose specificity is closest
+ * to the request's ranks first (an exact match, then the nearest refinement,
+ * then the nearest fallback), and of caps that rank alike the first registered
+ * comes first. `caps` is in registration order.
  */
 class CapMatcher {
   /**
-   * Find the most specific cap that accepts a request
+   * The cap the ranking chooses to serve `request` (CapUrn.select).
    *
-   * @param {CapUrn[]} caps - Array of available caps
-   * @param {CapUrn} request - The request to match
-   * @returns {CapUrn|null} The best matching cap or null if no match
+   * @param {CapUrn[]} caps - Registered caps, in registration order
+   * @param {CapUrn} request - The request to serve
+   * @returns {CapUrn|null} null when no cap serves it
    */
   static findBestMatch(caps, request) {
-    let best = null;
-    let bestSpecificity = -1;
-
-    for (const cap of caps) {
-      if (request.accepts(cap)) {
-        const specificity = cap.specificity();
-        if (specificity > bestSpecificity) {
-          best = cap;
-          bestSpecificity = specificity;
-        }
-      }
-    }
-
-    return best;
+    const index = CapUrn.select(caps, request);
+    return index === null ? null : caps[index];
   }
 
   /**
-   * Find all caps that accept a request, sorted by specificity
+   * Every cap that serves `request`, in ranking order: the one findBestMatch
+   * chooses first, and caps that rank alike in registration order.
    *
-   * @param {CapUrn[]} caps - Array of available caps
-   * @param {CapUrn} request - The request to match
-   * @returns {CapUrn[]} Array of matching caps sorted by specificity (most specific first)
+   * @param {CapUrn[]} caps - Registered caps, in registration order
+   * @param {CapUrn} request - The request to serve
+   * @returns {CapUrn[]}
    */
   static findAllMatches(caps, request) {
-    const matches = caps.filter(cap => request.accepts(cap));
-
-    // Sort by specificity (most specific first)
-    matches.sort((a, b) => b.specificity() - a.specificity());
-
-    return matches;
+    const ranked = caps
+      .filter(cap => cap.isDispatchable(request))
+      .map(cap => ({ cap, key: cap.rankingKey(request) }));
+    // Array.prototype.sort is stable, so caps of equal key keep their
+    // registration order.
+    ranked.sort((a, b) => compareRankingKeys(a.key, b.key));
+    return ranked.map(entry => entry.cap);
   }
 
   /**
-   * Check if two cap sets are compatible
+   * Whether two cap sets overlap: some cap of one is comparable with some cap
+   * of the other (CapUrn.isComparable).
    *
    * @param {CapUrn[]} caps1 - First set of caps
    * @param {CapUrn[]} caps2 - Second set of caps
-   * @returns {boolean} Whether any caps from the two sets are compatible
+   * @returns {boolean}
    */
   static areCompatible(caps1, caps2) {
-    for (const c1 of caps1) {
-      for (const c2 of caps2) {
-        if (c1.accepts(c2) || c2.accepts(c1)) {
-          return true;
-        }
-      }
-    }
-    return false;
+    return caps1.some(c1 => caps2.some(c2 => c1.isComparable(c2)));
   }
 }
 
