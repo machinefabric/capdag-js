@@ -225,6 +225,13 @@ export interface WfCap {
 }
 export function wfCapType(): L.Type<WfCap>;
 
+/** Lean's CapDAG.Illegal. */
+export type Illegal =
+  | { readonly kind: "bareTop" }
+  | { readonly kind: "noneNotInside" }
+;
+export function illegalType(): L.Type<Illegal>;
+
 /** Lean's CapDAG.Effect. */
 export type Effect =
   | { readonly kind: "unspecified" }
@@ -458,6 +465,8 @@ export class CapdagFormal {
   stands(cs: Array<Candidate>, owners: Array<Wf>, claims: Array<Wf>, c: Candidate): boolean;
   /** Lean's CapDAG.Exec.accepts : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
   accepts(pattern: WfCap, cap: WfCap): boolean;
+  /** Lean's CapDAG.Exec.capIllegal : CapDAG.Exec.WfCap → Option CapDAG.Illegal */
+  capIllegal(c: WfCap): L.Option<Illegal>;
   /** Lean's CapDAG.Exec.comparable : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
   comparable(a: WfCap, b: WfCap): boolean;
   /** Lean's CapDAG.Exec.dispatch : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
