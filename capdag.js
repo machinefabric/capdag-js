@@ -2868,7 +2868,40 @@ class Cap {
     this.metadata_json = metadataJson;
     this.registered_by = null;  // Registration attribution
     this.supported_model_types = [];  // Model types this cap supports (omitted when empty)
-    this.default_model_spec = null;   // Default model spec string (omitted when null)
+  }
+
+  /**
+   * The cap's model-spec argument: the one whose media URN conforms to
+   * MEDIA_MODEL_SPEC, or null when the cap takes no model spec. A cap that
+   * declares two is an error naming it.
+   * @returns {CapArg|null}
+   */
+  modelSpecArg() {
+    const modelSpec = MediaUrn.fromString(MEDIA_MODEL_SPEC);
+    let found = null;
+    for (const arg of this.args) {
+      if (!MediaUrn.fromString(arg.media_urn).conformsTo(modelSpec)) continue;
+      if (found !== null) {
+        throw new Error(`cap '${this.urn}' declares two model-spec arguments, '${found.media_urn}' and '${arg.media_urn}'`);
+      }
+      found = arg;
+    }
+    return found;
+  }
+
+  /**
+   * The model a run of this cap uses when none is named: its model-spec
+   * argument's default_value, the value a run applies. null when the cap takes
+   * no model spec, or its model-spec argument declares no default.
+   * @returns {string|null}
+   */
+  defaultModelSpec() {
+    const arg = this.modelSpecArg();
+    if (arg === null || arg.default_value === null || arg.default_value === undefined) return null;
+    if (typeof arg.default_value !== 'string') {
+      throw new Error(`cap '${this.urn}' model-spec argument '${arg.media_urn}' declares a default that is not a string`);
+    }
+    return arg.default_value;
   }
 
   /**
@@ -3158,8 +3191,7 @@ class Cap {
            JSON.stringify(this.outputs.map(o => o.toJSON())) === JSON.stringify(other.outputs.map(o => o.toJSON())) &&
            JSON.stringify(this.metadata_json) === JSON.stringify(other.metadata_json) &&
            JSON.stringify(this.registered_by) === JSON.stringify(other.registered_by) &&
-           JSON.stringify(this.supported_model_types) === JSON.stringify(other.supported_model_types) &&
-           this.default_model_spec === other.default_model_spec;
+           JSON.stringify(this.supported_model_types) === JSON.stringify(other.supported_model_types);
   }
 
   /**
@@ -3206,11 +3238,6 @@ class Cap {
       result.supported_model_types = this.supported_model_types;
     }
 
-    // default_model_spec: omit when null, matching Rust skip_serializing_if = is_none
-    if (this.default_model_spec !== null && this.default_model_spec !== undefined) {
-      result.default_model_spec = this.default_model_spec;
-    }
-
     return result;
   }
 
@@ -3252,7 +3279,6 @@ class Cap {
     }
     cap.registered_by = json.registered_by ? RegisteredBy.fromJSON(json.registered_by) : null;
     cap.supported_model_types = Array.isArray(json.supported_model_types) ? json.supported_model_types : [];
-    cap.default_model_spec = (typeof json.default_model_spec === 'string') ? json.default_model_spec : null;
     return cap;
   }
 
