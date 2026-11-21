@@ -3857,6 +3857,21 @@ function test12711_validateRefusesAnInvalidDefinition() {
   );
 }
 
+// TEST7195: validate() recognises the identity cap by equivalence: a wider
+// pattern the identity refines (`cap:?effect`) is not the identity, and the
+// identity spelled with its directions written out is.
+function test7195_validateRecognisesIdentityByEquivalence() {
+  const wide = new Cap(CapUrn.fromString('cap:?effect'), 'Any effect', ['any-effect']);
+  assertThrowsMessage(
+    () => manifestWith([new CapGroup('default', [wide, convertCap(true)])]).validate(),
+    'CAP_IDENTITY', 'a wider pattern is not the identity'
+  );
+
+  const spelled = identityCap();
+  spelled.urn = CapUrn.fromString('cap:effect=none;in=media:;out=media:');
+  manifestWith([new CapGroup('default', [spelled, convertCap(true)])]).validate();
+}
+
 // TEST12712: the host holds the definitions a cartridge advertises to the
 // definition rules. A manifest that parses, declares identity, and carries a
 // cap that breaks a rule is refused, naming the cap and the rule — the host
@@ -8369,6 +8384,7 @@ async function runTests() {
   runTest('TEST12709: rule21_exactly_one_main_output', test12709_rule21ExactlyOneMainOutput);
   runTest('TEST12710: rule22_what_an_output_carries', test12710_rule22WhatAnOutputCarries);
   runTest('TEST12711: validate_refuses_an_invalid_definition', test12711_validateRefusesAnInvalidDefinition);
+  runTest('TEST7195: validate_recognises_identity_by_equivalence', test7195_validateRecognisesIdentityByEquivalence);
   runTest('TEST12712: advertised_cap_groups_reject_an_invalid_definition', test12712_advertisedCapGroupsRejectAnInvalidDefinition);
   runTest('TEST12713: built_in_definitions_pass_the_definition_rules', test12713_builtInDefinitionsPassTheDefinitionRules);
   runTest('TEST12717: an_advertised_manifest_is_parsed_and_checked', test12717_anAdvertisedManifestIsParsedAndChecked);
