@@ -268,12 +268,11 @@ class CapUrn {
       }
     }
     validateNonStructuralTags(this.tags);
-    this._validateAdmissible();
     // The same cap on the proved model's side: its three URNs and its effect.
-    // Dispatch, acceptance, equivalence and specificity are asked of it. Made
-    // here, from the same fields, and the cap is frozen, so the two can never
-    // describe different caps; it is not enumerable, so it is not part of what
-    // a cap serializes or compares as.
+    // Admissibility, dispatch, acceptance, equivalence and specificity are
+    // asked of it. Made here, from the same fields, and the cap is frozen, so
+    // the two can never describe different caps; it is not enumerable, so it is
+    // not part of what a cap serializes or compares as.
     const formal = {
       input: modelUrn(MediaUrn.fromString(this.inSpec)._urn),
       output: modelUrn(MediaUrn.fromString(this.outSpec)._urn),
@@ -281,6 +280,7 @@ class CapUrn {
       effect: MODEL_EFFECTS[this.effectValue],
     };
     Object.defineProperty(this, 'formal', { value: formal, enumerable: false });
+    this._validateAdmissible();
     Object.freeze(this.tags);
     Object.freeze(this);
   }
@@ -1053,37 +1053,28 @@ class CapUrn {
     }
   }
 
+  /**
+   * Refuse a cap that cannot be declared, as the model decides (`Cap.illegal`):
+   * the bare top form, and an `effect=none` cap whose input is not inside its output.
+   */
   _validateAdmissible() {
-    const inMedia = this.inMediaUrn();
-    const outMedia = this.outMediaUrn();
-    const noExtraTags = Object.keys(this.tags).length === 0;
-
-    if (inMedia.isTop() && outMedia.isTop() && noExtraTags && this.effectValue === CapEffect.DECLARED) {
-      throw new CapUrnError(
-        ErrorCodes.ILLEGAL_DECLARATION,
-        'illegal bare top cap; use cap:effect=none for identity, or declare a non-vacuous input/output/effect/tag'
-      );
-    }
-
-    if (this.effectValue === CapEffect.NONE) {
-      if (!inMedia.conformsTo(outMedia)) {
-        throw new CapUrnError(
-          ErrorCodes.ILLEGAL_DECLARATION,
-          `effect=none requires declared input '${inMedia}' to conform to declared output '${outMedia}'`
-        );
-      }
+    const illegal = model.capIllegal(this.formal);
+    if (illegal === null) {
       return;
     }
-
-    if (this.effectValue === CapEffect.PATCH) {
-      const delta = outMedia.deltaFrom(inMedia);
-      const witness = inMedia.applyDelta(delta);
-      if (!witness.conformsTo(outMedia)) {
+    switch (illegal.kind) {
+      case 'bareTop':
         throw new CapUrnError(
           ErrorCodes.ILLEGAL_DECLARATION,
-          `effect=patch witness '${witness}' does not conform to declared output '${outMedia}'`
+          'illegal bare top cap; use cap:effect=none for identity, or declare a non-vacuous input/output/effect/tag'
         );
-      }
+      case 'noneNotInside':
+        throw new CapUrnError(
+          ErrorCodes.ILLEGAL_DECLARATION,
+          `effect=none requires declared input '${this.inSpec}' to conform to declared output '${this.outSpec}'`
+        );
+      default:
+        throw new Error(`the model named a reason a cap is illegal that this mirror does not know: ${JSON.stringify(illegal)}`);
     }
   }
 }
@@ -13436,6 +13427,8 @@ export {
   FileMedia,
   detectFileMedia,
   extensionMedia,
+  survivingCandidates,
+  settle,
   primaryMedia,
 };
 

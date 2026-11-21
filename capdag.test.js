@@ -63,7 +63,7 @@ import * as capdagModule from './capdag.js';
 
 const {
   FileMediaError, FileMediaErrorCodes, AdapterSource, NoAdapters, CartridgeAdapterInvoker, NoInvoker,
-  detectFileMedia, extensionMedia, primaryMedia,
+  detectFileMedia, extensionMedia, survivingCandidates, settle, primaryMedia,
 } = capdagModule;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -8408,6 +8408,8 @@ async function runTests() {
   runTest('TEST8157: signature_formats_from_library', test8157_signatureFormatDiscriminatorsComeFromTheLibrary);
   runTest('TEST8158: attachment_kinds_separate_situations', test8158_attachmentKindsSeparateTheirSituations);
   runTest('TEST12166: the_implementation_is_the_proved_model', test12166_theImplementationIsTheProvedModel);
+  runTest('TEST7123: admissibility_is_the_models', test7123_admissibilityIsTheModels);
+  runTest('TEST7124: detection_is_the_models', test7124_detectionIsTheModels);
   runTest('TEST12597: every_model_function_carries_a_proved_claim', test12597_everyModelFunctionCarriesAProvedClaim);
   runTest('TEST8121: effect_conformance_declared_asymmetry', test8121_effectConformanceDeclaredAsymmetry);
   runTest('TEST8122: effect_conformance_none_requires_equivalence', test8122_effectConformanceNoneRequiresEquivalence);
@@ -8989,6 +8991,80 @@ function test12166_theImplementationIsTheProvedModel() {
   }
   assert(table.refines.length > 4000 && table.dispatch.length > 30000, 'the table is the full one');
   assert(wrong.length === 0, `${wrong.length} row(s) differ from the model, e.g.\n  ${wrong.slice(0, 8).join('\n  ')}`);
+}
+
+function modelTable() {
+  return JSON.parse(fs.readFileSync(path.join(here, '..', 'formal', 'conformance.json'), 'utf8'));
+}
+
+/**
+ * TEST7123: the cap URN parser refuses a cap exactly when the model says it
+ * cannot be declared, and for the reason the model gives: the bare top form,
+ * or an effect=none cap whose input is not inside its output. Every other cap
+ * over every effect, patch included, parses.
+ */
+function test7123_admissibilityIsTheModels() {
+  const rows = modelTable().admissible;
+  assertEqual(rows.length, 500, 'every cap over the directions, cap-tags and effects');
+  const wrong = [];
+  for (const row of rows) {
+    let got = null;
+    try {
+      CapUrn.fromString(row.cap);
+    } catch (error) {
+      if (!(error instanceof CapUrnError) || error.code !== ErrorCodes.ILLEGAL_DECLARATION) {
+        got = `refused, not as illegal: ${error.message}`;
+      } else if (error.message.startsWith('illegal bare top cap')) {
+        got = 'bare_top';
+      } else if (error.message.startsWith('effect=none requires declared input')) {
+        got = 'none_not_inside';
+      } else {
+        got = `refused: ${error.message}`;
+      }
+    }
+    if (got !== row.illegal) wrong.push(`${row.cap}: model ${row.illegal}, got ${got}`);
+  }
+  assert(wrong.length === 0, `${wrong.length} of ${rows.length} row(s) differ from the model, e.g.\n  ${wrong.slice(0, 8).join('\n  ')}`);
+}
+
+/**
+ * TEST7124: what a file is, decided through the detection module as a host
+ * runs it: which candidates stand, given what their rules say of the content,
+ * the consulted adapters and what their cartridges claimed; which of those
+ * each line of refinement keeps; and which of the kept a host that cannot ask
+ * takes. The content is one byte, so a rule of at least one byte is met and a
+ * rule of at least two is not.
+ */
+function test7124_detectionIsTheModels() {
+  const rows = modelTable().detect;
+  assertEqual(rows.length, (9 + 81) * 2 * 4, 'every rule, owner and claim set over both lists');
+  const content = new Uint8Array([0x78]);
+  const rules = { unruled: null, met: { min_length: 1 }, unmet: { min_length: 2 } };
+  const wrong = [];
+  for (const row of rows) {
+    const candidates = row.candidates.map((c) => ({ urn: MediaUrn.fromString(c.urn), validation: rules[c.rules] }));
+    const verdict = {
+      owners: row.owners.map((u) => MediaUrn.fromString(u)),
+      claimed: row.claims.map((u) => MediaUrn.fromString(u)),
+    };
+    const survivors = survivingCandidates(content, candidates, verdict);
+    const stands = candidates.map((c) => survivors.includes(c.urn));
+    if (JSON.stringify(stands) !== JSON.stringify(row.stands)) {
+      wrong.push(`${JSON.stringify(row)}: stands ${JSON.stringify(stands)}`);
+      continue;
+    }
+    const kept = settle(survivors);
+    const mostSpecific = survivors.map((s) => kept.includes(s.toString()));
+    if (JSON.stringify(mostSpecific) !== JSON.stringify(row.most_specific) ||
+        kept.length !== row.most_specific.filter(Boolean).length) {
+      wrong.push(`${JSON.stringify(row)}: kept ${JSON.stringify(kept)}`);
+      continue;
+    }
+    const primary = primaryMedia(kept);
+    const expected = row.primary === null ? null : kept[row.primary];
+    if (primary !== expected) wrong.push(`${JSON.stringify(row)}: primary ${primary}`);
+  }
+  assert(wrong.length === 0, `${wrong.length} of ${rows.length} row(s) differ from the model, e.g.\n  ${wrong.slice(0, 8).join('\n  ')}`);
 }
 
 // Run the tests
