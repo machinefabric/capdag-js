@@ -1881,6 +1881,25 @@ class MediaUrn {
   isEquivalent(other) { return this._urn.isEquivalent(other._urn); }
 
   /**
+   * The published media definition this URN, written as a reference, resolves
+   * to: the URN without every tag that lets its key be absent (`!k`, `?k`,
+   * `k?=v`). Such a tag names no value — `!k` says the dim has none, `?k`
+   * leaves it open — so it refines a published type rather than naming
+   * another: `media:enc=utf8;fmt=json;!ext` and
+   * `media:enc=utf8;fmt=json;?list;?record` both resolve to
+   * `media:enc=utf8;fmt=json`. Which tags go is decided from the parsed
+   * constraint by tagged-urn's model (`TaggedUrn.admitsAbsence`).
+   * @returns {MediaUrn}
+   */
+  referenceBase() {
+    let base = this._urn;
+    for (const key of Object.keys(this._urn.tags)) {
+      if (this._urn.admitsAbsence(key)) base = base.withoutTag(key);
+    }
+    return new MediaUrn(base);
+  }
+
+  /**
    * The most specific media type every one of `urns` conforms to: their common
    * denominator, as a gather's element type or the meeting point where branches
    * of different media converge.
@@ -11695,6 +11714,19 @@ function checkedDim(obj, name, defver) {
 }
 
 /**
+ * The key the registry holds the media definition `urn` resolves to under: the
+ * canonical text of its `referenceBase`. A URN that refines a published type
+ * by an absence or an open key (`media:enc=utf8;fmt=json;!ext`,
+ * `…;?list;?record`) names that published definition, and a published
+ * definition writes no such tag, so it is its own key.
+ * @param {string} urn
+ * @returns {string}
+ */
+function mediaDefinitionKey(urn) {
+  return MediaUrn.fromString(urn).referenceBase().toString();
+}
+
+/**
  * A client of the fabric registry, pinned to one manifest version.
  *
  * The manifest names every cap URN, media URN, alias and dim of its snapshot
@@ -11889,7 +11921,7 @@ class FabricRegistryClient {
    * @returns {Promise<MediaDef>}
    */
   async getMediaDef(urn) {
-    const canonical = MediaUrn.fromString(urn).toString();
+    const canonical = mediaDefinitionKey(urn);
     if (this._media.has(canonical)) return this._media.get(canonical);
     return this._once(`media ${canonical}`, async () => {
       const defver = await this._defver('media', canonical, `media definition '${canonical}'`);
@@ -11920,7 +11952,7 @@ class FabricRegistryClient {
     // Every media URN the cap names, the universal type `media:` among
     // them: the fabric defines it like any other media URN.
     const named = new Set();
-    const name = text => named.add(MediaUrn.fromString(text).toString());
+    const name = text => named.add(mediaDefinitionKey(text));
     name(cap.urn.getInSpec());
     name(cap.urn.getOutSpec());
     for (const arg of cap.args) {
@@ -12165,7 +12197,7 @@ class FabricRegistryClient {
 
   /** The fetched definition of the media a URN names, as `capDefinition` answers. */
   mediaDefinition(urn) {
-    const canonical = MediaUrn.fromString(urn).toString();
+    const canonical = mediaDefinitionKey(urn);
     if (this._media.has(canonical)) return this._media.get(canonical);
     return this._notHeld(`media ${canonical}`, 'media', canonical, `media definition '${canonical}'`);
   }
@@ -12204,7 +12236,7 @@ class FabricRegistryClient {
     const kind = classifyAliasTarget(urn);
     let canonical;
     if (kind === ALIAS_TARGET_CAP) canonical = CapUrn.fromString(urn).toString();
-    else if (kind === ALIAS_TARGET_MEDIA) canonical = MediaUrn.fromString(urn).toString();
+    else if (kind === ALIAS_TARGET_MEDIA) canonical = mediaDefinitionKey(urn);
     else return null;
     const names = [];
     for (const alias of this._aliases.values()) {

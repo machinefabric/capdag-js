@@ -4585,6 +4585,65 @@ async function test7169_aRefusedDefinitionFetchIsReportedAsTheRefusal() {
   }
 }
 
+// TEST7211: a cap whose sides name the published media:enc=utf8;fmt=json
+// refined by an absence (!ext) and by open keys (?list;?record) is held: its
+// media footprint is that one definition, fetched at the version the manifest
+// pins for it, and the cap keeps its URN as written.
+async function test7211_aCapNamingAPublishedTypeRefinedByAbsenceIsHeld() {
+  const json = 'media:enc=utf8;fmt=json';
+  const content = 'media:enc=utf8;fmt=json;!ext';
+  const anyShape = 'media:enc=utf8;fmt=json;?list;?record';
+  const capUrn = CapUrn.fromString(`cap:in="${content}";out="${anyShape}";reference-probe`).toString();
+  const jsonKey = MediaUrn.fromString(json).toString();
+  const objects = new Map();
+  const at = async (kind, name) => `${REGISTRY}/${kind}/${await sha256OfText(name)}/1.json`;
+  objects.set(`${REGISTRY}/charter.json`, fabricCharterJSON(REGISTRY));
+  objects.set(`${REGISTRY}/manifest/12.json`, {
+    version: 12, previous: 11, caps: { [capUrn]: 1 }, media: { [jsonKey]: 1 }, aliases: {}, dims: {},
+  });
+  objects.set(await at('caps', capUrn), {
+    urn: capUrn, title: 'Reference probe', aliases: [], version: 1,
+    args: [{ media_urn: content, name: 'input', required: true, sources: [{ stdin: content }] }],
+    outputs: [{ media_urn: anyShape, name: 'output', output_description: 'out' }],
+  });
+  const mediaUrl = await at('media', jsonKey);
+  objects.set(mediaUrl, mediaJSON(json, 'JSON', 1));
+  const asked = [];
+  const fetch = async url => {
+    const bare = url.split('?')[0];
+    asked.push(bare);
+    if (!objects.has(bare)) return { status: 404, ok: false, json: async () => ({}) };
+    return { status: 200, ok: true, json: async () => JSON.parse(JSON.stringify(objects.get(bare))) };
+  };
+  const client = new FabricRegistryClient(REGISTRY, 12, { fetch });
+
+  const held = await client.getCap(capUrn);
+  assertEqual(held.urn.getInSpec(), MediaUrn.fromString(content).toString(), 'the cap keeps its input as written');
+  assertEqual(held.urn.getOutSpec(), MediaUrn.fromString(anyShape).toString(), 'the cap keeps its output as written');
+  // Each side's type is drawn with the title of the definition it resolves to.
+  for (const side of [content, anyShape]) {
+    assertEqual(client.mediaDefinition(side).title, 'JSON', side);
+  }
+  assertEqual(asked.filter(url => url === mediaUrl).length, 1, 'the base definition is fetched once');
+  assertEqual(asked.filter(url => url.includes('/media/')).length, 1, 'and no other media definition');
+}
+
+// TEST7212: a media URN written as a reference resolves to the published definition without every tag that lets its key be absent (!k, ?k, k?=v); a tag that requires its key (k, k=v, k!=v) stays, and a URN with none is its own base.
+function test7212_referenceBaseDropsTagsAdmittingAbsence() {
+  for (const [reference, base] of [
+    ['media:enc=utf8;fmt=json;!ext', 'media:enc=utf8;fmt=json'],
+    ['media:enc=utf8;fmt=json;?list;?record', 'media:enc=utf8;fmt=json'],
+    ['media:enc=utf8;fmt=json;list;record;!ext', 'media:enc=utf8;fmt=json;list;record'],
+    ['media:ext?=pdf;image', 'media:image'],
+    ['media:ext!=pdf;image', 'media:ext!=pdf;image'],
+    ['media:enc=utf8;fmt=json', 'media:enc=utf8;fmt=json'],
+    ['media:!void', 'media:'],
+    ['media:void', 'media:void'],
+  ]) {
+    assertEqual(MediaUrn.fromString(reference).referenceBase().toString(), MediaUrn.fromString(base).toString(), reference);
+  }
+}
+
 // TEST7170: a registry that answers 503 is reported with the 503 — never as a
 // missing definition. (This mirror has no retry layer: the reference asks a
 // 503 again before it reports it.)
@@ -8447,6 +8506,8 @@ async function runTests() {
   await runTest('TEST7167: a_refused_manifest_fetch_is_reported_as_the_refusal', test7167_aRefusedManifestFetchIsReportedAsTheRefusal);
   await runTest('TEST7168: a_manifest_the_registry_does_not_have_is_not_found', test7168_aManifestTheRegistryDoesNotHaveIsNotFound);
   await runTest('TEST7169: a_refused_definition_fetch_is_reported_as_the_refusal', test7169_aRefusedDefinitionFetchIsReportedAsTheRefusal);
+  await runTest('TEST7211: a_cap_naming_a_published_type_refined_by_absence_is_held', test7211_aCapNamingAPublishedTypeRefinedByAbsenceIsHeld);
+  await runTest('TEST7212: reference_base_drops_tags_admitting_absence', test7212_referenceBaseDropsTagsAdmittingAbsence);
   await runTest('TEST7170: a_registry_that_keeps_failing_is_reported_with_its_status', test7170_aRegistryThatKeepsFailingIsReportedWithItsStatus);
   await runTest('TEST7171: a_registry_that_does_not_answer_is_reported_as_a_timeout', test7171_aRegistryThatDoesNotAnswerIsReportedAsATimeout);
   await runTest('TEST7172: a_definition_the_registry_does_not_have_is_not_found', test7172_aDefinitionTheRegistryDoesNotHaveIsNotFound);
