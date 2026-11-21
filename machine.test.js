@@ -2109,6 +2109,46 @@ function test7217_aGivenNodeBindsBySatisfactionAtANegativeDistance() {
   assert(isAbstraction(error, AE.UNMATCHED_SOURCE_IN_CAP_ARGS), error.stack);
 }
 
+// TEST7222: the node a patch cap produces holds what the cap gives for the node
+// it is sent, not its declared output: a series (a JSON list of records)
+// converted to YAML is a YAML list of records, so a step that takes YAML lists
+// of records takes it, whichever order the text writes the steps in.
+function test7222_aPatchOutputNodeHoldsWhatTheCapGives() {
+  const yamlRecords = 'media:enc=utf8;fmt=yaml;list;record';
+  const toYamlUrn = 'cap:effect=patch;in="media:enc=utf8;fmt=json";json-to-yaml;out="media:enc=utf8;fmt=yaml;!ext"';
+  const countUrn = `cap:in="${yamlRecords}";count;out="media:count;numeric"`;
+  const definitions = notationDefinitions().addCaps([
+    definition(toYamlUrn, 'to-yaml', [stdinArg('media:enc=utf8;fmt=json', 'input')],
+      [outputOf('media:enc=utf8;fmt=yaml;!ext', 'output', 'YAML')]),
+    definition(countUrn, 'count', [stdinArg(yamlRecords, 'rows')], [outputOf('media:count;numeric', 'count', 'How many')]),
+  ]);
+  const headers = `${HEADERS}[to_yaml ${toYamlUrn}][count ${countUrn}]`;
+  const want = media('media:enc=utf8;fmt=yaml;list;record;time-series;!ext');
+  for (const wirings of [
+    '[(reference="a") -> fetch -> s][s -> to_yaml -> y][y -> count -> n]',
+    '[y -> count -> n][s -> to_yaml -> y][(reference="a") -> fetch -> s]',
+  ]) {
+    const [machine, names] = withNames(headers + wirings, definitions);
+    const strand = machine.strands()[0];
+    const y = strand.nodeUrn(names[0].y);
+    assert(y.isEquivalent(want), `${wirings}: the YAML node is what the patch gives for the series, got ${y}`);
+    assertEqual(strand.edges().length, 3, wirings);
+  }
+
+  // An input of the machine converted for a step that takes YAML lists of
+  // records is a JSON list of records: what that step takes, read back through
+  // the patch.
+  for (const wirings of ['[x -> to_yaml -> y][y -> count -> n]', '[y -> count -> n][x -> to_yaml -> y]']) {
+    const [machine, names] = withNames(headers + wirings, definitions);
+    const strand = machine.strands()[0];
+    const x = strand.nodeUrn(names[0].x);
+    assert(x.isEquivalent(media('media:enc=utf8;fmt=json;list;record')),
+      `${wirings}: the input is what the step after the patch takes, read back, got ${x}`);
+    const y = strand.nodeUrn(names[0].y);
+    assert(y.isEquivalent(media('media:enc=utf8;fmt=yaml;list;record;!ext')), `${wirings}: got ${y}`);
+  }
+}
+
 // TEST1308: A wiring that forms a cycle is refused, naming the strand.
 function test1308_cyclicStrandFailsHard() {
   const urnA = 'cap:in="media:document;ext=pdf";op-a;out="media:enc=utf8;ext=txt;plain-text"';
@@ -2730,6 +2770,7 @@ function runTests() {
   runTest('TEST1180: match_sources_unmatched_source_fails_hard', test1180_matchSourcesUnmatchedSourceFailsHard);
   runTest('TEST1182: match_sources_ambiguous_raises_ambiguous_error', test1182_matchSourcesAmbiguousRaisesAmbiguousError);
   runTest('TEST7217: a_given_node_binds_by_satisfaction_at_a_negative_distance', test7217_aGivenNodeBindsBySatisfactionAtANegativeDistance);
+  runTest('TEST7222: a_patch_output_node_holds_what_the_cap_gives', test7222_aPatchOutputNodeHoldsWhatTheCapGives);
   runTest('TEST1308: cyclic_strand_fails_hard', test1308_cyclicStrandFailsHard);
   runTest('TEST1171: machine_parse_error_wraps_syntax_error', test1171_machineParseErrorWrapsSyntaxError);
   runTest('TEST1165: parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause', test1165_parseMachineUnknownCapRaisesParseErrorWithAbstractionCause);

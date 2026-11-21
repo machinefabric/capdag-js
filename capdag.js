@@ -8384,6 +8384,8 @@ const MachineAbstractionErrorCodes = Object.freeze({
   AMBIGUOUS_MACHINE_NOTATION: 'AmbiguousMachineNotation',
   CYCLIC_MACHINE_STRAND: 'CyclicMachineStrand',
   CAP_DOES_NOT_DECLARE_INPUT: 'CapDoesNotDeclareInput',
+  /** What a cap gives for what it is sent could not be worked out. */
+  RUNTIME_MEDIA_INFERENCE: 'RuntimeMediaInference',
   UNKNOWN_ARG_NAME: 'UnknownArgName',
   UNKNOWN_OUTPUT_NAME: 'UnknownOutputName',
   SOURCE_DOES_NOT_CONFORM_TO_ARG: 'SourceDoesNotConformToArg',
@@ -8483,6 +8485,10 @@ const abstractionError = Object.freeze({
     AE.CAP_DOES_NOT_DECLARE_INPUT,
     `strand ${strandIndex}: cap '${capUrn}' does not declare its input (no argument declares a stdin source whose URN is its in=)`,
     { strandIndex, capUrn }),
+  runtimeMediaInference: (strandIndex, capUrn, runtimeInput, reason) => new MachineAbstractionError(
+    AE.RUNTIME_MEDIA_INFERENCE,
+    `strand ${strandIndex}: cap '${capUrn}' cannot be applied to runtime input '${runtimeInput}': ${reason}`,
+    { strandIndex, capUrn, runtimeInput, reason }),
   unknownArgName: (strandIndex, capUrn, name, declared) => inStrand(
     AE.UNKNOWN_ARG_NAME, strandIndex,
     `cap '${capUrn}' declares no arg named '${name}' (it declares: ${declared.join(', ')})`,
@@ -9956,6 +9962,32 @@ function oneAssignment(best, sources, args) {
 }
 
 /**
+ * Whether a cap's main output says what the cap gives, so that what it
+ * produces there is a complete thing: it does unless the cap's effect is none
+ * or patch, whose main output says how what it gives follows from what it
+ * takes (07 §What a cap gives).
+ *
+ * @param {Cap} definition
+ * @returns {boolean}
+ */
+function mainOutputIsGiven(definition) {
+  const effect = definition.urn.getEffect();
+  return effect !== CapEffect.NONE && effect !== CapEffect.PATCH;
+}
+
+/**
+ * Whether `output` is the cap's main output.
+ *
+ * @param {Cap} definition
+ * @param {CapOutput} output
+ * @returns {boolean}
+ */
+function isMainOutput(definition, output) {
+  const main = definition.mainOutput();
+  return main !== null && main.name === output.name;
+}
+
+/**
  * Whether a source fits a type an arg accepts. A source that is what a step
  * gave (`given`) is a complete thing: what it does not mention it does not
  * have, so it fits a type it satisfies. A source the text or an input anchor
@@ -10153,8 +10185,11 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
   // with them the cardinality of every node: a node holds a sequence, in the
   // scope it lives in, iff the output that produces it is declared one.
   //
-  // A node some wiring produces holds what that step gives, a complete thing;
-  // every other node holds a type the text or an input anchor wrote.
+  // A node some wiring produces from a declared output holds what that step
+  // gives, a complete thing. The main output of an effect=none or
+  // effect=patch cap says how what it gives follows from what it takes, not
+  // what it gives, so a node it produces holds a type, as every node nothing
+  // produces does: one the text or an input anchor wrote.
   const nodeIsSequence = new Array(nodes.length).fill(false);
   const nodeIsGiven = new Array(nodes.length).fill(false);
   const defs = [];
@@ -10183,7 +10218,7 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
         throw abstractionError.outputTakenTwice(strandIndex, capUrn, output.name);
       }
       nodeIsSequence[target.node] = output.is_sequence === true;
-      nodeIsGiven[target.node] = true;
+      nodeIsGiven[target.node] = mainOutputIsGiven(definition) || !isMainOutput(definition, output);
       outputs.push(new EdgeOutput(outputMediaUrn, output.name, target.node));
     }
     // Canonical order, like the assignment's.
@@ -10769,6 +10804,86 @@ function typeNodes(wirings, aliasMap, machines, includedMedia, definitions, stra
   }
   for (const [node, given] of fromMainInput) giveMedia(nodeMedia, node, given);
 
+  // What an effect=none or effect=patch cap gives follows from what it is sent
+  // (07 §What a cap gives), so the types on either side of one are read
+  // through it, both ways:
+  // - forward, its main output's node holds what the cap gives for the type
+  //   of the node feeding its main input, which refines the declared output
+  //   it was given above: a JSON list of records sent to a patch to YAML gives
+  //   a YAML list of records;
+  // - backward, a step's main input says what the patches feeding it must
+  //   give, and so what the input of the machine at the start of them must be:
+  //   walked back through each, its input put back where its output changes
+  //   it. A YAML input of the machine converted to JSON for a step that takes
+  //   JSON lists of records is a YAML list of records.
+  // Read again until nothing changes, so a chain of such caps is typed
+  // whatever order it is written in.
+  const steps = wirings.filter(wiring => !machines.has(wiring.capAlias)).map(wiring => {
+    const [capUrn, definition] = capOf(wiring);
+    return { wiring, capUrn, definition, inMedia: mainInputOf(wiring, capUrn) };
+  });
+  const patches = new Map();
+  for (const step of steps) {
+    if (mainOutputIsGiven(step.definition)) continue;
+    for (const target of step.wiring.targets) {
+      if (isMainTarget(step.definition, target)) patches.set(target.node, step);
+    }
+  }
+  for (let round = 0; round < wirings.length; round += 1) {
+    let changed = false;
+    for (const { wiring, capUrn, definition, inMedia } of steps) {
+      if (inMedia === null) continue;
+      const source = mainSource(wiring, definition, inMedia);
+      if (source === null) continue;
+
+      // Backward, from this step's main input to the input of the machine at
+      // the start of the patches feeding it.
+      let required = inMedia;
+      let start = source;
+      let walked = 0;
+      while (patches.has(start) && walked < wirings.length) {
+        walked += 1;
+        const patch = patches.get(start);
+        if (patch.inMedia === null) break;
+        let patchOut;
+        try {
+          patchOut = patch.capUrn.outMediaUrn();
+        } catch (error) {
+          throw syntaxError.invalidMediaUrn(patch.wiring.capAlias, `out= spec: ${error.message}`, patch.wiring.stepLocation);
+        }
+        required = required.applyDelta(patch.inMedia.deltaFrom(patchOut));
+        const feeding = mainSource(patch.wiring, patch.definition, patch.inMedia);
+        if (feeding === null) break;
+        start = feeding;
+      }
+      const held = nodeMedia.get(start);
+      if (walked > 0 && !produced.has(start) && held !== undefined && held.isComparable(required)) {
+        const before = held.toString();
+        giveMedia(nodeMedia, start, required);
+        changed = changed || before !== nodeMedia.get(start).toString();
+      }
+
+      // Forward, from what this step is sent to what it gives.
+      if (mainOutputIsGiven(definition)) continue;
+      const sent = nodeMedia.get(source);
+      // A member that does not fit the input is the resolver's to refuse.
+      if (sent === undefined || !sent.satisfies(inMedia)) continue;
+      let given;
+      try {
+        given = capUrn.inferRuntimeOutputMedia(sent);
+      } catch (error) {
+        throw abstractionError.runtimeMediaInference(strandIndex, capUrn.toString(), sent.toString(), error.message);
+      }
+      for (const target of wiring.targets) {
+        if (!isMainTarget(definition, target)) continue;
+        const before = nodeMedia.has(target.node) ? nodeMedia.get(target.node).toString() : null;
+        giveMedia(nodeMedia, target.node, given);
+        changed = changed || before !== nodeMedia.get(target.node).toString();
+      }
+    }
+    if (!changed) break;
+  }
+
   // A machine step has no main input: an unnamed member that nothing above
   // gave a type has none to be matched by.
   for (const wiring of wirings) {
@@ -10777,6 +10892,36 @@ function typeNodes(wirings, aliasMap, machines, includedMedia, definitions, stra
     if (untyped.length > 0) throw abstractionError.untypedMachineMember(wiring.position, wiring.capAlias, untyped);
   }
   return nodeMedia;
+}
+
+/**
+ * Whether a target, by the output name it wrote, takes the cap's main output.
+ *
+ * @param {Cap} definition
+ * @param {{name: string|null}} target
+ * @returns {boolean}
+ */
+function isMainTarget(definition, target) {
+  if (target.name === null) return true;
+  const main = definition.mainOutput();
+  return main !== null && main.name === target.name;
+}
+
+/**
+ * The node feeding a step's main input (`inMedia`): the member that names the
+ * main input's arg, or else the one member that names nothing. null when
+ * neither says.
+ *
+ * @returns {string|null}
+ */
+function mainSource(wiring, definition, inMedia) {
+  const mainArg = definition.args.find(arg => arg.isMainInput(inMedia));
+  if (mainArg !== undefined) {
+    const named = wiring.sources.find(member => member.name === mainArg.name && !member.value.isConstant);
+    if (named !== undefined) return named.value.node;
+  }
+  const unnamed = rawUnnamedNodes(wiring);
+  return unnamed.length === 1 ? unnamed[0] : null;
 }
 
 /**
@@ -10831,9 +10976,22 @@ function includeMachines(wirings, aliasMap, machines, includedMedia, definitions
     }
   });
 
-  // A node some step produces holds what that step gives, a complete thing;
-  // every other node holds the type the text wrote for it.
-  const produced = new Set(wirings.flatMap(wiring => wiring.targets.map(target => target.node)));
+  // A node a cap produces from a declared output holds what that step gives,
+  // a complete thing. Every other node holds a type: the one the text wrote,
+  // the main output of an effect=none or effect=patch cap (which says how
+  // what it gives follows from what it takes), or an output of a machine step.
+  const produced = new Set();
+  for (const wiring of wirings) {
+    if (machines.has(wiring.capAlias)) continue;
+    const capUrn = aliasMap.get(wiring.capAlias).capUrn;
+    const definition = lookupDefinition(urn => definitions.capDefinition(urn), capUrn.toString(),
+      () => abstractionError.unknownCap(capUrn.toString()));
+    const main = definition.mainOutput();
+    for (const target of wiring.targets) {
+      const isMain = target.name === null || (main !== null && main.name === target.name);
+      if (!isMain || mainOutputIsGiven(definition)) produced.add(target.node);
+    }
+  }
 
   const uses = new Map();
   const written = [];
