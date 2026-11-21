@@ -2297,132 +2297,6 @@ function resolveMediaUrn(mediaUrn, mediaDefs = []) {
 }
 
 /**
- * Validate that media_defs array has no duplicate URNs.
- *
- * @param {Array} mediaDefs - The mediaDefs array to validate
- * @returns {{valid: boolean, error?: string, duplicates?: string[]}}
- */
-function validateNoMediaDefDuplicates(mediaDefs) {
-  if (!mediaDefs || !Array.isArray(mediaDefs) || mediaDefs.length === 0) {
-    return { valid: true };
-  }
-
-  const seen = new Set();
-  const duplicates = [];
-
-  for (const spec of mediaDefs) {
-    if (!spec.urn) continue;
-    if (seen.has(spec.urn)) {
-      duplicates.push(spec.urn);
-    } else {
-      seen.add(spec.urn);
-    }
-  }
-
-  if (duplicates.length > 0) {
-    return {
-      valid: false,
-      error: `Duplicate media URNs in media_defs: ${duplicates.join(', ')}`,
-      duplicates
-    };
-  }
-
-  return { valid: true };
-}
-
-/**
- * XV5: Validate that inline media_defs don't redefine existing registry specs.
- *
- * Validation requires a registryLookup function to check if media URNs exist.
- * If no registryLookup is provided, validation passes (graceful degradation).
- *
- * @param {Array} mediaDefs - The inline media_defs array from a capability
- * @param {Object} [options] - Validation options
- * @param {Function} [options.registryLookup] - Function to check if media URN exists in registry
- *                                              Returns true if exists, false otherwise
- *                                              Should handle errors gracefully (return false)
- * @returns {Promise<{valid: boolean, error?: string, redefines?: string[]}>}
- */
-async function validateNoMediaDefRedefinition(mediaDefs, options = {}) {
-  if (!mediaDefs || !Array.isArray(mediaDefs) || mediaDefs.length === 0) {
-    return { valid: true };
-  }
-
-  const { registryLookup } = options;
-
-  // If no registry lookup provided, degrade gracefully and allow
-  if (!registryLookup || typeof registryLookup !== 'function') {
-    return { valid: true };
-  }
-
-  const redefines = [];
-
-  for (const spec of mediaDefs) {
-    const mediaUrn = spec.urn;
-    if (!mediaUrn) continue;
-    try {
-      const existsInRegistry = await registryLookup(mediaUrn);
-      if (existsInRegistry) {
-        redefines.push(mediaUrn);
-      }
-    } catch (err) {
-      // Registry lookup failed - log warning and allow (graceful degradation)
-      console.warn(`[WARN] XV5: Could not verify inline spec '${mediaUrn}' against registry: ${err.message}. Allowing operation in offline mode.`);
-    }
-  }
-
-  if (redefines.length > 0) {
-    return {
-      valid: false,
-      error: `XV5: Inline media defs redefine existing registry specs: ${redefines.join(', ')}`,
-      redefines
-    };
-  }
-
-  return { valid: true };
-}
-
-/**
- * XV5: Synchronous version that checks against a provided lookup function.
- * If no registryLookup is provided, validation passes (graceful degradation).
- *
- * @param {Array} mediaDefs - The inline media_defs array from a capability
- * @param {Function} [registryLookup] - Synchronous function to check if media URN exists
- *                                       Returns true if exists, false otherwise
- * @returns {{valid: boolean, error?: string, redefines?: string[]}}
- */
-function validateNoMediaDefRedefinitionSync(mediaDefs, registryLookup = null) {
-  if (!mediaDefs || !Array.isArray(mediaDefs) || mediaDefs.length === 0) {
-    return { valid: true };
-  }
-
-  // If no registry lookup provided, degrade gracefully and allow
-  if (!registryLookup || typeof registryLookup !== 'function') {
-    return { valid: true };
-  }
-
-  const redefines = [];
-
-  for (const spec of mediaDefs) {
-    const mediaUrn = spec.urn;
-    if (!mediaUrn) continue;
-    if (registryLookup(mediaUrn)) {
-      redefines.push(mediaUrn);
-    }
-  }
-
-  if (redefines.length > 0) {
-    return {
-      valid: false,
-      error: `XV5: Inline media defs redefine existing registry specs: ${redefines.join(', ')}`,
-      redefines
-    };
-  }
-
-  return { valid: true };
-}
-
-/**
  * Check if a CapUrn represents binary output.
  * Throws error if the output spec cannot be resolved - no fallbacks.
  * @param {CapUrn} capUrn - The cap URN
@@ -11609,9 +11483,13 @@ function mediaDefFromStored(obj, expectedUrn, expectedVersion) {
   for (const key of ['urn', 'media_type', 'title']) {
     if (typeof obj[key] !== 'string' || obj[key].length === 0) throw refused(`has no '${key}'`);
   }
-  if (MediaUrn.fromString(obj.urn).toString() !== expectedUrn) throw refused(`is of '${obj.urn}'`);
+  if (MediaUrn.fromString(obj.urn).toString() !== expectedUrn) {
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+      `media def object URN '${obj.urn}' does not match requested URN '${expectedUrn}'`);
+  }
   if (obj.version !== expectedVersion) {
-    throw refused(`reports version ${JSON.stringify(obj.version)} but the manifest pins ${expectedVersion}`);
+    throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
+      `media def '${expectedUrn}' object reports version ${JSON.stringify(obj.version)} but manifest pins defver ${expectedVersion}`);
   }
   if (obj.extensions !== undefined && !(Array.isArray(obj.extensions) && obj.extensions.every(ext => typeof ext === 'string'))) {
     throw refused("has 'extensions' that are not a list of strings");
@@ -11645,11 +11523,11 @@ function capFromStored(obj, expectedUrn, expectedVersion) {
   }
   if (cap.urn.toString() !== expectedUrn) {
     throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
-      `the registry served cap '${cap.urn}' for '${expectedUrn}'`);
+      `cap object URN '${cap.urn}' does not match requested URN '${expectedUrn}'`);
   }
   if (cap.version !== expectedVersion) {
     throw new FabricRegistryError(FabricRegistryErrorCodes.PARSE,
-      `the registry's definition of cap '${expectedUrn}' reports version ${cap.version} but the manifest pins ${expectedVersion}`);
+      `cap '${expectedUrn}' object reports version ${cap.version} but manifest pins defver ${expectedVersion}`);
   }
   try {
     validateCapDefinition(cap);
@@ -12707,10 +12585,21 @@ function isAliasToken(token) {
 }
 
 /**
- * Normalize and validate an alias name. Lowercases the input, then requires it
- * non-empty, free of ':' (so it can never look like a tagged URN), free of
- * whitespace, and matching [a-z0-9._-]+. Returns the canonical lowercased
- * name or throws — there is no lenient path.
+ * The Unicode White_Space code points (Rust's `char::is_whitespace`): the set
+ * every capdag implementation refuses in an alias name.
+ */
+const ALIAS_WHITE_SPACE = new Set([
+  0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0x85, 0xA0, 0x1680,
+  0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A,
+  0x2028, 0x2029, 0x202F, 0x205F, 0x3000,
+]);
+
+/**
+ * Normalize and validate an alias name. Requires it non-empty, free of ':' (so
+ * it can never look like a tagged URN) and of Unicode White_Space, then
+ * lowercases `A`-`Z` (and no other character) and requires it to match
+ * [a-z0-9._-]+. Returns the canonical lowercased name or throws — there is no
+ * lenient path.
  */
 function normalizeAliasName(name) {
   if (typeof name !== 'string' || name.length === 0) {
@@ -12719,10 +12608,10 @@ function normalizeAliasName(name) {
   if (name.includes(':')) {
     throw new Error(`alias name '${name}' contains ':' — aliases must never look like a tagged URN`);
   }
-  if (/\s/.test(name)) {
+  if ([...name].some(ch => ALIAS_WHITE_SPACE.has(ch.codePointAt(0)))) {
     throw new Error(`alias name '${name}' contains whitespace`);
   }
-  const lowered = name.toLowerCase();
+  const lowered = name.replace(/[A-Z]/g, c => c.toLowerCase());
   if (!ALIAS_NAME_RE.test(lowered)) {
     throw new Error(`alias name '${name}' contains invalid characters; allowed: lowercase letters, digits, '.', '_', '-'`);
   }
@@ -13192,9 +13081,6 @@ export {
   isJSONCapUrn,
   isStructuredCapUrn,
   resolveMediaUrn,
-  validateNoMediaDefRedefinition,
-  validateNoMediaDefRedefinitionSync,
-  validateNoMediaDefDuplicates,
   getProfileURL,
   MEDIA_STRING,
   MEDIA_PLAIN_TEXT,
