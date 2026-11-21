@@ -349,9 +349,9 @@ function test015_capPrefixRequired() {
   }
   assert(refused instanceof CapUrnError, 'Should require cap: prefix');
   assertThrows(
-    () => CapUrn.fromString('media:void'),
+    () => CapUrn.fromString('media:generate'),
     ErrorCodes.MISSING_CAP_PREFIX,
-    'Another prefix is not a cap URN'
+    'A URN of another prefix is no cap'
   );
   // Valid cap: prefix should work
   const cap = CapUrn.fromString(test6204_Urn('generate'));
