@@ -1,7 +1,7 @@
 {
   "author": "Bahram Joharshamshiri",
   "dependencies": {
-    "lungo-ts": "1.126.0",
+    "lungo-ts": "1.127.0",
     "peggy": "^5.1.0",
     "tagged-urn": "^1.165.0"
   },
