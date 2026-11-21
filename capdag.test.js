@@ -7622,6 +7622,34 @@ function test1980_aliasNamesLowercaseOnlyAsciiLetters() {
   assert(refusal(`a${String.fromCodePoint(0x1C)}b`).includes('invalid characters'), 'FILE SEPARATOR is not white space');
 }
 
+// TEST1983: a cap's default model is its model-spec argument's default, the
+// value a run uses; a cap with no model-spec argument has none, and a cap that
+// declares two is an error naming it. A body that still carries a stored
+// `default_model_spec` is read, and the stored value is not used.
+function test1983_theDefaultModelIsTheModelSpecArgumentsDefault() {
+  const prompt = { media_urn: 'media:enc=utf8;plain-text', name: 'prompt', required: true, sources: [{ stdin: 'media:enc=utf8;plain-text' }] };
+  const model = (name, defaultValue) => Object.assign(
+    { media_urn: 'media:candle;enc=utf8;llm;model-spec', name, required: false, sources: [{ cli_flag: `--${name}` }] },
+    defaultValue === undefined ? {} : { default_value: defaultValue });
+  const cap = (args, extra = {}) => Cap.fromJSON(Object.assign({
+    urn: 'cap:in="media:enc=utf8;plain-text";generate;out="media:enc=utf8;ext=txt;plain-text"',
+    title: 'Generate', aliases: ['generate'], args,
+  }, extra));
+
+  const withDefault = cap([prompt, model('model-spec', 'hf:a/b')]);
+  assertEqual(withDefault.defaultModelSpec(), 'hf:a/b', 'the model-spec argument\'s default');
+  assertEqual(withDefault.modelSpecArg().name, 'model-spec', 'the model-spec argument');
+
+  assertEqual(cap([prompt]).defaultModelSpec(), null, 'no model-spec argument, no default');
+  assertEqual(cap([prompt]).modelSpecArg(), null, 'no model-spec argument');
+
+  assertThrowsMessage(() => cap([prompt, model('model-a'), model('model-b')]).defaultModelSpec(),
+    'declares two model-spec arguments', 'two model-spec arguments');
+
+  const stored = cap([prompt], { default_model_spec: 'hf:stored/model' });
+  assertEqual(stored.defaultModelSpec(), null, 'a stored default is not the cap\'s');
+}
+
 // TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact.
 function test1881_tokenUrnVsAliasDetection() {
   assert(tokenIsUrn('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8"'), 'cap URN is a URN');
@@ -8617,6 +8645,7 @@ async function runTests() {
 
   runTest('TEST1880: alias_name_normalization_rules',       test1880_aliasNameNormalizationRules);
   runTest('TEST1980: alias_names_lowercase_only_ascii_letters', test1980_aliasNamesLowercaseOnlyAsciiLetters);
+  runTest('TEST1983: the_default_model_is_the_model_spec_arguments_default', test1983_theDefaultModelIsTheModelSpecArgumentsDefault);
   runTest('TEST1881: token_urn_vs_alias_detection',         test1881_tokenUrnVsAliasDetection);
   runTest('TEST1882: classify_alias_target_by_prefix',      test1882_classifyAliasTargetByPrefix);
   runTest('TEST1887: manifest_serde_round_trips_aliases',   test1887_manifestSerdeRoundTripsAliases);
