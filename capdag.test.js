@@ -342,14 +342,24 @@ function test014_roundTripEscapes() {
 
 // TEST15: Test that cap: prefix is required and case-insensitive
 function test015_capPrefixRequired() {
+  let refused = null;
+  try {
+    CapUrn.fromString('in="media:void";out="media:void";generate');
+  } catch (e) {
+    refused = e;
+  }
+  assert(refused instanceof CapUrnError, 'Should require cap: prefix');
   assertThrows(
-    () => CapUrn.fromString('in="media:void";out="media:void";generate'),
+    () => CapUrn.fromString('media:void'),
     ErrorCodes.MISSING_CAP_PREFIX,
-    'Should require cap: prefix'
+    'Another prefix is not a cap URN'
   );
   // Valid cap: prefix should work
   const cap = CapUrn.fromString(test6204_Urn('generate'));
   assert(cap.hasMarkerTag('generate'), 'Should parse with valid cap: prefix');
+  // Case-insensitive prefix
+  const cap2 = CapUrn.fromString('CAP:in="media:void";out="media:record";generate');
+  assert(cap2.hasMarkerTag('generate'), 'Should parse with an upper-case CAP: prefix');
 }
 
 // TEST16: Test that trailing semicolon is equivalent (same hash, same string, matches)
