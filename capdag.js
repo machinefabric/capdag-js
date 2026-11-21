@@ -376,12 +376,8 @@ class CapUrn {
       throw new CapUrnError(ErrorCodes.INVALID_FORMAT, 'Cap URN cannot be empty');
     }
 
-    // Check for 'cap:' prefix early to give better error messages
-    if (!s.startsWith('cap:')) {
-      throw new CapUrnError(ErrorCodes.MISSING_CAP_PREFIX, "Cap URN must start with 'cap:' prefix");
-    }
-
-    // Use TaggedUrn for parsing
+    // Use TaggedUrn for parsing; the prefix is read from the parsed URN, where
+    // it is case-insensitive (`CAP:` is `cap:`).
     let taggedUrn;
     try {
       taggedUrn = TaggedUrn.fromString(s);
@@ -404,7 +400,6 @@ class CapUrn {
       throw new CapUrnError(ErrorCodes.INVALID_FORMAT, msg);
     }
 
-    // Double-check prefix (should always be 'cap' after the early check above)
     if (taggedUrn.getPrefix() !== 'cap') {
       throw new CapUrnError(ErrorCodes.MISSING_CAP_PREFIX, `Expected 'cap:' prefix, got '${taggedUrn.getPrefix()}:'`);
     }
