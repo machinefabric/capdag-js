@@ -70,39 +70,6 @@ Examples:
 | 11 | MISSING_OUT_SPEC | Cap URN missing required `out` tag |
 | 12 | INVALID_MEDIA_URN | Direction spec value is not a valid Media URN |
 
-## Validation Rules
-
-### XV5: No Redefinition of Registry Media Defs
-
-Inline media defs in a capability's `media_defs` table must not redefine media defs that already exist in the global registry or built-in specs.
-
-```javascript
-const { validateNoMediaDefRedefinitionSync, MEDIA_STRING } = require('capdag');
-
-// This will fail - MEDIA_STRING is a built-in spec
-const mediaDefs = {
-  [MEDIA_STRING]: { media_type: 'text/plain', title: 'My String' }
-};
-const result = validateNoMediaDefRedefinitionSync(mediaDefs);
-// result: { valid: false, error: 'XV5: ...', redefines: ['media:textable'] }
-
-// This is allowed - custom spec that doesn't exist
-const customSpecs = {
-  'media:my-custom-type': { media_type: 'application/json', title: 'My Type' }
-};
-const customResult = validateNoMediaDefRedefinitionSync(customSpecs);
-// result: { valid: true }
-```
-
-For server-side validation with registry access, use the async version:
-```javascript
-const { validateNoMediaDefRedefinition } = require('capdag');
-
-const result = await validateNoMediaDefRedefinition(mediaDefs, {
-  registryLookup: async (urn) => await mediaStore.get(urn) !== null
-});
-```
-
 ## Cross-Language Compatibility
 
 This JavaScript implementation follows the same rules as:
