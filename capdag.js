@@ -9956,19 +9956,38 @@ function oneAssignment(best, sources, args) {
 }
 
 /**
- * Match a wiring's sources to a cap's args by minimum total
- * specificity-distance, with a uniqueness requirement.
+ * Whether a source fits a type an arg accepts. A source that is what a step
+ * gave (`given`) is a complete thing: what it does not mention it does not
+ * have, so it fits a type it satisfies. A source the text or an input anchor
+ * typed is a type, and fits a type it conforms to (04 §Complete things).
+ *
+ * @param {MediaUrn} source
+ * @param {boolean} given
+ * @param {MediaUrn} accepts
+ * @returns {boolean}
+ */
+function sourceFits(source, given, accepts) {
+  return given ? source.satisfies(accepts) : source.conformsTo(accepts);
+}
+
+/**
+ * Match a wiring's sources to a cap's args by minimum total signed
+ * specificity distance, with a uniqueness requirement.
+ *
+ * `sourceGiven[s]` says that `sources[s]` is what a step gave, a complete
+ * thing; otherwise it is a written type (see `sourceFits`).
  *
  * 1. Product — each source claims a distinct arg. It wins whenever such an
  *    assignment exists, including the hard failure on tied minimum-cost
  *    assignments.
  * 2. Gather — only when no such assignment exists: a sequence arg may absorb
- *    several conforming sources; a scalar arg still takes at most one.
+ *    several sources that fit it; a scalar arg still takes at most one.
  *
  * `mustBind` is the index of the arg an assignment MUST bind — the cap's main
  * input, when these sources are what can feed it — or null.
  *
  * @param {MediaUrn[]} sources
+ * @param {boolean[]} sourceGiven
  * @param {MediaUrn[]} args - What each arg accepts
  * @param {boolean[]} argIsSequence
  * @param {number|null} mustBind
@@ -9976,20 +9995,18 @@ function oneAssignment(best, sources, args) {
  *   URN (stably: sources gathered into one arg keep their declaration order).
  * @throws {MatchFailure}
  */
-function matchSourcesToArgs(sources, args, argIsSequence, mustBind) {
+function matchSourcesToArgs(sources, sourceGiven, args, argIsSequence, mustBind) {
+  if (sources.length !== sourceGiven.length) {
+    throw new Error(`every source says whether a step gave it: ${sources.length} sources, ${sourceGiven.length} flags`);
+  }
   const hasSequenceArg = argIsSequence.some(Boolean);
-  const fitsSomething = source => args.some(arg => source.conformsTo(arg));
+  const fits = (position, arg) => sourceFits(sources[position], sourceGiven[position], arg);
   const cost = sources.map((source, position) => {
-    if (!fitsSomething(source)) throw new MatchFailure(position);
-    return args.map(arg => {
-      if (!source.conformsTo(arg)) return null;
-      // How much more the source says than the arg asks: never negative.
-      const distance = source.specificity() - arg.specificity();
-      if (distance < 0) {
-        throw new Error(`a source that conforms to an arg is never less specific than it: ${source} conforms to ${arg}`);
-      }
-      return distance;
-    });
+    if (!args.some(arg => fits(position, arg))) throw new MatchFailure(position);
+    // The signed specificity distance: how much more the source says than the
+    // arg asks. A complete source may say less than an arg it satisfies, so it
+    // may be negative.
+    return args.map(arg => (fits(position, arg) ? source.specificity() - arg.specificity() : null));
   });
   // An assignment binds the arg that MUST be bound: a way of placing the
   // sources that leaves the main input out is not an assignment at all. It is
@@ -10135,7 +10152,11 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
   // Step 0: the outputs each wiring takes, by the names its targets wrote, and
   // with them the cardinality of every node: a node holds a sequence, in the
   // scope it lives in, iff the output that produces it is declared one.
+  //
+  // A node some wiring produces holds what that step gives, a complete thing;
+  // every other node holds a type the text or an input anchor wrote.
   const nodeIsSequence = new Array(nodes.length).fill(false);
+  const nodeIsGiven = new Array(nodes.length).fill(false);
   const defs = [];
   const wiringOutputs = [];
   for (const wiring of wirings) {
@@ -10162,6 +10183,7 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
         throw abstractionError.outputTakenTwice(strandIndex, capUrn, output.name);
       }
       nodeIsSequence[target.node] = output.is_sequence === true;
+      nodeIsGiven[target.node] = true;
       outputs.push(new EdgeOutput(outputMediaUrn, output.name, target.node));
     }
     // Canonical order, like the assignment's.
@@ -10185,7 +10207,7 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
       if (found < 0) throw abstractionError.capDoesNotDeclareInput(strandIndex, capUrn);
       primaryArgIndex = found;
     }
-    // Every arg, by what it ACCEPTS (the type a source must conform to) and by
+    // Every arg, by what it ACCEPTS (the type a source must fit) and by
     // its SLOT (its media_urn, the identity a binding records and the URN its
     // stream is delivered under). How an arg is supplied on a command line
     // plays no part: every arg can be bound by a wiring.
@@ -10204,7 +10226,7 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
         checkConstant(definitions, capUrn, args[argIndex], source.constant, strandIndex);
       } else {
         const sourceUrn = nodes[source.node];
-        if (!sourceUrn.conformsTo(argAccepts[argIndex])) {
+        if (!sourceFits(sourceUrn, nodeIsGiven[source.node], argAccepts[argIndex])) {
           throw abstractionError.sourceDoesNotConformToArg(strandIndex, capUrn, name,
             argAccepts[argIndex].toString(), sourceUrn.toString());
         }
@@ -10225,10 +10247,11 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
     // The main input, when no named member bound it.
     const mustBind = primaryArgIndex !== null && free.includes(primaryArgIndex) ? free.indexOf(primaryArgIndex) : null;
     const sourceUrns = wiring.sourceNodeIds.map(nodeId => nodes[nodeId]);
+    const sourceGiven = wiring.sourceNodeIds.map(nodeId => nodeIsGiven[nodeId]);
     if (sourceUrns.length > 0) {
       let matched;
       try {
-        matched = matchSourcesToArgs(sourceUrns, freeAccepts, freeIsSequence, mustBind);
+        matched = matchSourcesToArgs(sourceUrns, sourceGiven, freeAccepts, freeIsSequence, mustBind);
       } catch (failure) {
         if (!(failure instanceof MatchFailure)) throw failure;
         if (!failure.ambiguous) {
@@ -10808,6 +10831,10 @@ function includeMachines(wirings, aliasMap, machines, includedMedia, definitions
     }
   });
 
+  // A node some step produces holds what that step gives, a complete thing;
+  // every other node holds the type the text wrote for it.
+  const produced = new Set(wirings.flatMap(wiring => wiring.targets.map(target => target.node)));
+
   const uses = new Map();
   const written = [];
   wirings.forEach((wiring, index) => {
@@ -10832,7 +10859,7 @@ function includeMachines(wirings, aliasMap, machines, includedMedia, definitions
       }
       if (!member.value.isConstant) {
         const held = nodeMedia.get(member.value.node);
-        if (!held.conformsTo(accepts)) {
+        if (!sourceFits(held, produced.has(member.value.node), accepts)) {
           throw abstractionError.sourceDoesNotConformToMachineInput(position, alias, member.name, accepts.toString(), held.toString());
         }
       }
@@ -10844,10 +10871,11 @@ function includeMachines(wirings, aliasMap, machines, includedMedia, definitions
     if (unnamed.length > 0) {
       const free = machine.inputs.filter(([name]) => !bound.has(name));
       const sources = unnamed.map(node => nodeMedia.get(node));
+      const given = unnamed.map(node => produced.has(node));
       const accepted = free.map(([, media]) => media);
       let pairs;
       try {
-        pairs = matchSourcesToArgs(sources, accepted, new Array(accepted.length).fill(false), null);
+        pairs = matchSourcesToArgs(sources, given, accepted, new Array(accepted.length).fill(false), null);
       } catch (failure) {
         if (!(failure instanceof MatchFailure)) throw failure;
         if (!failure.ambiguous) throw abstractionError.unmatchedMachineMember(position, alias, sources[failure.source].toString());
