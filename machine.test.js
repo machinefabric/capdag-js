@@ -478,12 +478,20 @@ const scoreCap = () => definition(`cap:in="${RESIDUALS}";score;out="media:numeri
   [stdinArg(RESIDUALS, 'row')], [outputOf('media:numeric;score', 'score', 'The score')]);
 
 /**
+ * Follows a series as it grows, giving its rows as they come — a streaming
+ * output, which may never end.
+ */
+const tailCap = () => definition(`cap:in="${SERIES}";tail;out="${RESIDUALS}"`, 'tail',
+  [stdinArg(SERIES, 'series')],
+  [new CapOutput(RESIDUALS, 'rows', 'The rows as they come', { is_sequence: true, streaming: true })]);
+
+/**
  * The caps above and the media definitions their constants are held to: a
  * window of 1 to 365, a label that is a string of three allowed words, tags
  * that are strings, and references of at most twelve bytes.
  */
 function notationDefinitions() {
-  return definitionsOf([compareCap(), fetchCap(), publishCap(), meanCap(), scoreCap()]).addMediaDefs([
+  return definitionsOf([compareCap(), fetchCap(), publishCap(), meanCap(), scoreCap(), tailCap()]).addMediaDefs([
     mediaDef(WINDOW, { min: 1, max: 365 }, { type: 'integer' }),
     mediaDef(LABEL, { allowed_values: ['mean', 'median', 'max'] }, { type: 'string' }),
     mediaDef(TAG, null, { type: 'string' }),
@@ -2637,6 +2645,26 @@ function test6466_Machine_toMermaid_fanOut() {
   assert(mermaid.includes('-- "comparison" -->') && mermaid.includes('-- "residuals" -->'), mermaid);
 }
 
+// TEST7270: a step given `retry` whose cap declares a streaming output is
+// refused when the machine is read. A retried step's outputs are held until an
+// attempt succeeds, and a streaming output, which may never end, cannot be
+// held. The same step with no retry, or with only `on_error`, resolves, and
+// `retry` on a step whose outputs are all bounded still does.
+function test7270_retryIsRefusedOnAStepThatStreams() {
+  const tailHeaders = `${HEADERS}[tail cap:in="${SERIES}";tail;out="${RESIDUALS}"]`;
+
+  const refused = resolutionError('[s -> tail{retry=2} -> r]', null, tailHeaders);
+  assert(isAbstraction(refused, AE.RETRY_ON_STREAMING_STEP), refused.message);
+  assertEqual(refused.retry, 2, 'the retry it was given');
+  assertEqual(refused.streamingOutput, 'rows', 'the output that streams');
+  assert(refused.message.endsWith('a streaming output cannot be held'), refused.message);
+
+  for (const wiring of ['[s -> tail -> r]', '[s -> tail{on_error=absent} -> r]']) {
+    parseMachine(tailHeaders + wiring, notationDefinitions());
+  }
+  machineOf('[s -> compare{retry=2} -> r]');
+}
+
 // ============================================================================
 // Run
 // ============================================================================
@@ -2660,6 +2688,7 @@ function runTests() {
   runTest('TEST12833: a_carried_output_holds_the_inputs_type', test12833_aCarriedOutputHoldsTheInputsType);
   runTest('TEST12834: a_node_stands_for_one_node', test12834_aNodeStandsForOneNode);
   runTest('TEST12838: urns_are_ordered_by_their_parts_not_their_text', test12838_urnsAreOrderedByTheirPartsNotTheirText);
+  runTest('TEST7270: retry_is_refused_on_a_step_that_streams', test7270_retryIsRefusedOnAStepThatStreams);
 
   runTest('TEST1400: gather_n_sources_into_sequence_arg', test1400_gatherNSourcesIntoSequenceArg);
   runTest('TEST1401: product_precedence_over_gather', test1401_productPrecedenceOverGather);

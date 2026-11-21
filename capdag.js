@@ -8381,6 +8381,7 @@ const MachineAbstractionErrorCodes = Object.freeze({
   MAIN_INPUT_UNBOUND: 'MainInputUnbound',
   OUTPUT_TAKEN_TWICE: 'OutputTakenTwice',
   NO_MAIN_OUTPUT: 'NoMainOutput',
+  RETRY_ON_STREAMING_STEP: 'RetryOnStreamingStep',
   UNTYPED_MACHINE_INPUT: 'UntypedMachineInput',
   UNKNOWN_MACHINE_REFERENCE: 'UnknownMachineReference',
   CYCLIC_MACHINE_REFERENCE: 'CyclicMachineReference',
@@ -8502,6 +8503,10 @@ const abstractionError = Object.freeze({
   noMainOutput: (strandIndex, capUrn) => inStrand(
     AE.NO_MAIN_OUTPUT, strandIndex,
     `cap '${capUrn}' has no main output to take (its out= is media:void)`, { capUrn }),
+  retryOnStreamingStep: (strandIndex, capUrn, retry, streamingOutput) => inStrand(
+    AE.RETRY_ON_STREAMING_STEP, strandIndex,
+    `cap '${capUrn}' is given retry=${retry}, and its output '${streamingOutput}' is streaming — a retried step's outputs are held until an attempt succeeds, and a streaming output cannot be held`,
+    { capUrn, retry, streamingOutput }),
   untypedMachineInput: (position, capUrn, members) => atStatement(
     AE.UNTYPED_MACHINE_INPUT, position,
     `cap '${capUrn}' is given unnamed machine inputs whose arg nothing decides (${members.join(', ')}) — name them`,
@@ -10132,6 +10137,12 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
     const definition = lookupDefinition(urn => definitions.capDefinition(urn), capUrn,
       () => abstractionError.unknownCap(capUrn));
     defs.push(definition);
+    if (wiring.policy.retry > 0) {
+      const streaming = definition.getOutputs().find(output => output.streaming);
+      if (streaming) {
+        throw abstractionError.retryOnStreamingStep(strandIndex, capUrn, wiring.policy.retry, streaming.name);
+      }
+    }
     const outputs = [];
     for (const target of wiring.targets) {
       let output;
