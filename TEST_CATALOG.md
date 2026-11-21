@@ -27,7 +27,7 @@ Generated from the test catalogue. Edit the tests, not this file.
 | TEST17 | capdag/capdag-js | js | `test017_tagMatching` | capdag.test.js:392 | TEST17: Test tag matching: exact match, subset match, wildcard match, value mismatch |
 | TEST18 | capdag/capdag-js | js | `test018_matchingCaseSensitiveValues` | capdag.test.js:416 | TEST18: Test that quoted values with different case do NOT match (case-sensitive) |
 | TEST19 | capdag/capdag-js | js | `test019_missingTagHandling` | capdag.test.js:423 | TEST19: Missing tag in instance causes rejection — pattern's tags are constraints |
-| TEST20 | capdag/capdag-js | js | `test020_specificity` | capdag.test.js:445 | TEST020: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments and `key=*`) score 2 (must-have-any), exact `key=value` tags score 3, missing/`?` score 0, `!` scores 1. test6204_Urn() builds "cap:in=media:void;out=media:record;<tags>" so the directional baseline is: in:  media:void   -> {void=*}    -> 2 out: media:record -> {record=*}  -> 2 Total directional baseline: 4. |
+| TEST20 | capdag/capdag-js | js | `test020_specificity` | capdag.test.js:445 | TEST020: Specificity is the sum of per-tag truth-table scores across in/out/y. Marker tags (bare segments and `key=*`) score 2 (must-have-any), exact `key=value` tags score 4, missing/`?` score 0, `x?=v` 1, `x!=v` 3, `!` 5. test6204_Urn() builds "cap:in=media:void;out=media:record;<tags>" so the directional baseline is: in:  media:void   -> {void=*}    -> 2 out: media:record -> {record=*}  -> 2 Total directional baseline: 4. |
 | TEST21 | capdag/capdag-js | js | `test021_builder` | capdag.test.js:473 | TEST21: Test builder creates cap URN with correct tags and direction specs |
 | TEST22 | capdag/capdag-js | js | `test022_builderRequiresDirection` | capdag.test.js:487 | TEST22: Test builder requires both in_spec and out_spec |
 | TEST23 | capdag/capdag-js | js | `test023_builderPreservesCase` | capdag.test.js:501 | TEST23: Test builder lowercases keys but preserves value case |
@@ -40,138 +40,138 @@ Generated from the test catalogue. Edit the tests, not this file.
 | TEST30 | capdag/capdag-js | js | `test030_extendedCharacterSupport` | capdag.test.js:603 | TEST30: Test extended characters (forward slashes, colons) in tag values |
 | TEST31 | capdag/capdag-js | js | `test031_wildcardRestrictions` | capdag.test.js:610 | TEST31: Test wildcard rejected in keys but accepted in values |
 | TEST32 | capdag/capdag-js | js | `test032_duplicateKeyRejection` | capdag.test.js:628 | TEST32: Test duplicate keys are rejected with DuplicateKey error |
-| TEST33 | capdag/capdag-js | js | `test033_numericKeyRestriction` | capdag.test.js:637 | TEST33: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed |
-| TEST34 | capdag/capdag-js | js | `test034_emptyValueError` | capdag.test.js:651 | TEST34: Test empty values are rejected |
-| TEST35 | capdag/capdag-js | js | `test035_hasTagCaseSensitive` | capdag.test.js:664 | TEST35: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out |
-| TEST36 | capdag/capdag-js | js | `test036_withTagPreservesValue` | capdag.test.js:676 | TEST36: Test with_tag preserves value case |
-| TEST37 | capdag/capdag-js | js | `test037_withTagRejectsEmptyValue` | capdag.test.js:683 | TEST37: Test with_tag rejects empty value |
-| TEST38 | capdag/capdag-js | js | `test038_semanticEquivalence` | capdag.test.js:693 | TEST38: Test semantic equivalence of unquoted and quoted simple lowercase values |
-| TEST39 | capdag/capdag-js | js | `test039_getTagReturnsDirectionSpecs` | capdag.test.js:701 | TEST39: Test get_tag returns direction specs (in/out) with case-insensitive lookup |
-| TEST40 | capdag/capdag-js | js | `test040_matchingSemanticsExactMatch` | capdag.test.js:710 | TEST40: Matching semantics - exact match succeeds |
-| TEST41 | capdag/capdag-js | js | `test041_matchingSemanticsCapMissingTag` | capdag.test.js:717 | TEST41: Matching semantics - cap missing tag matches (implicit wildcard) |
-| TEST42 | capdag/capdag-js | js | `test042_matchingSemanticsCapHasExtraTag` | capdag.test.js:725 | TEST42: Pattern rejects instance missing required tags |
-| TEST43 | capdag/capdag-js | js | `test043_matchingSemanticsRequestHasWildcard` | capdag.test.js:737 | TEST43: Matching semantics - request wildcard matches specific cap value A request that says only "some ext" is not a pdf, so a pattern requiring ext=pdf does not accept it: `ext` promises presence, not a value, and reading it as "whatever the pattern wants" made `ext` and `ext=pdf` equivalent (capdag/formal, Legacy.marker_equivalent_to_exact). |
-| TEST44 | capdag/capdag-js | js | `test044_matchingSemanticsCapHasWildcard` | capdag.test.js:745 | TEST44: Matching semantics - cap wildcard matches specific request value |
-| TEST45 | capdag/capdag-js | js | `test045_matchingSemanticsValueMismatch` | capdag.test.js:752 | TEST45: Matching semantics - value mismatch does not match |
-| TEST46 | capdag/capdag-js | js | `test046_matchingSemanticsFallbackPattern` | capdag.test.js:759 | TEST46: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) |
-| TEST47 | capdag/capdag-js | js | `test047_matchingSemanticsThumbnailVoidInput` | capdag.test.js:767 | TEST47: Matching semantics - thumbnail fallback with void input |
-| TEST48 | capdag/capdag-js | js | `test048_matchingSemanticsWildcardDirection` | capdag.test.js:779 | TEST48: A pattern that leaves a side open asks nothing of it `cap:generate` as a pattern says nothing of what a cap takes or gives: both are unknown, not the type "anything", so it fits a cap that takes text and gives a record. Read as a type, its open output would be covered only by a cap that gives `media:` — which is how a pattern search came to find nothing (capdag/formal, Query.ofPattern and Legacy.skipping_top_output_is_fits). |
-| TEST49 | capdag/capdag-js | js | `test049_matchingSemanticsCrossDimension` | capdag.test.js:790 | TEST49: Non-overlapping tags — neither direction accepts |
-| TEST50 | capdag/capdag-js | js | `test050_matchingSemanticsDirectionMismatch` | capdag.test.js:798 | TEST50: Matching semantics - direction mismatch prevents matching |
-| TEST60 | capdag/capdag-js | js | `test060_wrongPrefixFails` | capdag.test.js:943 | TEST60: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix |
-| TEST62 | capdag/capdag-js | js | `test062_isRecord` | capdag.test.js:956 | TEST62: Test is_record returns true when record marker tag is present indicating key-value structure |
-| TEST63 | capdag/capdag-js | js | `test063_isScalar` | capdag.test.js:967 | TEST63: Test is_scalar returns true when list marker tag is absent (scalar is default) |
-| TEST64 | capdag/capdag-js | js | `test064_isList` | capdag.test.js:980 | TEST64: Test is_list returns true when list marker tag is present indicating ordered collection |
-| TEST65 | capdag/capdag-js | js | `test065_isOpaque` | capdag.test.js:989 | TEST65: Test is_opaque returns true when record marker is absent (opaque is default) |
-| TEST66 | capdag/capdag-js | js | `test066_isJson` | capdag.test.js:1000 | TEST66: Test is_json returns true only when json marker tag is present for JSON representation |
-| TEST67 | capdag/capdag-js | js | `test067_isText` | capdag.test.js:1009 | TEST67: A media is characters iff it declares an encoding (`enc=`). Every textual value carries it — free text and the textual serializations alike (a JSON record is UTF-8) — while a boolean, a number, an image and the top type do not. Whether text is written to be read is `plain-text`'s to say (TEST1973), never enc's. |
-| TEST68 | capdag/capdag-js | js | `test068_isVoid` | capdag.test.js:1044 | TEST68: is_void is true only for the void marker: media:void; not media:!void (must not be void), media:?void (unconstrained), a URN with no void tag, or media: |
-| TEST71 | capdag/capdag-js | js | `test071_toStringRoundtrip` | capdag.test.js:1055 | TEST71: Test to_string roundtrip ensures serialization and deserialization preserve URN structure |
-| TEST72 | capdag/capdag-js | js | `test072_constantsParse` | capdag.test.js:1065 | TEST72: Test all media URN constants parse successfully as valid media URNs |
-| TEST74 | capdag/capdag-js | js | `test074_mediaUrnMatching` | capdag.test.js:1085 | TEST74: Test media URN conforms_to using tagged URN semantics with specific and generic requirements |
-| TEST75 | capdag/capdag-js | js | `test075_accepts` | capdag.test.js:1099 | TEST75: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests |
-| TEST76 | capdag/capdag-js | js | `test076_specificity` | capdag.test.js:1110 | TEST76: Test specificity increases with more tags for ranking conformance |
-| TEST77 | capdag/capdag-js | js | `test077_serdeRoundtrip` | capdag.test.js:1119 | TEST77: Test serde roundtrip serializes to JSON string and deserializes back correctly |
-| TEST78 | capdag/capdag-js | js | `test078_debugMatchingBehavior` | capdag.test.js:1128 | TEST78: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING |
-| TEST93 | capdag/capdag-js | js | `test93_resolveUnresolvableFailsHard` | capdag.test.js:1170 | TEST93: Test resolving unknown media URN fails with UnresolvableMediaUrn error |
-| TEST99 | capdag/capdag-js | js | `test99_resolvedIsBinary` | capdag.test.js:1189 | TEST99: Test ResolvedMediaDef is_binary returns true when enc tag is absent |
-| TEST100 | capdag/capdag-js | js | `test100_resolvedIsRecord` | capdag.test.js:1195 | TEST100: Test ResolvedMediaDef is_record returns true when record marker is present |
-| TEST101 | capdag/capdag-js | js | `test101_resolvedIsScalar` | capdag.test.js:1201 | TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent |
-| TEST102 | capdag/capdag-js | js | `test102_resolvedIsList` | capdag.test.js:1207 | TEST102: Test ResolvedMediaDef is_list returns true when list marker is present |
-| TEST103 | capdag/capdag-js | js | `test103_resolvedIsJson` | capdag.test.js:1213 | TEST103: Test ResolvedMediaDef is_json returns true when json tag is present |
-| TEST104 | capdag/capdag-js | js | `test104_resolvedIsText` | capdag.test.js:1219 | TEST104: Test ResolvedMediaDef is_text returns true when enc tag is present |
-| TEST105 | capdag/capdag-js | js | `test105_metadataPropagation` | capdag.test.js:1225 | TEST105: Test metadata propagates from media def def to resolved media def |
-| TEST106 | capdag/capdag-js | js | `test106_metadataWithValidation` | capdag.test.js:1248 | TEST106: Test metadata and validation can coexist in media definition |
-| TEST107 | capdag/capdag-js | js | `test107_extensionsPropagation` | capdag.test.js:1267 | TEST107: Test extensions field propagates from media def def to resolved |
-| TEST108 | capdag/capdag-js | js | `test108_extensionsSerialization` | capdag.test.js:1283 | TEST108: Test creating new cap with URN, title, and command verifies correct initialization |
-| TEST109 | capdag/capdag-js | js | `test109_extensionsWithMetadataAndValidation` | capdag.test.js:1291 | TEST109: Test creating cap with metadata initializes and retrieves metadata correctly |
-| TEST110 | capdag/capdag-js | js | `test110_multipleExtensions` | capdag.test.js:1310 | TEST110: Test cap matching with subset semantics for request fulfillment |
-| TEST115 | capdag/capdag-js | js | `test115_capArgSerialization` | capdag.test.js:1326 | TEST115: Test CapArg serialization and deserialization with multiple sources |
-| TEST116 | capdag/capdag-js | js | `test116_capArgConstructors` | capdag.test.js:1359 | TEST116: Test CapArg constructor methods basic and with_description create args correctly |
-| TEST125 | capdag/capdag-js | js | `test125_effectNonePreservesRuntimeMedia` | capdag.test.js:4218 | TEST125: effect=none preserves runtime media identity |
-| TEST126 | capdag/capdag-js | js | `test126_effectDeclaredUsesDeclaredOutput` | capdag.test.js:4227 | TEST126: default effect=declared uses the declared output |
-| TEST127 | capdag/capdag-js | js | `test127_invalidEffectNoneFailsHard` | capdag.test.js:4238 | TEST127: invalid effect=none declarations fail hard |
-| TEST128 | capdag/capdag-js | js | `test128_effectDispatchRequiresExplicitWildcard` | capdag.test.js:4321 | TEST128: omitted effect means declared; unconstrained effect must be explicit |
-| TEST150 | capdag/capdag-js | js | `test150_capManifestJsonSerialization` | capdag.test.js:1387 | TEST150: JSON roundtrip |
-| TEST156 | capdag/capdag-js | js | `test156_stdinSourceFromData` | capdag.test.js:1543 | TEST156: Test creating StdinSource Data variant with byte vector |
-| TEST157 | capdag/capdag-js | js | `test157_stdinSourceFromFileReference` | capdag.test.js:1554 | TEST157: Test creating StdinSource FileReference variant with all required fields |
-| TEST158 | capdag/capdag-js | js | `test158_stdinSourceWithEmptyData` | capdag.test.js:1571 | TEST158: Test StdinSource Data with empty vector stores and retrieves correctly |
-| TEST159 | capdag/capdag-js | js | `test159_stdinSourceWithBinaryContent` | capdag.test.js:1579 | TEST159: Test StdinSource Data with binary content like PNG header bytes |
-| TEST274 | capdag/capdag-js | js | `test274_capArgumentValueNew` | capdag.test.js:1593 | TEST274: Test CapArgumentValue::new stores media_urn and raw byte value |
-| TEST275 | capdag/capdag-js | js | `test275_capArgumentValueFromStr` | capdag.test.js:1600 | TEST275: Test CapArgumentValue::from_str converts string to UTF-8 bytes |
-| TEST276 | capdag/capdag-js | js | `test276_capArgumentValueAsStrValid` | capdag.test.js:1607 | TEST276: Test CapArgumentValue::value_as_str succeeds for UTF-8 data |
-| TEST277 | capdag/capdag-js | js | `test277_capArgumentValueAsStrInvalidUtf8` | capdag.test.js:1613 | TEST277: Test CapArgumentValue::value_as_str fails for non-UTF-8 binary data |
-| TEST278 | capdag/capdag-js | js | `test278_capArgumentValueEmpty` | capdag.test.js:1625 | TEST278: Test CapArgumentValue::new with empty value stores empty vec |
-| TEST282 | capdag/capdag-js | js | `test282_capArgumentValueUnicode` | capdag.test.js:1634 | TEST282: Test CapArgumentValue::from_str with Unicode string preserves all characters |
-| TEST283 | capdag/capdag-js | js | `test283_capArgumentValueLargeBinary` | capdag.test.js:1640 | TEST283: Test CapArgumentValue with large binary payload preserves all bytes |
-| TEST304 | capdag/capdag-js | js | `test304_mediaAvailabilityOutputConstant` | capdag.test.js:1658 | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags |
-| TEST305 | capdag/capdag-js | js | `test305_mediaPathOutputConstant` | capdag.test.js:1669 | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags |
-| TEST306 | capdag/capdag-js | js | `test306_availabilityAndPathOutputDistinct` | capdag.test.js:1680 | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs |
-| TEST307 | capdag/capdag-js | js | `test307_modelAvailabilityUrn` | capdag.test.js:1694 | TEST307: Test model_availability_urn builds valid cap URN with correct op and media defs |
-| TEST308 | capdag/capdag-js | js | `test308_modelPathUrn` | capdag.test.js:1706 | TEST308: Test model_path_urn builds valid cap URN with correct op and media defs |
-| TEST309 | capdag/capdag-js | js | `test309_modelAvailabilityAndPathAreDistinct` | capdag.test.js:1718 | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs |
-| TEST310 | capdag/capdag-js | js | `test310_llmGenerateTextUrn` | capdag.test.js:1725 | TEST310: llm_generate_text_urn() produces a valid cap URN with a plain-text input and a `.txt` plain-text output. |
-| TEST312 | capdag/capdag-js | js | `test312_allUrnBuildersProduceValidUrns` | capdag.test.js:1737 | TEST312: Test all URN builders produce parseable cap URNs |
-| TEST320 | capdag/capdag-js | js | `test320_cartridgeInfoConstruction` | capdag.test.js:2047 | TEST320-335: CartridgeRepoServer and CartridgeRepoClient tests |
-| TEST321 | capdag/capdag-js | js | `test321_cartridgeInfoIsSigned` | capdag.test.js:2081 | TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty. |
-| TEST322 | capdag/capdag-js | js | `test322_cartridgeInfoBuildForPlatform` | capdag.test.js:2093 | TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise. |
-| TEST323 | capdag/capdag-js | js | `test323_cartridgeRepoServerValidateRegistry` | capdag.test.js:2128 | TEST323: CartridgeRepoServer requires the schema this build reads (8.0) and rejects older. |
-| TEST324 | capdag/capdag-js | js | `test324_cartridgeRepoServerTransformToArray` | capdag.test.js:2176 | TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim. |
-| TEST325 | capdag/capdag-js | js | `test325_cartridgeRepoServerGetCartridges` | capdag.test.js:2213 | TEST325: get_cartridges() wraps the transformed array in the response envelope. |
-| TEST326 | capdag/capdag-js | js | `test326_cartridgeRepoServerGetCartridgeById` | capdag.test.js:2225 | TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces. |
-| TEST327 | capdag/capdag-js | js | `test327_cartridgeRepoServerSearchCartridges` | capdag.test.js:2255 | TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings. |
-| TEST328 | capdag/capdag-js | js | `test328_cartridgeRepoServerGetByCategory` | capdag.test.js:2277 | TEST328: CartridgeRepoServer.getCartridgesByCategory() filters cartridges by category across both channels. |
-| TEST329 | capdag/capdag-js | js | `test329_cartridgeRepoServerGetByCap` | capdag.test.js:2296 | TEST329: CartridgeRepoServer.getCartridgesByCap() parses the input URN and matches each declared cap via `conformsTo`. Tag-order differences resolve because matching is order-theoretic, not string. |
-| TEST330 | capdag/capdag-js | js | `test330_cartridgeRepoClientUpdateCache` | capdag.test.js:2313 | TEST330: CartridgeRepoClient updates its local cache keyed by "<channel>:<id>". The cache holds release and nightly entries independently — the same id is allowed in both. |
-| TEST331 | capdag/capdag-js | js | `test331_cartridgeRepoClientGetSuggestions` | capdag.test.js:2341 | TEST331: CartridgeRepoClient.getSuggestionsForCap() returns cartridge suggestions with channel propagated onto each suggestion. |
-| TEST332 | capdag/capdag-js | js | `test332_cartridgeRepoClientGetCartridge` | capdag.test.js:2370 | TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss. |
-| TEST333 | capdag/capdag-js | js | `test333_cartridgeRepoClientGetAllCaps` | capdag.test.js:2414 | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. |
-| TEST334 | capdag/capdag-js | js | `test334_cartridgeRepoClientNeedsSync` | capdag.test.js:2430 | TEST334: needs_sync returns true on an empty cache, false right after a successful update. |
-| TEST335 | capdag/capdag-js | js | `test335_cartridgeRepoServerClientIntegration` | capdag.test.js:2449 | TEST335: Round-trip: server produces a v7.0 response, client consumes it, channel provenance is preserved end-to-end. |
-| TEST477 | capdag/capdag-js | js | `test477_matcherFirstRegisteredOfEqualRankWins` | capdag.test.js:3386 | TEST477: CapMatcher keeps the first registered of candidates the ranking cannot tell apart |
-| TEST484 | capdag/capdag-js | js | `test484_matcherRanksServingCapsNotAcceptedOnes` | capdag.test.js:3405 | TEST484: CapMatcher chooses among the caps that serve the request, never among those the request accepts as a pattern |
-| TEST546 | capdag/capdag-js | js | `test546_isImage` | capdag.test.js:3107 | TEST546: is_image returns true only when image marker tag is present; a format conforms to its own medium and to no other |
-| TEST547 | capdag/capdag-js | js | `test547_isAudio` | capdag.test.js:3133 | TEST547: is_audio returns true only when audio marker tag is present |
-| TEST548 | capdag/capdag-js | js | `test548_isVideo` | capdag.test.js:3144 | TEST548: is_video returns true only when video marker tag is present |
-| TEST549 | capdag/capdag-js | js | `test549_isNumeric` | capdag.test.js:3154 | TEST549: is_numeric returns true only when numeric marker tag is present |
-| TEST550 | capdag/capdag-js | js | `test550_isBool` | capdag.test.js:3166 | TEST550: is_bool returns true only when bool marker tag is present |
-| TEST551 | capdag/capdag-js | js | `test551_isFilePath` | capdag.test.js:3178 | TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. |
-| TEST553 | capdag/capdag-js | js | `test553_isLiveFeed` | capdag.test.js:3185 | TEST553: is_live_feed returns true for every URN carrying the `live` marker tag (the reference-media family the runtime resolves via providers), false for everything else — including content URNs a feed delivers. |
-| TEST558 | capdag/capdag-js | js | `test558_predicateConstantConsistency` | capdag.test.js:3281 | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates |
-| TEST559 | capdag/capdag-js | js | `test559_withoutTag` | capdag.test.js:3320 | TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys |
-| TEST560 | capdag/capdag-js | js | `test560_withInOutSpec` | capdag.test.js:3340 | TEST560: with_in_spec and with_out_spec change direction specs |
-| TEST563 | capdag/capdag-js | js | `test563_findAllMatches` | capdag.test.js:3370 | TEST563: CapMatcher::find_all_matches returns every serving cap in ranking order, closest to the request first |
-| TEST564 | capdag/capdag-js | js | `test564_areCompatible` | capdag.test.js:3431 | TEST564: CapMatcher::are_compatible detects bidirectional overlap |
-| TEST566 | capdag/capdag-js | js | `test566_withTagRejectsStructuralKeys` | capdag.test.js:3456 | TEST566: with_tag rejects structural keys |
-| TEST580 | capdag/capdag-js | js | `test580_rule3TwoStdinArgsRejected` | capdag.test.js:3619 | TEST580: RULE3 - two args that declare a stdin source are rejected |
-| TEST581 | capdag/capdag-js | js | `test581_rule3IdenticalStdinUrnsAreStillTwoMainInputs` | capdag.test.js:3634 | TEST581: RULE3 - two stdin args are rejected even when their stdin URNs are identical The rule used to allow this ("multiple stdin sources with the same URN is OK"), on the reasoning that one stdin stream can only be one type. A cap has one main input: two args that both claim it leave nothing to say which of them a piped value is. |
-| TEST597 | capdag/capdag-js | js | `test597_capArgWithFullDefinition` | capdag.test.js:1443 | TEST597: CapArg::with_full_definition stores all fields including optional ones |
-| TEST607 | capdag/capdag-js | js | `test607_fileMediaForAnUnknownExtensionIsNone` | capdag.test.js:4912 | TEST607: file_media_for_extension answers no file type for an extension no definition of the manifest declares |
-| TEST608 | capdag/capdag-js | js | `test608_fileMediaForExtensionListsTheDeclaringDefinitions` | capdag.test.js:4919 | TEST608: file_media_for_extension answers the file media definitions that list the extension, whatever its case |
-| TEST609 | capdag/capdag-js | js | `test609_contentTypesThatListAnExtensionAreNoFileTypes` | capdag.test.js:4929 | TEST609: a definition that lists an extension but carries no `ext=` file-type tag is content, not a file type: it is never a file type of the extension, even when it is held |
-| TEST640 | capdag/capdag-js | js | `test640_inOnlyIsIllegal` | capdag.test.js:3978 | TEST640: cap:in defaults to the same illegal bare top form |
-| TEST641 | capdag/capdag-js | js | `test641_outOnlyIsIllegal` | capdag.test.js:3987 | TEST641: cap:out defaults to the same illegal bare top form |
-| TEST642 | capdag/capdag-js | js | `test642_inOutWithoutValuesAreIllegal` | capdag.test.js:3996 | TEST642: cap:in;out becomes the same illegal bare top form |
-| TEST643 | capdag/capdag-js | js | `test643_explicitAsteriskIsIllegal` | capdag.test.js:4005 | TEST643: cap:in=*;out=* is the same illegal bare top form |
-| TEST644 | capdag/capdag-js | js | `test644_specificInWildcardOutIsIllegal` | capdag.test.js:4014 | TEST644: cap:in=media:;out=* is the same illegal bare top form |
-| TEST645 | capdag/capdag-js | js | `test645_wildcardInSpecificOut` | capdag.test.js:4023 | TEST645: cap:in=*;out=media:text has wildcard in, specific out |
-| TEST646 | capdag/capdag-js | js | `test646_invalidInSpecFails` | capdag.test.js:4030 | TEST646: cap:in=foo fails (invalid media URN) |
-| TEST647 | capdag/capdag-js | js | `test647_invalidOutSpecFails` | capdag.test.js:4039 | TEST647: cap:in=media:;out=bar fails (invalid media URN) |
-| TEST648 | capdag/capdag-js | js | `test648_wildcardAcceptsSpecific` | capdag.test.js:4053 | TEST648: An open pattern fits specific caps; fitting is not serving `cap:raw` as a pattern leaves both sides open, so it fits a cap that gives text and one that takes text. Whether `cap:raw`, as a CANDIDATE, serves a request that needs text out is a different question with a different answer: a `media:` output guarantees nothing. |
-| TEST649 | capdag/capdag-js | js | `test649_specificityScoring` | capdag.test.js:4153 | TEST649: Specificity - wildcard has 0, specific has tag count |
-| TEST650 | capdag/capdag-js | js | `test650_wildcardPreserveOtherTags` | capdag.test.js:4162 | TEST650: cap:in=media:;out=media:;test preserves other tags |
-| TEST653 | capdag/capdag-js | js | `test653_invalidEffectNoneDeclarationRejected` | capdag.test.js:4209 | TEST653: invalid effect=none declarations fail at construction |
-| TEST825 | capdag/capdag-js | js | `test825_dispatchRequestUnconstrainedInput` | capdag.test.js:4074 | TEST825: a request that leaves its input open has not said what it will send, and is served whatever the candidate takes The open input is unknown — "some input" — not the type "anything": the request is served by exactly the candidates that serve SOME typed call it could become (capdag/formal, serves_unknown_iff). What a candidate cannot do is stand in for the request AS A DESCRIPTION — that relation is typed and composes (Legacy.wildcard_input_not_transitive is why the two were never one). |
-| TEST852 | capdag/capdag-js | js | `test852_lubIdentical` | capdag.test.js:3207 | TEST852: LUB of identical URNs returns the same URN |
-| TEST853 | capdag/capdag-js | js | `test853_lubSharedKeyPromotesToWildcard` | capdag.test.js:3216 | TEST853: LUB promotes a shared key with differing values to "some value": both inputs HAVE an ext (pdf vs png), so the bound is media:ext — the denominator generic caps like in="media:ext" accept — not the trivial media:. The image marker is only on one side, so it is dropped. |
-| TEST854 | capdag/capdag-js | js | `test854_lubPartialOverlap` | capdag.test.js:3227 | TEST854: LUB keeps common tags, drops differing ones. Both inputs are UTF-8 text (shared enc=utf8) but differ in structure (list vs record). |
-| TEST855 | capdag/capdag-js | js | `test855_lubListVsScalar` | capdag.test.js:3237 | TEST855: LUB of list and non-list drops list tag |
-| TEST856 | capdag/capdag-js | js | `test856_lubEmpty` | capdag.test.js:3247 | TEST856: LUB of empty input returns universal type |
-| TEST857 | capdag/capdag-js | js | `test857_lubSingle` | capdag.test.js:3252 | TEST857: LUB of single input returns that input |
-| TEST858 | capdag/capdag-js | js | `test858_lubThreeInputs` | capdag.test.js:3258 | TEST858: LUB with three+ inputs narrows correctly |
-| TEST859 | capdag/capdag-js | js | `test859_lubValuedTags` | capdag.test.js:3271 | TEST859: LUB with valued tags (non-marker) that differ promotes the key |
-| TEST890 | capdag/capdag-js | js | `test890_directionSemanticMatching` | capdag.test.js:809 | TEST890: Semantic direction matching - generic candidate matches specific request |
-| TEST891 | capdag/capdag-js | js | `test891_directionSemanticSpecificity` | capdag.test.js:859 | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3. |
+| TEST33 | capdag/capdag-js | js | `test033_numericKeyRestriction` | capdag.test.js:637 | TEST33: Test keys that begin with a digit are rejected, digits after the first letter allowed, numeric values allowed |
+| TEST34 | capdag/capdag-js | js | `test034_emptyValueError` | capdag.test.js:653 | TEST34: Test empty values are rejected |
+| TEST35 | capdag/capdag-js | js | `test035_hasTagCaseSensitive` | capdag.test.js:668 | TEST35: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out |
+| TEST36 | capdag/capdag-js | js | `test036_withTagPreservesValue` | capdag.test.js:681 | TEST36: Test with_tag preserves value case |
+| TEST37 | capdag/capdag-js | js | `test037_withTagRejectsEmptyValue` | capdag.test.js:688 | TEST37: Test with_tag rejects empty value |
+| TEST38 | capdag/capdag-js | js | `test038_semanticEquivalence` | capdag.test.js:698 | TEST38: Test semantic equivalence of unquoted and quoted simple lowercase values |
+| TEST39 | capdag/capdag-js | js | `test039_directionSpecsAreNotCapTags` | capdag.test.js:706 | TEST39: Test the direction is read with getInSpec/getOutSpec, and getTag reads cap-tags only |
+| TEST40 | capdag/capdag-js | js | `test040_matchingSemanticsExactMatch` | capdag.test.js:718 | TEST40: Matching semantics - exact match succeeds |
+| TEST41 | capdag/capdag-js | js | `test041_matchingSemanticsCapMissingTag` | capdag.test.js:725 | TEST41: Matching semantics - cap missing tag matches (implicit wildcard) |
+| TEST42 | capdag/capdag-js | js | `test042_matchingSemanticsCapHasExtraTag` | capdag.test.js:733 | TEST42: Pattern rejects instance missing required tags |
+| TEST43 | capdag/capdag-js | js | `test043_matchingSemanticsRequestHasWildcard` | capdag.test.js:745 | TEST43: Matching semantics - request wildcard matches specific cap value A request that says only "some ext" is not a pdf, so a pattern requiring ext=pdf does not accept it: `ext` promises presence, not a value, and reading it as "whatever the pattern wants" made `ext` and `ext=pdf` equivalent (capdag/formal, Legacy.marker_equivalent_to_exact). |
+| TEST44 | capdag/capdag-js | js | `test044_matchingSemanticsCapHasWildcard` | capdag.test.js:753 | TEST44: Matching semantics - cap wildcard matches specific request value |
+| TEST45 | capdag/capdag-js | js | `test045_matchingSemanticsValueMismatch` | capdag.test.js:760 | TEST45: Matching semantics - value mismatch does not match |
+| TEST46 | capdag/capdag-js | js | `test046_matchingSemanticsFallbackPattern` | capdag.test.js:767 | TEST46: Matching semantics - fallback pattern (cap missing tag = implicit wildcard) |
+| TEST47 | capdag/capdag-js | js | `test047_matchingSemanticsThumbnailVoidInput` | capdag.test.js:775 | TEST47: Matching semantics - thumbnail fallback with void input |
+| TEST48 | capdag/capdag-js | js | `test048_matchingSemanticsWildcardDirection` | capdag.test.js:787 | TEST48: A pattern that leaves a side open asks nothing of it `cap:generate` as a pattern says nothing of what a cap takes or gives: both are unknown, not the type "anything", so it fits a cap that takes text and gives a record. Read as a type, its open output would be covered only by a cap that gives `media:` — which is how a pattern search came to find nothing (capdag/formal, Query.ofPattern and Legacy.skipping_top_output_is_fits). |
+| TEST49 | capdag/capdag-js | js | `test049_matchingSemanticsCrossDimension` | capdag.test.js:798 | TEST49: Non-overlapping tags — neither direction accepts |
+| TEST50 | capdag/capdag-js | js | `test050_matchingSemanticsDirectionMismatch` | capdag.test.js:806 | TEST50: Matching semantics - direction mismatch prevents matching |
+| TEST60 | capdag/capdag-js | js | `test060_wrongPrefixFails` | capdag.test.js:951 | TEST60: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix |
+| TEST62 | capdag/capdag-js | js | `test062_isRecord` | capdag.test.js:964 | TEST62: Test is_record returns true when record marker tag is present indicating key-value structure |
+| TEST63 | capdag/capdag-js | js | `test063_isScalar` | capdag.test.js:975 | TEST63: Test is_scalar returns true when list marker tag is absent (scalar is default) |
+| TEST64 | capdag/capdag-js | js | `test064_isList` | capdag.test.js:988 | TEST64: Test is_list returns true when list marker tag is present indicating ordered collection |
+| TEST65 | capdag/capdag-js | js | `test065_isOpaque` | capdag.test.js:997 | TEST65: Test is_opaque returns true when record marker is absent (opaque is default) |
+| TEST66 | capdag/capdag-js | js | `test066_isJson` | capdag.test.js:1008 | TEST66: Test is_json returns true only when json marker tag is present for JSON representation |
+| TEST67 | capdag/capdag-js | js | `test067_isText` | capdag.test.js:1017 | TEST67: A media is characters iff it declares an encoding (`enc=`). Every textual value carries it — free text and the textual serializations alike (a JSON record is UTF-8) — while a boolean, a number, an image and the top type do not. Whether text is written to be read is `plain-text`'s to say (TEST1973), never enc's. |
+| TEST68 | capdag/capdag-js | js | `test068_isVoid` | capdag.test.js:1052 | TEST68: is_void is true only for the void marker: media:void; not media:!void (must not be void), media:?void (unconstrained), a URN with no void tag, or media: |
+| TEST71 | capdag/capdag-js | js | `test071_toStringRoundtrip` | capdag.test.js:1063 | TEST71: Test to_string roundtrip ensures serialization and deserialization preserve URN structure |
+| TEST72 | capdag/capdag-js | js | `test072_constantsParse` | capdag.test.js:1073 | TEST72: Test all media URN constants parse successfully as valid media URNs |
+| TEST74 | capdag/capdag-js | js | `test074_mediaUrnMatching` | capdag.test.js:1093 | TEST74: Test media URN conforms_to using tagged URN semantics with specific and generic requirements |
+| TEST75 | capdag/capdag-js | js | `test075_accepts` | capdag.test.js:1107 | TEST75: Test accepts with implicit wildcards where handlers with fewer tags can handle more requests |
+| TEST76 | capdag/capdag-js | js | `test076_specificity` | capdag.test.js:1118 | TEST76: Test specificity increases with more tags for ranking conformance |
+| TEST77 | capdag/capdag-js | js | `test077_serdeRoundtrip` | capdag.test.js:1127 | TEST77: Test serde roundtrip serializes to JSON string and deserializes back correctly |
+| TEST78 | capdag/capdag-js | js | `test078_debugMatchingBehavior` | capdag.test.js:1136 | TEST78: conforms_to behavior between MEDIA_OBJECT and MEDIA_STRING |
+| TEST93 | capdag/capdag-js | js | `test93_resolveUnresolvableFailsHard` | capdag.test.js:1178 | TEST93: Test resolving unknown media URN fails with UnresolvableMediaUrn error |
+| TEST99 | capdag/capdag-js | js | `test99_resolvedIsBinary` | capdag.test.js:1197 | TEST99: Test ResolvedMediaDef is_binary returns true when enc tag is absent |
+| TEST100 | capdag/capdag-js | js | `test100_resolvedIsRecord` | capdag.test.js:1203 | TEST100: Test ResolvedMediaDef is_record returns true when record marker is present |
+| TEST101 | capdag/capdag-js | js | `test101_resolvedIsScalar` | capdag.test.js:1209 | TEST101: Test ResolvedMediaDef is_scalar returns true when list marker is absent |
+| TEST102 | capdag/capdag-js | js | `test102_resolvedIsList` | capdag.test.js:1215 | TEST102: Test ResolvedMediaDef is_list returns true when list marker is present |
+| TEST103 | capdag/capdag-js | js | `test103_resolvedIsJson` | capdag.test.js:1221 | TEST103: Test ResolvedMediaDef is_json returns true when json tag is present |
+| TEST104 | capdag/capdag-js | js | `test104_resolvedIsText` | capdag.test.js:1227 | TEST104: Test ResolvedMediaDef is_text returns true when enc tag is present |
+| TEST105 | capdag/capdag-js | js | `test105_metadataPropagation` | capdag.test.js:1233 | TEST105: Test metadata propagates from media def def to resolved media def |
+| TEST106 | capdag/capdag-js | js | `test106_metadataWithValidation` | capdag.test.js:1256 | TEST106: Test metadata and validation can coexist in media definition |
+| TEST107 | capdag/capdag-js | js | `test107_extensionsPropagation` | capdag.test.js:1275 | TEST107: Test extensions field propagates from media def def to resolved |
+| TEST108 | capdag/capdag-js | js | `test108_extensionsSerialization` | capdag.test.js:1291 | TEST108: Test creating new cap with URN, title, and command verifies correct initialization |
+| TEST109 | capdag/capdag-js | js | `test109_extensionsWithMetadataAndValidation` | capdag.test.js:1299 | TEST109: Test creating cap with metadata initializes and retrieves metadata correctly |
+| TEST110 | capdag/capdag-js | js | `test110_multipleExtensions` | capdag.test.js:1318 | TEST110: Test cap matching with subset semantics for request fulfillment |
+| TEST115 | capdag/capdag-js | js | `test115_capArgSerialization` | capdag.test.js:1334 | TEST115: Test CapArg serialization and deserialization with multiple sources |
+| TEST116 | capdag/capdag-js | js | `test116_capArgConstructors` | capdag.test.js:1367 | TEST116: Test CapArg constructor methods basic and with_description create args correctly |
+| TEST125 | capdag/capdag-js | js | `test125_effectNonePreservesRuntimeMedia` | capdag.test.js:4226 | TEST125: effect=none preserves runtime media identity |
+| TEST126 | capdag/capdag-js | js | `test126_effectDeclaredUsesDeclaredOutput` | capdag.test.js:4235 | TEST126: default effect=declared uses the declared output |
+| TEST127 | capdag/capdag-js | js | `test127_invalidEffectNoneFailsHard` | capdag.test.js:4246 | TEST127: invalid effect=none declarations fail hard |
+| TEST128 | capdag/capdag-js | js | `test128_effectDispatchRequiresExplicitWildcard` | capdag.test.js:4329 | TEST128: omitted effect means declared; unconstrained effect must be explicit |
+| TEST150 | capdag/capdag-js | js | `test150_capManifestJsonSerialization` | capdag.test.js:1395 | TEST150: JSON roundtrip |
+| TEST156 | capdag/capdag-js | js | `test156_stdinSourceFromData` | capdag.test.js:1551 | TEST156: Test creating StdinSource Data variant with byte vector |
+| TEST157 | capdag/capdag-js | js | `test157_stdinSourceFromFileReference` | capdag.test.js:1562 | TEST157: Test creating StdinSource FileReference variant with all required fields |
+| TEST158 | capdag/capdag-js | js | `test158_stdinSourceWithEmptyData` | capdag.test.js:1579 | TEST158: Test StdinSource Data with empty vector stores and retrieves correctly |
+| TEST159 | capdag/capdag-js | js | `test159_stdinSourceWithBinaryContent` | capdag.test.js:1587 | TEST159: Test StdinSource Data with binary content like PNG header bytes |
+| TEST274 | capdag/capdag-js | js | `test274_capArgumentValueNew` | capdag.test.js:1601 | TEST274: Test CapArgumentValue::new stores media_urn and raw byte value |
+| TEST275 | capdag/capdag-js | js | `test275_capArgumentValueFromStr` | capdag.test.js:1608 | TEST275: Test CapArgumentValue::from_str converts string to UTF-8 bytes |
+| TEST276 | capdag/capdag-js | js | `test276_capArgumentValueAsStrValid` | capdag.test.js:1615 | TEST276: Test CapArgumentValue::value_as_str succeeds for UTF-8 data |
+| TEST277 | capdag/capdag-js | js | `test277_capArgumentValueAsStrInvalidUtf8` | capdag.test.js:1621 | TEST277: Test CapArgumentValue::value_as_str fails for non-UTF-8 binary data |
+| TEST278 | capdag/capdag-js | js | `test278_capArgumentValueEmpty` | capdag.test.js:1633 | TEST278: Test CapArgumentValue::new with empty value stores empty vec |
+| TEST282 | capdag/capdag-js | js | `test282_capArgumentValueUnicode` | capdag.test.js:1642 | TEST282: Test CapArgumentValue::from_str with Unicode string preserves all characters |
+| TEST283 | capdag/capdag-js | js | `test283_capArgumentValueLargeBinary` | capdag.test.js:1648 | TEST283: Test CapArgumentValue with large binary payload preserves all bytes |
+| TEST304 | capdag/capdag-js | js | `test304_mediaAvailabilityOutputConstant` | capdag.test.js:1666 | TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags |
+| TEST305 | capdag/capdag-js | js | `test305_mediaPathOutputConstant` | capdag.test.js:1677 | TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags |
+| TEST306 | capdag/capdag-js | js | `test306_availabilityAndPathOutputDistinct` | capdag.test.js:1688 | TEST306: Test MEDIA_AVAILABILITY_OUTPUT and MEDIA_PATH_OUTPUT are distinct URNs |
+| TEST307 | capdag/capdag-js | js | `test307_modelAvailabilityUrn` | capdag.test.js:1702 | TEST307: Test model_availability_urn builds valid cap URN with correct op and media defs |
+| TEST308 | capdag/capdag-js | js | `test308_modelPathUrn` | capdag.test.js:1714 | TEST308: Test model_path_urn builds valid cap URN with correct op and media defs |
+| TEST309 | capdag/capdag-js | js | `test309_modelAvailabilityAndPathAreDistinct` | capdag.test.js:1726 | TEST309: Test model_availability_urn and model_path_urn produce distinct URNs |
+| TEST310 | capdag/capdag-js | js | `test310_llmGenerateTextUrn` | capdag.test.js:1733 | TEST310: llm_generate_text_urn() produces a valid cap URN with a plain-text input and a `.txt` plain-text output. |
+| TEST312 | capdag/capdag-js | js | `test312_allUrnBuildersProduceValidUrns` | capdag.test.js:1745 | TEST312: Test all URN builders produce parseable cap URNs |
+| TEST320 | capdag/capdag-js | js | `test320_cartridgeInfoConstruction` | capdag.test.js:2055 | TEST320-335: CartridgeRepoServer and CartridgeRepoClient tests |
+| TEST321 | capdag/capdag-js | js | `test321_cartridgeInfoIsSigned` | capdag.test.js:2089 | TEST321: CartridgeInfo.is_signed() returns true when signature (team_id + signed_at) is present, false when either is empty. |
+| TEST322 | capdag/capdag-js | js | `test322_cartridgeInfoBuildForPlatform` | capdag.test.js:2101 | TEST322: CartridgeInfo.build_for_platform() returns the build that matches the requested platform string and None otherwise. |
+| TEST323 | capdag/capdag-js | js | `test323_cartridgeRepoServerValidateRegistry` | capdag.test.js:2136 | TEST323: CartridgeRepoServer requires the schema this build reads (8.0) and rejects older. |
+| TEST324 | capdag/capdag-js | js | `test324_cartridgeRepoServerTransformToArray` | capdag.test.js:2184 | TEST324: CartridgeRepoServer transforms a v4.0 entry into a flat CartridgeInfo, preserving cap_groups verbatim. |
+| TEST325 | capdag/capdag-js | js | `test325_cartridgeRepoServerGetCartridges` | capdag.test.js:2221 | TEST325: get_cartridges() wraps the transformed array in the response envelope. |
+| TEST326 | capdag/capdag-js | js | `test326_cartridgeRepoServerGetCartridgeById` | capdag.test.js:2233 | TEST326: get_cartridge_by_id requires a channel and returns Some for a known (channel, id), None otherwise. The same id looked up in the wrong channel must miss — channels are independent namespaces. |
+| TEST327 | capdag/capdag-js | js | `test327_cartridgeRepoServerSearchCartridges` | capdag.test.js:2263 | TEST327: search_cartridges matches against name/description/tags and cap titles, but never against cap URN strings. |
+| TEST328 | capdag/capdag-js | js | `test328_cartridgeRepoServerGetByCategory` | capdag.test.js:2285 | TEST328: CartridgeRepoServer.getCartridgesByCategory() filters cartridges by category across both channels. |
+| TEST329 | capdag/capdag-js | js | `test329_cartridgeRepoServerGetByCap` | capdag.test.js:2304 | TEST329: CartridgeRepoServer.getCartridgesByCap() parses the input URN and matches each declared cap via `conformsTo`. Tag-order differences resolve because matching is order-theoretic, not string. |
+| TEST330 | capdag/capdag-js | js | `test330_cartridgeRepoClientUpdateCache` | capdag.test.js:2321 | TEST330: CartridgeRepoClient updates its local cache keyed by "<channel>:<id>". The cache holds release and nightly entries independently — the same id is allowed in both. |
+| TEST331 | capdag/capdag-js | js | `test331_cartridgeRepoClientGetSuggestions` | capdag.test.js:2349 | TEST331: CartridgeRepoClient.getSuggestionsForCap() returns cartridge suggestions with channel propagated onto each suggestion. |
+| TEST332 | capdag/capdag-js | js | `test332_cartridgeRepoClientGetCartridge` | capdag.test.js:2378 | TEST332: get_cartridge requires a (channel, id) pair and returns the cached entry for known pairs, None otherwise. The same id in the wrong channel must miss. |
+| TEST333 | capdag/capdag-js | js | `test333_cartridgeRepoClientGetAllCaps` | capdag.test.js:2422 | TEST333: get_all_available_caps returns the deduplicated set of normalized URNs across cartridges. |
+| TEST334 | capdag/capdag-js | js | `test334_cartridgeRepoClientNeedsSync` | capdag.test.js:2438 | TEST334: needs_sync returns true on an empty cache, false right after a successful update. |
+| TEST335 | capdag/capdag-js | js | `test335_cartridgeRepoServerClientIntegration` | capdag.test.js:2457 | TEST335: Round-trip: server produces a v7.0 response, client consumes it, channel provenance is preserved end-to-end. |
+| TEST477 | capdag/capdag-js | js | `test477_matcherFirstRegisteredOfEqualRankWins` | capdag.test.js:3394 | TEST477: CapMatcher keeps the first registered of candidates the ranking cannot tell apart |
+| TEST484 | capdag/capdag-js | js | `test484_matcherRanksServingCapsNotAcceptedOnes` | capdag.test.js:3413 | TEST484: CapMatcher chooses among the caps that serve the request, never among those the request accepts as a pattern |
+| TEST546 | capdag/capdag-js | js | `test546_isImage` | capdag.test.js:3115 | TEST546: is_image returns true only when image marker tag is present; a format conforms to its own medium and to no other |
+| TEST547 | capdag/capdag-js | js | `test547_isAudio` | capdag.test.js:3141 | TEST547: is_audio returns true only when audio marker tag is present |
+| TEST548 | capdag/capdag-js | js | `test548_isVideo` | capdag.test.js:3152 | TEST548: is_video returns true only when video marker tag is present |
+| TEST549 | capdag/capdag-js | js | `test549_isNumeric` | capdag.test.js:3162 | TEST549: is_numeric returns true only when numeric marker tag is present |
+| TEST550 | capdag/capdag-js | js | `test550_isBool` | capdag.test.js:3174 | TEST550: is_bool returns true only when bool marker tag is present |
+| TEST551 | capdag/capdag-js | js | `test551_isFilePath` | capdag.test.js:3186 | TEST551: is_file_path returns true for the single file-path media URN, false for everything else. There is no "array" variant — cardinality is carried by is_sequence on the wire, not by URN tags. |
+| TEST553 | capdag/capdag-js | js | `test553_isLiveFeed` | capdag.test.js:3193 | TEST553: is_live_feed returns true for every URN carrying the `live` marker tag (the reference-media family the runtime resolves via providers), false for everything else — including content URNs a feed delivers. |
+| TEST558 | capdag/capdag-js | js | `test558_predicateConstantConsistency` | capdag.test.js:3289 | TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates |
+| TEST559 | capdag/capdag-js | js | `test559_withoutTag` | capdag.test.js:3328 | TEST559: without_tag removes tag, rejects structural keys, case-insensitive for keys |
+| TEST560 | capdag/capdag-js | js | `test560_withInOutSpec` | capdag.test.js:3348 | TEST560: with_in_spec and with_out_spec change direction specs |
+| TEST563 | capdag/capdag-js | js | `test563_findAllMatches` | capdag.test.js:3378 | TEST563: CapMatcher::find_all_matches returns every serving cap in ranking order, closest to the request first |
+| TEST564 | capdag/capdag-js | js | `test564_areCompatible` | capdag.test.js:3439 | TEST564: CapMatcher::are_compatible detects bidirectional overlap |
+| TEST566 | capdag/capdag-js | js | `test566_withTagRejectsStructuralKeys` | capdag.test.js:3464 | TEST566: with_tag rejects structural keys |
+| TEST580 | capdag/capdag-js | js | `test580_rule3TwoStdinArgsRejected` | capdag.test.js:3627 | TEST580: RULE3 - two args that declare a stdin source are rejected |
+| TEST581 | capdag/capdag-js | js | `test581_rule3IdenticalStdinUrnsAreStillTwoMainInputs` | capdag.test.js:3642 | TEST581: RULE3 - two stdin args are rejected even when their stdin URNs are identical The rule used to allow this ("multiple stdin sources with the same URN is OK"), on the reasoning that one stdin stream can only be one type. A cap has one main input: two args that both claim it leave nothing to say which of them a piped value is. |
+| TEST597 | capdag/capdag-js | js | `test597_capArgWithFullDefinition` | capdag.test.js:1451 | TEST597: CapArg::with_full_definition stores all fields including optional ones |
+| TEST607 | capdag/capdag-js | js | `test607_fileMediaForAnUnknownExtensionIsNone` | capdag.test.js:4920 | TEST607: file_media_for_extension answers no file type for an extension no definition of the manifest declares |
+| TEST608 | capdag/capdag-js | js | `test608_fileMediaForExtensionListsTheDeclaringDefinitions` | capdag.test.js:4927 | TEST608: file_media_for_extension answers the file media definitions that list the extension, whatever its case |
+| TEST609 | capdag/capdag-js | js | `test609_contentTypesThatListAnExtensionAreNoFileTypes` | capdag.test.js:4937 | TEST609: a definition that lists an extension but carries no `ext=` file-type tag is content, not a file type: it is never a file type of the extension, even when it is held |
+| TEST640 | capdag/capdag-js | js | `test640_inOnlyIsIllegal` | capdag.test.js:3986 | TEST640: cap:in defaults to the same illegal bare top form |
+| TEST641 | capdag/capdag-js | js | `test641_outOnlyIsIllegal` | capdag.test.js:3995 | TEST641: cap:out defaults to the same illegal bare top form |
+| TEST642 | capdag/capdag-js | js | `test642_inOutWithoutValuesAreIllegal` | capdag.test.js:4004 | TEST642: cap:in;out becomes the same illegal bare top form |
+| TEST643 | capdag/capdag-js | js | `test643_explicitAsteriskIsIllegal` | capdag.test.js:4013 | TEST643: cap:in=*;out=* is the same illegal bare top form |
+| TEST644 | capdag/capdag-js | js | `test644_specificInWildcardOutIsIllegal` | capdag.test.js:4022 | TEST644: cap:in=media:;out=* is the same illegal bare top form |
+| TEST645 | capdag/capdag-js | js | `test645_wildcardInSpecificOut` | capdag.test.js:4031 | TEST645: cap:in=*;out=media:text has wildcard in, specific out |
+| TEST646 | capdag/capdag-js | js | `test646_invalidInSpecFails` | capdag.test.js:4038 | TEST646: cap:in=foo fails (invalid media URN) |
+| TEST647 | capdag/capdag-js | js | `test647_invalidOutSpecFails` | capdag.test.js:4047 | TEST647: cap:in=media:;out=bar fails (invalid media URN) |
+| TEST648 | capdag/capdag-js | js | `test648_wildcardAcceptsSpecific` | capdag.test.js:4061 | TEST648: An open pattern fits specific caps; fitting is not serving `cap:raw` as a pattern leaves both sides open, so it fits a cap that gives text and one that takes text. Whether `cap:raw`, as a CANDIDATE, serves a request that needs text out is a different question with a different answer: a `media:` output guarantees nothing. |
+| TEST649 | capdag/capdag-js | js | `test649_specificityScoring` | capdag.test.js:4161 | TEST649: Specificity - wildcard has 0, specific has tag count |
+| TEST650 | capdag/capdag-js | js | `test650_wildcardPreserveOtherTags` | capdag.test.js:4170 | TEST650: cap:in=media:;out=media:;test preserves other tags |
+| TEST653 | capdag/capdag-js | js | `test653_invalidEffectNoneDeclarationRejected` | capdag.test.js:4217 | TEST653: invalid effect=none declarations fail at construction |
+| TEST825 | capdag/capdag-js | js | `test825_dispatchRequestUnconstrainedInput` | capdag.test.js:4082 | TEST825: a request that leaves its input open has not said what it will send, and is served whatever the candidate takes The open input is unknown — "some input" — not the type "anything": the request is served by exactly the candidates that serve SOME typed call it could become (capdag/formal, serves_unknown_iff). What a candidate cannot do is stand in for the request AS A DESCRIPTION — that relation is typed and composes (Legacy.wildcard_input_not_transitive is why the two were never one). |
+| TEST852 | capdag/capdag-js | js | `test852_lubIdentical` | capdag.test.js:3215 | TEST852: LUB of identical URNs returns the same URN |
+| TEST853 | capdag/capdag-js | js | `test853_lubSharedKeyPromotesToWildcard` | capdag.test.js:3224 | TEST853: LUB promotes a shared key with differing values to "some value": both inputs HAVE an ext (pdf vs png), so the bound is media:ext — the denominator generic caps like in="media:ext" accept — not the trivial media:. The image marker is only on one side, so it is dropped. |
+| TEST854 | capdag/capdag-js | js | `test854_lubPartialOverlap` | capdag.test.js:3235 | TEST854: LUB keeps common tags, drops differing ones. Both inputs are UTF-8 text (shared enc=utf8) but differ in structure (list vs record). |
+| TEST855 | capdag/capdag-js | js | `test855_lubListVsScalar` | capdag.test.js:3245 | TEST855: LUB of list and non-list drops list tag |
+| TEST856 | capdag/capdag-js | js | `test856_lubEmpty` | capdag.test.js:3255 | TEST856: LUB of empty input returns universal type |
+| TEST857 | capdag/capdag-js | js | `test857_lubSingle` | capdag.test.js:3260 | TEST857: LUB of single input returns that input |
+| TEST858 | capdag/capdag-js | js | `test858_lubThreeInputs` | capdag.test.js:3266 | TEST858: LUB with three+ inputs narrows correctly |
+| TEST859 | capdag/capdag-js | js | `test859_lubValuedTags` | capdag.test.js:3279 | TEST859: LUB with valued tags (non-marker) that differ promotes the key |
+| TEST890 | capdag/capdag-js | js | `test890_directionSemanticMatching` | capdag.test.js:817 | TEST890: Semantic direction matching - generic candidate matches specific request |
+| TEST891 | capdag/capdag-js | js | `test891_directionSemanticSpecificity` | capdag.test.js:867 | TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 4. |
 | TEST939 | capdag/capdag-js | js | `test939_capUrnCanonicalFormDropsWildcardInOut` | capdag.test.js:364 | TEST939: The canonical form drops `in=media:` and `out=media:` segments. Every spelling of "the same cap with wildcard in/out" collapses to one byte-identical canonical string. This is the contract that makes registry lookups work: the cap-publisher hashes `<canonical-urn>` to compute the cache key, and every language port (Rust, Go, Python, JS, ObjC) must agree on the canonical form for cross-language lookups to land on the same key. A regression that emitted the wildcard segments would silently move the published cap to a different SHA-256 bucket, 404'ing every reader that hashes the canonical form. |
 | TEST1136 | capdag/capdag-js | js | `test1136_parseMachineUndefinedAliasRaisesSyntaxError` | machine.test.js:2177 | TEST1136: parsing with an undefined cap alias is a syntax error. |
 | TEST1147 | capdag/capdag-js | js | `test1147_machineSyntaxErrorDisplayIsSpecific` | machine.test.js:2219 | TEST1147: a syntax error's message names the step, the statement and what is wrong. |
