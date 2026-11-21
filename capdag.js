@@ -647,14 +647,16 @@ class CapUrn {
 
   /**
    * Whether `cap` fits this cap read as a PATTERN over caps — what a search
-   * asks: `cap`'s input is within this pattern's, its output covers the
-   * pattern's, its effect is the pattern's (a pattern's `?effect` fits any),
-   * and its cap-tags — complete: a cap has the tags it has — satisfy the
-   * pattern's.
+   * asks: `cap`'s input is within this pattern's, its output is within the
+   * pattern's — everything it gives is of the type the pattern names, its
+   * declared output read complete — its effect is the pattern's (a pattern's
+   * `?effect` fits any), and its cap-tags — complete: a cap has the tags it
+   * has — satisfy the pattern's. `cap:out="media:ext=pdf"` fits caps giving
+   * `media:ext=pdf` or `media:document;ext=pdf`, and not one giving `media:`,
+   * which gives a thing with no tags.
    *
-   * A side the pattern leaves open is not asked about. `cap:candle` fits every
-   * cap tagged `candle`, whatever it takes and gives: its open output is "not
-   * established", not the type "anything".
+   * An output the pattern leaves open asks nothing. `cap:candle` fits every
+   * cap tagged `candle`, whatever it gives.
    *
    * Decided by the proved model (CapDAG.Exec.accepts, which is CapDAG.fits).
    * For a question no cap URN can spell — "what gives this, whatever it
@@ -864,16 +866,19 @@ class CapUrn {
    * Whether this candidate SERVES `request` — the predicate routing and
    * dispatch act on.
    *
-   * The candidate takes at least what the request sends, gives at least what
-   * the request needs, has the effect asked for unless the request says
-   * `?effect`, and has the cap-tags asked for — its own tags being complete, so
-   * a request for `!x` is served by a candidate that does not mention `x`, and
-   * a candidate may carry tags the request does not ask about.
+   * The request is a call: it sends what its input says and asks for its
+   * output. The candidate takes at least what the call sends; what it gives
+   * for that is inside what the call asks for; it has the effect asked for
+   * unless the call says `?effect`; and it has the cap-tags asked for — its own
+   * tags being complete, so a request for `!x` is served by a candidate that
+   * does not mention `x`, and a candidate may carry tags the request does not
+   * ask about.
    *
-   * An input the request leaves open is not established: the caller has not
-   * said what it will send, and every candidate passes that side. That is
-   * "some input", not "any input" — `media:` on a CANDIDATE's input does mean
-   * it takes anything.
+   * What the candidate gives is what its effect says: a declared output, read
+   * complete — what it does not mention, the candidate does not give — or, for
+   * effect=none and effect=patch, what the call sends with the effect applied.
+   * A call always says what it sends: one whose input is `media:` (or omitted)
+   * sends anything, and only a candidate that takes anything serves it.
    *
    * This is a guarantee. What only could serve does not; see mayDispatch and
    * CapQuery.grade. Decided by the proved model (CapDAG.Exec.dispatch, which is
@@ -975,30 +980,17 @@ class CapUrn {
       );
     }
 
-    let runtimeOut;
-    switch (this.effectValue) {
-      case CapEffect.DECLARED:
-        runtimeOut = declaredOut;
-        break;
-      case CapEffect.NONE:
-        runtimeOut = runtimeInput;
-        break;
-      case CapEffect.PATCH: {
-        const delta = declaredOut.deltaFrom(declaredIn);
-        runtimeOut = runtimeInput.applyDelta(delta);
-        break;
-      }
-      case CapEffect.ANY:
-        throw new CapUrnError(
-          ErrorCodes.INVALID_EFFECT_APPLICATION,
-          'Cannot infer runtime output for an unconstrained effect request'
-        );
-      default:
-        throw new CapUrnError(
-          ErrorCodes.INVALID_EFFECT_APPLICATION,
-          `Unexpected effect '${this.effectValue}' during runtime output inference`
-        );
+    if (this.effectValue === CapEffect.ANY) {
+      throw new CapUrnError(
+        ErrorCodes.INVALID_EFFECT_APPLICATION,
+        'Cannot infer runtime output for an unconstrained effect request'
+      );
     }
+    // What the cap gives for it is the proved model's (CapDAG.Exec.capGives,
+    // which is Cap.gives): its declared output, the input itself, or the input
+    // with the keys the declared input and output disagree on set to the output's.
+    const given = model.capGives(this.formal, modelUrn(runtimeInput._urn));
+    const runtimeOut = new MediaUrn(new TaggedUrn('media', Object.fromEntries(given)));
 
     if (!runtimeOut.satisfies(declaredOut)) {
       throw new CapUrnError(
@@ -1010,47 +1002,38 @@ class CapUrn {
   }
 
   /**
-   * THE effect-audit predicate: does an actually-emitted runtime output
-   * satisfy this cap's declared effect contract for the given runtime
-   * input? Every check of "did the cap emit what its effect promised"
-   * must go through this — never a hand-rolled combination of
-   * inferRuntimeOutputMedia with equality or conformance checks, so the
-   * contract has exactly one definition.
+   * THE effect-audit predicate: does an actually-emitted runtime output keep
+   * this cap's effect contract for the given runtime input? Every check of
+   * "did the cap emit what its effect promised" goes through this, so the
+   * contract has exactly one definition — the proved model's
+   * (CapDAG.Exec.audit, which is Cap.audits). Both media are those of values
+   * that exist, read complete:
+   * - effect=declared promises its declared out=, read complete — what it
+   *   does not mention, the cap does not give — so the emission must be
+   *   inside it, read complete: a cap declaring out=media:record may emit
+   *   media:record, and not media:enc=utf8;fmt=json;record.
+   * - effect=none / effect=patch give exactly what their effect makes of the
+   *   input (inferRuntimeOutputMedia), so the emission must be that.
    *
-   * The condition is deliberately asymmetric per effect:
-   * - effect=none / effect=patch compute an EXACT runtime output type,
-   *   so the emission must be tag-equivalent to the inference. A more
-   *   specific emission would still be a lie: the effect promises the
-   *   type is fully determined by the input.
-   * - effect=declared promises only the declared out=, so an emission
-   *   that is MORE specific than the declaration is legal and desirable;
-   *   the emission must conform to the declared output. A more generic
-   *   emission breaks downstream plan refinement and fails.
-   *
-   * Throws (rather than returning false) when the inference itself is
-   * impossible: the runtime input does not conform to the declared
-   * input, the effect is the unconstrained request form (?effect), or
-   * the URN state is internally inconsistent — those are upstream
-   * contract breaks, not emission mismatches.
+   * Throws (rather than returning false) when the input itself is wrong:
+   * the runtime input does not conform to the declared input, the effect is
+   * the unconstrained request form (?effect), or the URN state is internally
+   * inconsistent — those are upstream contract breaks, not emission
+   * mismatches.
    *
    * @param {MediaUrn} runtimeInput
    * @param {MediaUrn} runtimeOutput
    * @returns {boolean}
    */
   isConformantRuntimeOutput(runtimeInput, runtimeOutput) {
-    const inferred = this.inferRuntimeOutputMedia(runtimeInput);
-    switch (this.effectValue) {
-      case CapEffect.NONE:
-      case CapEffect.PATCH:
-        return runtimeOutput.isEquivalent(inferred);
-      case CapEffect.DECLARED:
-        return runtimeOutput.satisfies(inferred);
-      default:
-        throw new CapUrnError(
-          ErrorCodes.INVALID_EFFECT_APPLICATION,
-          'Cannot audit an emission against an unconstrained effect request'
-        );
+    if (this.effectValue === CapEffect.ANY) {
+      throw new CapUrnError(
+        ErrorCodes.INVALID_EFFECT_APPLICATION,
+        'Cannot audit an emission against an unconstrained effect request'
+      );
     }
+    this.inferRuntimeOutputMedia(runtimeInput);
+    return model.audit(this.formal, modelUrn(runtimeInput._urn), modelUrn(runtimeOutput._urn));
   }
 
   _validateAdmissible() {
@@ -1218,12 +1201,17 @@ function queryTagPattern(tags) {
  * A question about caps.
  *
  * A request is not a cap. A cap takes this and gives that; a request is a
- * QUESTION about caps, and may leave a side unasked: "what gives me this file,
- * whatever it takes?", "what can this input become?". Those are not cap URNs
- * with `media:` on a side — `media:` is the type "anything", a claim about
- * every input — they are queries with that side unknown.
+ * QUESTION about caps. A call always says what it sends, but a search may leave
+ * a side unasked: "what gives me this file, whatever it takes?", "what can this
+ * input become?". Those are not cap URNs with `media:` on a side — `media:` is
+ * the type "anything", a claim about every input — they are queries with that
+ * side unknown.
  *
- * A cap URN read as a request or as a pattern is one (fromRequest, fromPattern)
+ * A query asks of what a cap GIVES for what is sent: a declared output, read
+ * complete — what it does not mention, the cap does not give — or, for an
+ * effect=none or effect=patch cap, what it was sent with its effect applied.
+ *
+ * A cap URN read as a typed call or as a pattern is one (fromCall, fromPattern)
  * — which is what CapUrn.isDispatchable and CapUrn.accepts ask — and so are the
  * questions no cap URN can spell (producing, consuming, between). Every answer
  * is decided by the proved model (formal/CapDAG/Query.lean).
@@ -1239,9 +1227,13 @@ class CapQuery {
     return this.asked;
   }
 
-  /** The cap URN `request`, read as a request: an input it leaves open is not established. */
-  static fromRequest(request) {
-    return new CapQuery(model.queryOfRequest(request.formal), `request ${request}`);
+  /**
+   * The cap URN `call`, read as a typed call: it sends what its input says —
+   * `media:`, if it says nothing, is anything — and asks for its output, tags
+   * and effect.
+   */
+  static fromCall(call) {
+    return new CapQuery(model.queryOfCall(call.formal), `call ${call}`);
   }
 
   /** The cap URN `pattern`, read as a pattern over caps: an output it leaves open is not established. */

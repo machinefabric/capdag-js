@@ -4063,19 +4063,17 @@ function test648_wildcardAcceptsSpecific() {
   assert(specificIn.conformsTo(wildcard));
 }
 
-// TEST825: a request that leaves its input open has not said what it will
-// send, and is served whatever the candidate takes
+// TEST825: a call always says what it sends: one that sends media: sends
+// anything, and only a candidate that takes anything serves it
 //
-// The open input is unknown — "some input" — not the type "anything": the
-// request is served by exactly the candidates that serve SOME typed call it
-// could become (capdag/formal, serves_unknown_iff). What a candidate cannot do
-// is stand in for the request AS A DESCRIPTION — that relation is typed and
-// composes (Legacy.wildcard_input_not_transitive is why the two were never one).
+// A call that did not say what it sent was routed to a candidate that might not
+// take it (capdag/formal, Legacy.wildcard_input_is_not_serves). An unknown input
+// is a search's (CapQuery.producing), never a call's.
 function test825_dispatchRequestUnconstrainedInput() {
   const pdfOnly = CapUrn.fromString('cap:in="media:document;ext=pdf";analyze;out="media:enc=utf8;record"');
   const acceptsAnything = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf8;record"');
   const request = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf8;record"');
-  assert(pdfOnly.isDispatchable(request), 'the request has not said what it sends: a PDF-only candidate serves it');
+  assert(!pdfOnly.isDispatchable(request), 'the call sends anything: a PDF-only candidate does not take it');
   assert(acceptsAnything.isDispatchable(request));
   // A request that DOES say what it sends is held to it.
   const pngRequest = CapUrn.fromString('cap:in="media:ext=png";analyze;out="media:enc=utf8;record"');
@@ -4093,22 +4091,34 @@ function test825_dispatchRequestUnconstrainedInput() {
 function test12368_aQuestionMayLeaveASideUnknown() {
   const pages = CapUrn.fromString('cap:disbind;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;page;plain-text"');
   const toJpeg = CapUrn.fromString('cap:convert-image;in="media:ext=png;image";out="media:ext=jpeg;image"');
-  const someImage = CapUrn.fromString('cap:render;in="media:document;ext=pdf";out="media:image"');
+  const someImage = CapUrn.fromString('cap:render;in="media:document;ext=pdf";out="media:ext;image"');
   const passesThrough = CapUrn.fromString('cap:decimate-sequence;effect=none');
 
   const wantsJpeg = CapQuery.producing(MediaUrn.fromString('media:ext=jpeg;image'));
   assertEqual(wantsJpeg.grade(toJpeg), MatchGrade.EXACT);
   assert(wantsJpeg.admits(toJpeg), 'whatever it takes: a png here');
-  // "Some image" is not a jpeg, and not excluded: possible, never routed on.
+  // An image file of some type is not a jpeg, and not excluded: possible,
+  // never routed on.
   assertEqual(wantsJpeg.grade(someImage), MatchGrade.POSSIBLE);
   assert(!wantsJpeg.admits(someImage) && wantsJpeg.mayAdmit(someImage));
   assertEqual(wantsJpeg.grade(pages), MatchGrade.NONE);
+  // A declared output says what the cap gives: one giving media:image gives an
+  // image with no file type, never a jpeg.
+  const bareImage = CapUrn.fromString('cap:render;in="media:document;ext=pdf";out="media:image"');
+  assertEqual(wantsJpeg.grade(bareImage), MatchGrade.NONE);
 
   // Asked for any image, a jpeg is guaranteed to be one, not exactly it.
   const wantsImage = CapQuery.producing(MediaUrn.fromString('media:image'));
   assertEqual(wantsImage.grade(toJpeg), MatchGrade.GUARANTEED);
-  assertEqual(wantsImage.grade(someImage), MatchGrade.EXACT);
-  assert(!wantsImage.admits(passesThrough), 'media: out promises no image');
+  assertEqual(wantsImage.grade(someImage), MatchGrade.GUARANTEED);
+  assertEqual(wantsImage.grade(bareImage), MatchGrade.EXACT);
+  assertEqual(CapQuery.producing(MediaUrn.fromString('media:ext;image')).grade(someImage), MatchGrade.EXACT);
+  // A cap that gives what it is sent, asked for an image whatever it takes,
+  // gives whatever it takes — not only images.
+  assert(!wantsImage.admits(passesThrough));
+  const wantsPdf = CapQuery.producing(MediaUrn.fromString('media:document;ext=pdf'));
+  assert(!wantsPdf.admits(passesThrough));
+  assertEqual(wantsPdf.grade(passesThrough), MatchGrade.POSSIBLE);
 
   // What can a pdf become? Whatever takes a pdf — or takes anything.
   const hasPdf = CapQuery.consuming(MediaUrn.fromString('media:document;ext=pdf'));
@@ -4130,7 +4140,7 @@ function test12368_aQuestionMayLeaveASideUnknown() {
 // no cap needs to declare; and a cap may carry tags nobody asked about.
 function test12369_aQuerysTagsAreAskedOfTheTagsACapHas() {
   const toJpeg = CapUrn.fromString('cap:convert-image;in="media:ext=png;image";out="media:ext=jpeg;image"');
-  const someImage = CapUrn.fromString('cap:render;in="media:document;ext=pdf";out="media:image"');
+  const someImage = CapUrn.fromString('cap:render;in="media:document;ext=pdf";out="media:ext;image"');
   const anyImage = MediaUrn.fromString('media:image');
 
   const converters = CapQuery.producing(anyImage, { 'convert-image': '*' });
@@ -4142,11 +4152,12 @@ function test12369_aQuerysTagsAreAskedOfTheTagsACapHas() {
   assert(!notConverters.admits(toJpeg), 'it has it');
   assertEqual(notConverters.grade(toJpeg), MatchGrade.NONE);
 
-  // The same holds of a request: `!x` is served by a cap silent on x.
-  const request = CapUrn.fromString('cap:!convert-image;out="media:image"');
-  assert(someImage.isDispatchable(request));
-  assert(!toJpeg.isDispatchable(request));
-  assertEqual(CapQuery.fromRequest(request).grade(someImage), MatchGrade.EXACT);
+  // The same holds of a call: `!x` is served by a cap silent on x.
+  const call = CapUrn.fromString('cap:!convert-image;in="media:ext=png;image";out="media:ext;image"');
+  const rendersPng = CapUrn.fromString('cap:render;in="media:ext=png;image";out="media:ext;image"');
+  assert(rendersPng.isDispatchable(call));
+  assert(!toJpeg.isDispatchable(call), 'it takes a png and gives an image file, and is tagged convert-image');
+  assertEqual(CapQuery.fromCall(call).grade(rendersPng), MatchGrade.EXACT);
 }
 
 // TEST649: Specificity - wildcard has 0, specific has tag count
@@ -4243,9 +4254,10 @@ function test127_invalidEffectNoneFailsHard() {
   );
 }
 
-// TEST8121: isConformantRuntimeOutput — effect=declared accepts a more
-// specific emission, rejects a more generic one
-function test8121_effectConformanceDeclaredAsymmetry() {
+// TEST8121: isConformantRuntimeOutput — effect=declared holds an emission to
+// the declared output read complete: what it does not mention, the cap does
+// not give
+function test8121_effectConformanceDeclaredOutputIsComplete() {
   const cap = CapUrn.fromString('cap:extract;in="media:document;ext=pdf";out="media:record"');
   const input = MediaUrn.fromString('media:document;ext=pdf');
 
@@ -4254,8 +4266,8 @@ function test8121_effectConformanceDeclaredAsymmetry() {
     'emitting exactly the declared out is conformant'
   );
   assert(
-    cap.isConformantRuntimeOutput(input, MediaUrn.fromString('media:enc=utf8;fmt=json;record')),
-    'a more specific emission than the declared out is conformant'
+    !cap.isConformantRuntimeOutput(input, MediaUrn.fromString('media:enc=utf8;fmt=json;record')),
+    'an emission saying more than the declared out is not what the cap gives'
   );
   assert(
     !cap.isConformantRuntimeOutput(input, MediaUrn.fromString('media:')),
@@ -4315,6 +4327,57 @@ function test8123_effectConformancePatchRequiresPatchedInput() {
     !cap.isConformantRuntimeOutput(input, input),
     'emitting the unpatched input type is a violation'
   );
+}
+
+// TEST7213: a declared output says what the cap gives, read complete: a cap
+// declaring out=media: gives a thing with no tags, so it serves no call that
+// needs some ext and could not; an effect=none cap gives what it is sent, so it
+// could
+function test7213_declaredOutputIsReadCompleteInDispatch() {
+  const declared = CapUrn.fromString('cap:op=a');
+  const call = CapUrn.fromString('cap:op=a;out="media:ext"');
+  assert(!declared.isDispatchable(call), 'a thing with no tags has no ext');
+  assert(!declared.mayDispatch(call), 'and could not');
+
+  const passesThrough = CapUrn.fromString('cap:effect=none;op=a');
+  const anyEffect = CapUrn.fromString('cap:?effect;op=a;out="media:ext"');
+  assert(!passesThrough.isDispatchable(anyEffect), 'it is sent anything');
+  assert(passesThrough.mayDispatch(anyEffect), 'what it is sent may have an ext');
+}
+
+// TEST7214: what a cap gives is what its effect makes of what the call sends:
+// the identity gives what it is sent, a patch converter keeps the shape it is
+// sent, and an identity on pdfs cannot give a png
+function test7214_dispatchComparesWhatTheCapGivesForWhatIsSent() {
+  const identity = CapUrn.fromString('cap:effect=none;op=a');
+  assert(identity.isDispatchable(CapUrn.fromString('cap:effect=none;in="media:ext";op=a;out="media:ext"')));
+
+  const jsonToYaml = CapUrn.fromString('cap:effect=patch;in="media:enc=utf8;fmt=json";op=a;out="media:enc=utf8;fmt=yaml"');
+  const listCall = CapUrn.fromString('cap:effect=patch;in="media:enc=utf8;fmt=json;list";op=a;out="media:enc=utf8;fmt=yaml;list"');
+  assert(jsonToYaml.isDispatchable(listCall), 'a list converted is a list');
+
+  const pdfIdentity = CapUrn.fromString('cap:effect=none;in="media:ext=pdf";op=a');
+  const pngCall = CapUrn.fromString('cap:?effect;in="media:ext";op=a;out="media:ext=png"');
+  assert(!pdfIdentity.mayDispatch(pngCall), 'what it gives is a pdf');
+}
+
+// TEST7215: a pattern over caps fits a cap when everything the cap gives is of
+// the type the pattern's output names; a pattern that names no output asks
+// nothing of it
+function test7215_aPatternFitsWhatACapGives() {
+  const givesPdf = CapUrn.fromString('cap:op=a;out="media:ext=pdf"');
+  const givesPdfDocument = CapUrn.fromString('cap:op=a;out="media:document;ext=pdf"');
+  const givesAnything = CapUrn.fromString('cap:op=a');
+
+  const wantsPdf = CapUrn.fromString('cap:op=a;out="media:ext=pdf"');
+  assert(wantsPdf.accepts(givesPdf), 'a pdf is a pdf');
+  assert(wantsPdf.accepts(givesPdfDocument), 'a pdf document is a pdf');
+  assert(!wantsPdf.accepts(givesAnything), 'a thing with no tags is no pdf');
+
+  const any = CapUrn.fromString('cap:op=a');
+  for (const cap of [givesPdf, givesPdfDocument, givesAnything]) {
+    assert(any.accepts(cap), cap.toString());
+  }
 }
 
 // TEST128: omitted effect means declared; unconstrained effect must be explicit
@@ -8468,9 +8531,12 @@ async function runTests() {
   runTest('TEST8158: attachment_kinds_separate_situations', test8158_attachmentKindsSeparateTheirSituations);
   runTest('TEST12166: the_implementation_is_the_proved_model', test12166_theImplementationIsTheProvedModel);
   runTest('TEST12597: every_model_function_carries_a_proved_claim', test12597_everyModelFunctionCarriesAProvedClaim);
-  runTest('TEST8121: effect_conformance_declared_asymmetry', test8121_effectConformanceDeclaredAsymmetry);
+  runTest('TEST8121: effect_conformance_declared_output_is_complete', test8121_effectConformanceDeclaredOutputIsComplete);
   runTest('TEST8122: effect_conformance_none_requires_equivalence', test8122_effectConformanceNoneRequiresEquivalence);
   runTest('TEST8123: effect_conformance_patch_requires_patched_input', test8123_effectConformancePatchRequiresPatchedInput);
+  runTest('TEST7213: declared_output_is_read_complete_in_dispatch', test7213_declaredOutputIsReadCompleteInDispatch);
+  runTest('TEST7214: dispatch_compares_what_the_cap_gives_for_what_is_sent', test7214_dispatchComparesWhatTheCapGivesForWhatIsSent);
+  runTest('TEST7215: a_pattern_fits_what_a_cap_gives', test7215_aPatternFitsWhatACapGives);
 
   // machine module: parser tests (mirrors parser.rs)
   console.log('\n--- machine/parser.rs ---');
@@ -9026,7 +9092,7 @@ function test12166_theImplementationIsTheProvedModel() {
     const got = media(row.urn).specificity();
     if (got !== row.score) wrong.push(`score ${row.urn}: model ${row.score}, got ${got}`);
   }
-  const requestOf = parsed((text) => CapQuery.fromRequest(cap(text)));
+  const requestOf = parsed((text) => CapQuery.fromCall(cap(text)));
   const patternOf = parsed((text) => CapQuery.fromPattern(cap(text)));
   for (const row of table.dispatch) {
     const candidate = cap(row.candidate);
