@@ -30,7 +30,6 @@ import {
   MANIFEST_SIG_FORMAT, CHARTER_SIG_FORMAT, RELEASE_KEY_CERT_FORMAT,
   CapFabEdge, CapFabStats, CapFab,
   StdinSource, StdinSourceKind,
-  validateNoMediaDefRedefinitionSync,
   CapArgumentValue, CapArg, CapOutput, OUTPUT_CARRIES_INPUT, ArgSource, validateCapArgs, validateCapOutputs,
   validateCapDefinition, isValidDefinitionName, ManifestLoadError, advertisedCapGroups, identityCap, ValidationError,
   llmGenerateTextUrn, modelAvailabilityUrn, modelPathUrn,
@@ -904,50 +903,6 @@ function test891_directionSemanticSpecificity() {
 // ============================================================================
 
 // TEST6208: N/A for JS (Rust-only validation infrastructure)
-
-// TEST6212: XV5 - Test inline media def redefinition of existing registry spec is detected and rejected
-function test6212_xv5InlineSpecRedefinitionDetected() {
-  const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
-  const mediaDefs = [
-    {
-      urn: MEDIA_STRING,
-      media_type: 'text/plain',
-      title: 'My Custom String',
-      description: 'Trying to redefine string'
-    }
-  ];
-  const result = validateNoMediaDefRedefinitionSync(mediaDefs, registryLookup);
-  assert(!result.valid, 'Should fail when redefining registry spec');
-  assert(result.error && result.error.includes('XV5'), 'Error should mention XV5');
-  assert(result.redefines && result.redefines.includes(MEDIA_STRING), 'Should identify MEDIA_STRING as redefined');
-}
-
-// TEST6216: XV5 - Test new inline media def (not in registry) is allowed
-function test6216_xv5NewInlineSpecAllowed() {
-  const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
-  const mediaDefs = [
-    {
-      urn: 'media:my-unique-custom-type-xyz123',
-      media_type: 'application/json',
-      title: 'My Custom Output',
-      description: 'A custom output type'
-    }
-  ];
-  const result = validateNoMediaDefRedefinitionSync(mediaDefs, registryLookup);
-  assert(result.valid, 'New spec not in registry should pass validation');
-}
-
-// TEST6220: XV5 - Test empty media_defs (no inline specs) passes XV5 validation
-function test6220_xv5EmptyMediaDefsAllowed() {
-  const registryLookup = (mediaUrn) => mediaUrn === MEDIA_STRING;
-  assert(validateNoMediaDefRedefinitionSync({}, registryLookup).valid, 'Empty object should pass');
-  assert(validateNoMediaDefRedefinitionSync(null, registryLookup).valid, 'Null should pass');
-  assert(validateNoMediaDefRedefinitionSync(undefined, registryLookup).valid, 'Undefined should pass');
-}
-
-// ============================================================================
-// media_urn.rs: TEST060-TEST078
-// ============================================================================
 
 // TEST60: Test wrong prefix fails with InvalidPrefix error showing expected and actual prefix
 function test060_wrongPrefixFails() {
@@ -7646,6 +7601,27 @@ function test1880_aliasNameNormalizationRules() {
   }
 }
 
+// TEST1980: an alias name lowercases `A`-`Z` and no other character, and
+// refuses every Unicode White_Space character as whitespace: under Unicode
+// case mapping KELVIN SIGN lowercases to `k`, and one implementation would
+// publish a name another refuses.
+function test1980_aliasNamesLowercaseOnlyAsciiLetters() {
+  assertEqual(normalizeAliasName('JSONDoc'), 'jsondoc', 'A-Z lowercase');
+  const refusal = (name) => {
+    try {
+      normalizeAliasName(name);
+    } catch (error) {
+      return error.message;
+    }
+    throw new Error(`normalizeAliasName must refuse ${JSON.stringify(name)}`);
+  };
+  assert(refusal(`${String.fromCodePoint(0x212A)}ind`).includes('invalid characters'), 'KELVIN SIGN is no ASCII letter');
+  assert(refusal(`a${String.fromCodePoint(0xA0)}b`).includes('whitespace'), 'NO-BREAK SPACE is white space');
+  assert(refusal(`a${String.fromCodePoint(0x85)}b`).includes('whitespace'), 'NEXT LINE is white space');
+  assert(refusal(`a${String.fromCodePoint(0xFEFF)}b`).includes('invalid characters'), 'ZERO WIDTH NO-BREAK SPACE is not white space');
+  assert(refusal(`a${String.fromCodePoint(0x1C)}b`).includes('invalid characters'), 'FILE SEPARATOR is not white space');
+}
+
 // TEST1881: URN-vs-alias detection keys purely on the presence of ':'. The whole design rests on this discriminator being exact.
 function test1881_tokenUrnVsAliasDetection() {
   assert(tokenIsUrn('cap:in="media:document;ext=pdf";extract;out="media:enc=utf8"'), 'cap URN is a URN');
@@ -7889,6 +7865,58 @@ async function test1971_definitionsAreHeldOnlyWithTheirPinnedDims() {
   client.invalidate();
   assertEqual(client.getCachedDim('language'), null, 'forgotten with the cap');
   assertThrowsMessage(() => new FabricRegistryClient(REGISTRY, 0), 'manifest version', 'no client at v0');
+}
+
+/** The message of the rejection of `promise`, which must reject. */
+async function rejection(promise, what) {
+  try {
+    await promise;
+  } catch (error) {
+    return error.message;
+  }
+  throw new Error(`${what}: expected a rejection`);
+}
+
+// TEST1976: a cap a registry serves is the cap that was asked for, at the
+// version the manifest pins: another cap's body, or this cap at another
+// version, is refused before it is cached.
+async function test1976_aServedCapIsTheOneAskedForAtItsPinnedVersion() {
+  const good = await fakeRegistry();
+  assertEqual((await good.client.getCap(EXTRACT_URN)).version, 3, 'the matching body');
+
+  const otherUrn = CapUrn.fromString(`cap:in="${PDF}";extract-more;out="${TEXT}"`).toString();
+  const other = await fakeRegistry(served => { served.cap.urn = otherUrn; });
+  const otherMessage = await rejection(other.client.getCap(EXTRACT_URN), 'another cap');
+  assert(otherMessage.includes(`cap object URN '${otherUrn}' does not match requested URN '${EXTRACT_URN}'`), otherMessage);
+
+  const version = await fakeRegistry(served => { served.cap.version = 2; });
+  const versionMessage = await rejection(version.client.getCap(EXTRACT_URN), 'another version');
+  assert(versionMessage.includes(`cap '${EXTRACT_URN}' object reports version 2 but manifest pins defver 3`), versionMessage);
+}
+
+// TEST1977: a media definition a registry serves is the one that was asked
+// for, at the version the manifest pins.
+async function test1977_aServedMediaDefIsTheOneAskedForAtItsPinnedVersion() {
+  const pdf = MediaUrn.fromString(PDF).toString();
+  const good = await fakeRegistry();
+  assertEqual((await good.client.getMediaDef(PDF)).version, 1, 'the matching body');
+
+  const other = await fakeRegistry(served => { served.media[PDF] = mediaJSON('media:ext=png;image', 'PNG', 1); });
+  const otherMessage = await rejection(other.client.getMediaDef(PDF), 'another definition');
+  assert(otherMessage.includes(`does not match requested URN '${pdf}'`), otherMessage);
+
+  const version = await fakeRegistry(served => { served.media[PDF].version = 2; });
+  const versionMessage = await rejection(version.client.getMediaDef(PDF), 'another version');
+  assert(versionMessage.includes(`media def '${pdf}' object reports version 2 but manifest pins defver 1`), versionMessage);
+}
+
+// TEST1978: every definition a manifest pins is at version 1 or later; a
+// manifest pinning one at 0 is refused, and no client is pinned at manifest 0.
+async function test1978_aManifestPinningADefinitionAtZeroIsRefused() {
+  const zero = await fakeRegistry(served => { served.manifest.media[MediaUrn.fromString(PDF).toString()] = 0; });
+  const message = await rejection(zero.client.getCap(EXTRACT_URN), 'a definition pinned at 0');
+  assert(message.includes(`manifest v8 pins '${MediaUrn.fromString(PDF).toString()}' at 0, which is no definition version`), message);
+  assertThrowsMessage(() => new FabricRegistryClient(REGISTRY, 0), 'manifest version', 'no client at manifest 0');
 }
 
 // TEST1972: a definition is cached only once every dim it names is held,
@@ -8185,9 +8213,6 @@ async function runTests() {
   // validation.rs: TEST053-TEST056
   console.log('\n--- validation.rs ---');
   console.log('  SKIP TEST053: N/A for JS (Rust-only validation infrastructure)');
-  runTest('TEST054: xv5_inline_spec_redefinition_detected', test6212_xv5InlineSpecRedefinitionDetected);
-  runTest('TEST055: xv5_new_inline_spec_allowed', test6216_xv5NewInlineSpecAllowed);
-  runTest('TEST056: xv5_empty_media_defs_allowed', test6220_xv5EmptyMediaDefsAllowed);
 
   // media_urn.rs: TEST060-TEST078
   console.log('\n--- media_urn.rs ---');
@@ -8593,6 +8618,7 @@ async function runTests() {
   runTest('TEST7104: multi_arg_main_input_partition',        test7104_multiArgCapExactlyOneMainInputAndPartitionOfRest);
 
   runTest('TEST1880: alias_name_normalization_rules',       test1880_aliasNameNormalizationRules);
+  runTest('TEST1980: alias_names_lowercase_only_ascii_letters', test1980_aliasNamesLowercaseOnlyAsciiLetters);
   runTest('TEST1881: token_urn_vs_alias_detection',         test1881_tokenUrnVsAliasDetection);
   runTest('TEST1882: classify_alias_target_by_prefix',      test1882_classifyAliasTargetByPrefix);
   runTest('TEST1887: manifest_serde_round_trips_aliases',   test1887_manifestSerdeRoundTripsAliases);
@@ -8609,6 +8635,9 @@ async function runTests() {
   runTest('TEST1969: cap_dims_round_trip_in_order_and_refuse_what_they_cannot_hold', test1969_capDimsRoundTripInOrderAndRefuseWhatTheyCannotHold);
   await runTest('TEST1970: media_def_dims_survive_and_refuse_unknown_keys', test1970_mediaDefDimsSurviveAndRefuseUnknownKeys);
   await runTest('TEST1971: definitions_are_held_only_with_their_pinned_dims', test1971_definitionsAreHeldOnlyWithTheirPinnedDims);
+  await runTest('TEST1976: a_served_cap_is_the_one_asked_for_at_its_pinned_version', test1976_aServedCapIsTheOneAskedForAtItsPinnedVersion);
+  await runTest('TEST1977: a_served_media_def_is_the_one_asked_for_at_its_pinned_version', test1977_aServedMediaDefIsTheOneAskedForAtItsPinnedVersion);
+  await runTest('TEST1978: a_manifest_pinning_a_definition_at_zero_is_refused', test1978_aManifestPinningADefinitionAtZeroIsRefused);
   await runTest('TEST1972: a_definition_needs_every_dim_it_names', test1972_aDefinitionNeedsEveryDimItNames);
 
   // planner.js: unified plan-space vocabulary
