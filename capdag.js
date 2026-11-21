@@ -6,7 +6,7 @@
 // lungo, in ./formal, not written here. It runs as WebAssembly, instantiated
 // once when this module is first imported.
 
-import { TaggedUrn } from 'tagged-urn';
+import { TaggedUrn, TaggedUrnError, Constraint, ErrorCodes as TaggedUrnErrorCodes } from 'tagged-urn';
 import * as machineParser from './machine-parser.js';
 import { load } from './formal/index.js';
 
@@ -51,7 +51,6 @@ const ErrorCodes = {
   INVALID_TAG_FORMAT: 4,
   MISSING_CAP_PREFIX: 5,
   DUPLICATE_KEY: 6,
-  NUMERIC_KEY: 7,
   UNTERMINATED_QUOTE: 8,
   INVALID_ESCAPE_SEQUENCE: 9,
   MISSING_IN_SPEC: 10,
@@ -67,81 +66,100 @@ const ErrorCodes = {
 // Note: All parsing is delegated to TaggedUrn from tagged-urn-js
 // No duplicate state machine or parsing helpers needed here
 
-/**
- * Cap URN implementation with direction specs and optional tags.
- *
- * Direction rules match the Rust reference:
- * - missing `in` or `out` defaults to `media:`
- * - `in=*` and `out=*` normalize to `media:`
- * - empty `in=` / `out=` are rejected
- * - tags: Other optional tags (no longer contains in/out)
- */
-/**
- * Normalize a parsed direction tag to canonical wildcard semantics.
- * Missing tags and `*` both become `media:`.
- *
- * @param {TaggedUrn} taggedUrn - Parsed tagged URN
- * @param {string} tagName - `in` or `out`
- * @returns {string} Normalized direction spec
- */
-function processDirectionTag(taggedUrn, tagName) {
-  const rawValue = taggedUrn.getTag(tagName);
-  if (rawValue === undefined || rawValue === '*') {
-    return 'media:';
+/** The cap URN error a tagged URN's error is, by its code. */
+const CAP_CODE_OF_TAGGED_CODE = Object.freeze({
+  [TaggedUrnErrorCodes.INVALID_FORMAT]: ErrorCodes.INVALID_FORMAT,
+  [TaggedUrnErrorCodes.EMPTY_TAG]: ErrorCodes.EMPTY_TAG,
+  [TaggedUrnErrorCodes.INVALID_CHARACTER]: ErrorCodes.INVALID_CHARACTER,
+  [TaggedUrnErrorCodes.INVALID_TAG_FORMAT]: ErrorCodes.INVALID_TAG_FORMAT,
+  [TaggedUrnErrorCodes.MISSING_PREFIX]: ErrorCodes.MISSING_CAP_PREFIX,
+  [TaggedUrnErrorCodes.DUPLICATE_KEY]: ErrorCodes.DUPLICATE_KEY,
+  [TaggedUrnErrorCodes.UNTERMINATED_QUOTE]: ErrorCodes.UNTERMINATED_QUOTE,
+  [TaggedUrnErrorCodes.INVALID_ESCAPE_SEQUENCE]: ErrorCodes.INVALID_ESCAPE_SEQUENCE,
+  [TaggedUrnErrorCodes.EMPTY_PREFIX]: ErrorCodes.MISSING_CAP_PREFIX,
+  [TaggedUrnErrorCodes.PREFIX_MISMATCH]: ErrorCodes.MISSING_CAP_PREFIX,
+  [TaggedUrnErrorCodes.WHITESPACE_IN_INPUT]: ErrorCodes.INVALID_CHARACTER,
+});
+
+function capUrnErrorFromTaggedUrn(e) {
+  if (!(e instanceof TaggedUrnError)) {
+    throw e;
   }
-  if (rawValue === '') {
-    throw new CapUrnError(
-      tagName === 'in' ? ErrorCodes.INVALID_IN_SPEC : ErrorCodes.INVALID_OUT_SPEC,
-      `Empty value for '${tagName}' tag is not allowed`
-    );
+  const code = CAP_CODE_OF_TAGGED_CODE[e.code];
+  if (code === undefined) {
+    throw new Error(`capdag: tagged URN error code ${e.code} has no cap URN code: ${e.message}`);
   }
-  return rawValue;
+  return new CapUrnError(code, e.message);
+}
+
+const STRUCTURAL_KEYS = Object.freeze(['in', 'out', 'effect']);
+
+/** A tag a parsed tag map holds, as written, for an error that names it. */
+function writtenTag(key, constraint) {
+  return new TaggedUrn('cap', { [key]: constraint }).tagsToString();
+}
+
+function directionCode(side) {
+  return side === 'in' ? ErrorCodes.INVALID_IN_SPEC : ErrorCodes.INVALID_OUT_SPEC;
 }
 
 /**
- * Canonicalize a direction spec via MediaUrn parsing.
- *
- * @param {string} spec - Media URN string
- * @param {string} tagName - `in` or `out`
- * @returns {string} Canonical media URN string
+ * What a direction side says when its value is no media URN: a value that
+ * does not even name the media prefix, in the validation rules' words, and one
+ * that names it but does not parse, with the parser's reason.
  */
-function canonicalizeDirectionSpec(spec, tagName) {
-  if (spec === 'media:' || spec === '*') {
-    return 'media:';
+function directionError(side, value, error) {
+  const noMediaPrefix = (error instanceof TaggedUrnError
+      && (error.code === TaggedUrnErrorCodes.MISSING_PREFIX || error.code === TaggedUrnErrorCodes.EMPTY_PREFIX))
+    || (error instanceof MediaUrnError && error.code === MediaUrnErrorCodes.INVALID_PREFIX);
+  if (noMediaPrefix) {
+    return new CapUrnError(directionCode(side),
+      `Invalid '${side}' media URN: ${value}. Must start with 'media:' or be '*'`);
   }
+  if (!(error instanceof TaggedUrnError) && !(error instanceof MediaUrnError)) {
+    throw error;
+  }
+  return new CapUrnError(directionCode(side), `Invalid '${side}' media URN: ${value}: ${error.message}`);
+}
 
+/** A direction side's media URN, in canonical form. An empty value is refused. */
+function directionMedia(side, value) {
+  if (value === '') {
+    throw new CapUrnError(directionCode(side), `Empty value for '${side}' tag is not allowed`);
+  }
   try {
-    return MediaUrn.fromString(spec).toString();
+    return MediaUrn.fromString(value).toString();
   } catch (error) {
-    throw new CapUrnError(
-      tagName === 'in' ? ErrorCodes.INVALID_IN_SPEC : ErrorCodes.INVALID_OUT_SPEC,
-      `Invalid media URN for ${tagName} spec '${spec}': ${error.message}`
-    );
+    throw directionError(side, value, error);
   }
 }
 
 /**
- * Validate a direction spec while preserving the caller-provided string.
- * This matches the reference `with_in_spec` / `with_out_spec` behavior.
- *
- * @param {string} spec - Media URN string
- * @param {string} tagName - `in` or `out`
- * @returns {string} The original spec when valid
+ * A direction spec given as text to a constructor or the builder: `*` is the
+ * top media `media:`, as the marker is in parsing; anything else is a media
+ * URN, in canonical form.
  */
-function validatePreservedDirectionSpec(spec, tagName) {
-  if (spec === 'media:' || spec === '*') {
+function directionSpec(side, raw) {
+  if (raw === '*') {
     return 'media:';
   }
+  return directionMedia(side, raw);
+}
 
-  try {
-    MediaUrn.fromString(spec);
-    return spec;
-  } catch (error) {
-    throw new CapUrnError(
-      tagName === 'in' ? ErrorCodes.INVALID_IN_SPEC : ErrorCodes.INVALID_OUT_SPEC,
-      `Invalid media URN for ${tagName} spec '${spec}': ${error.message}`
-    );
+/**
+ * A direction tag as a cap's tag map holds it: missing, or the marker (`in`,
+ * `in=*`), is `media:`; an exact value is that media URN in canonical form;
+ * any other form is refused.
+ */
+function processDirectionTag(constraint, side) {
+  if (constraint === undefined || constraint.kind === 'present') {
+    return 'media:';
   }
+  if (constraint.kind === 'exact') {
+    return directionMedia(side, constraint.value);
+  }
+  throw new CapUrnError(directionCode(side),
+    `Invalid '${side}' media URN: ${writtenTag(side, constraint)}. Must start with 'media:' or be '*'`);
 }
 
 /**
@@ -181,41 +199,51 @@ const CapEffect = Object.freeze({
   ANY: '?',
 });
 
-function normalizeEffectValue(rawValue) {
-  if (rawValue === undefined || rawValue === null) return CapEffect.DECLARED;
-  if (rawValue === '?' || rawValue === '*') return CapEffect.ANY;
-  if (rawValue === CapEffect.DECLARED) return CapEffect.DECLARED;
-  if (rawValue === CapEffect.NONE) return CapEffect.NONE;
-  if (rawValue === CapEffect.PATCH) return CapEffect.PATCH;
-  if (rawValue === '') {
-    throw new CapUrnError(ErrorCodes.INVALID_EFFECT, "Empty value for 'effect' tag is not allowed");
+/**
+ * The effect a cap's tag map writes: none is declared; the marker or `?effect`
+ * is the unconstrained `?`; an exact declared, none or patch is that effect;
+ * anything else is refused, named as written.
+ */
+function normalizeEffectValue(constraint) {
+  if (constraint === undefined) return CapEffect.DECLARED;
+  if (constraint.kind === 'present' || constraint.kind === 'unconstrained') return CapEffect.ANY;
+  if (constraint.kind === 'exact'
+      && [CapEffect.DECLARED, CapEffect.NONE, CapEffect.PATCH].includes(constraint.value)) {
+    return constraint.value;
   }
   throw new CapUrnError(
     ErrorCodes.INVALID_EFFECT,
-    `Unsupported effect '${rawValue}'. Supported values are declared, none, patch, or explicit unconstrained ?effect/effect=*`
+    `Unsupported effect '${writtenTag('effect', constraint)}'. Supported values are declared, none, patch, or explicit unconstrained ?effect/effect=*`
   );
 }
 
-function validateNonStructuralTags(tags) {
+/** An effect given as text to a constructor: declared, none, patch or ?. */
+function parseEffect(effect) {
+  if (Object.values(CapEffect).includes(effect)) {
+    return effect;
+  }
+  throw new CapUrnError(ErrorCodes.INVALID_EFFECT,
+    `Unsupported effect '${effect}'. Supported values are declared, none, patch, or ?`);
+}
+
+/**
+ * The cap-tags as a tagged URN normalizes them, after refusing a structural
+ * key: those are set with the direction specs and the effect.
+ */
+function capTags(tags) {
+  for (const key of Object.keys(tags)) {
+    const keyLower = key.toLowerCase();
+    if (STRUCTURAL_KEYS.includes(keyLower)) {
+      throw new CapUrnError(
+        ErrorCodes.INVALID_TAG_FORMAT,
+        `reserved structural key '${key}' must be passed as inSpec, outSpec or effect, not as a tag`
+      );
+    }
+  }
   try {
-    const serialized = new TaggedUrn('cap', tags).toString();
-    TaggedUrn.fromString(serialized);
-  } catch (error) {
-    const msg = error && error.message ? error.message : String(error);
-    const msgLower = msg.toLowerCase();
-    if (msgLower.includes('duplicate')) {
-      throw new CapUrnError(ErrorCodes.DUPLICATE_KEY, msg);
-    }
-    if (msgLower.includes('numeric') || msgLower.includes('purely numeric')) {
-      throw new CapUrnError(ErrorCodes.NUMERIC_KEY, msg);
-    }
-    if (msgLower.includes('invalid character')) {
-      throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, msg);
-    }
-    if (msgLower.includes('escape')) {
-      throw new CapUrnError(ErrorCodes.INVALID_ESCAPE_SEQUENCE, msg);
-    }
-    throw new CapUrnError(ErrorCodes.INVALID_TAG_FORMAT, msg);
+    return new TaggedUrn('cap', tags);
+  } catch (e) {
+    throw capUrnErrorFromTaggedUrn(e);
   }
 }
 
@@ -250,39 +278,51 @@ class CapUrn {
 
   /**
    * Create a new CapUrn with direction specs.
+   *
+   * `inSpec` and `outSpec` are media URNs, normalized to canonical form; `*`
+   * and `media:` are both the top media `media:`, as in parsing, and an empty
+   * spec is refused. `effect` is declared, none, patch or `?`. The cap-tags
+   * are constraints (tagged-urn's `Constraint`) and may not name `in`, `out`
+   * or `effect`.
+   *
    * @param {string} inSpec - Input media URN (e.g., "media:void")
-   * @param {string} outSpec - Output media URN (e.g., "media:object")
+   * @param {string} outSpec - Output media URN (e.g., "media:record")
    * @param {string} effect - Runtime media identity effect
-   * @param {Object} tags - Other tags (must NOT contain 'in', 'out', or 'effect')
+   * @param {Object<string, Object>} tags - The cap-tags, as constraints
    */
   constructor(inSpec, outSpec, effect = CapEffect.DECLARED, tags = {}) {
-    this.inSpec = canonicalizeDirectionSpec(inSpec, 'in');
-    this.outSpec = canonicalizeDirectionSpec(outSpec, 'out');
-    this.effectValue = normalizeEffectValue(effect);
-    this.tags = {};
-    // Copy tags, filtering out any structural coordinates that might have slipped through
-    for (const [key, value] of Object.entries(tags)) {
-      const keyLower = key.toLowerCase();
-      if (keyLower !== 'in' && keyLower !== 'out' && keyLower !== 'effect') {
-        this.tags[keyLower] = value;
-      }
-    }
-    validateNonStructuralTags(this.tags);
+    CapUrn._init(this, directionSpec('in', inSpec), directionSpec('out', outSpec), parseEffect(effect), tags);
+  }
+
+  /** A cap from parts already in canonical form: the direction specs as
+   * media URNs the parser or a cap made, and a known effect. */
+  static _fromCanonical(inSpec, outSpec, effect, tags) {
+    const cap = Object.create(CapUrn.prototype);
+    CapUrn._init(cap, inSpec, outSpec, effect, tags);
+    return cap;
+  }
+
+  static _init(cap, inSpec, outSpec, effect, tags) {
+    const other = capTags(tags);
+    cap.inSpec = inSpec;
+    cap.outSpec = outSpec;
+    cap.effectValue = effect;
+    cap.tags = Object.freeze({ ...other.tags });
     // The same cap on the proved model's side: its three URNs and its effect.
     // Admissibility, dispatch, acceptance, equivalence and specificity are
     // asked of it. Made here, from the same fields, and the cap is frozen, so
     // the two can never describe different caps; it is not enumerable, so it is
     // not part of what a cap serializes or compares as.
     const formal = {
-      input: modelUrn(MediaUrn.fromString(this.inSpec)._urn),
-      output: modelUrn(MediaUrn.fromString(this.outSpec)._urn),
-      other: modelUrn(new TaggedUrn('cap', this.tags)),
-      effect: MODEL_EFFECTS[this.effectValue],
+      input: modelUrn(MediaUrn.fromString(cap.inSpec)._urn),
+      output: modelUrn(MediaUrn.fromString(cap.outSpec)._urn),
+      other: modelUrn(other),
+      effect: MODEL_EFFECTS[cap.effectValue],
     };
-    Object.defineProperty(this, 'formal', { value: formal, enumerable: false });
-    this._validateAdmissible();
-    Object.freeze(this.tags);
-    Object.freeze(this);
+    Object.defineProperty(cap, 'formal', { value: formal, enumerable: false });
+    Object.defineProperty(cap, '_capTags', { value: other, enumerable: false });
+    cap._validateAdmissible();
+    Object.freeze(cap);
   }
 
   /**
@@ -362,8 +402,9 @@ class CapUrn {
    * Create a Cap URN from string representation
    * Format: cap:in="<media-urn>";out="<media-urn>";key1=value1;key2=value2;...
    *
-   * Missing `in` / `out` default to `media:`. `in=*` / `out=*` are also
-   * normalized to `media:`.
+   * A missing `in` or `out`, or the marker (`in`, `in=*`), is `media:`; an
+   * exact value is a media URN; a quoted `in="*"` is the literal value `*`,
+   * which is no media URN.
    *
    * Uses TaggedUrn for parsing to ensure consistent behavior across implementations.
    *
@@ -382,201 +423,130 @@ class CapUrn {
     try {
       taggedUrn = TaggedUrn.fromString(s);
     } catch (e) {
-      // Convert TaggedUrnError to CapUrnError with appropriate error code
-      const msg = e.message || '';
-      const msgLower = msg.toLowerCase();
-      if (msgLower.includes('invalid character')) {
-        throw new CapUrnError(ErrorCodes.INVALID_CHARACTER, msg);
-      }
-      if (msgLower.includes('duplicate')) {
-        throw new CapUrnError(ErrorCodes.DUPLICATE_KEY, msg);
-      }
-      if (msgLower.includes('unterminated') || msgLower.includes('unclosed')) {
-        throw new CapUrnError(ErrorCodes.UNTERMINATED_QUOTE, msg);
-      }
-      if (msgLower.includes('numeric') || msgLower.includes('purely numeric')) {
-        throw new CapUrnError(ErrorCodes.NUMERIC_KEY, msg);
-      }
-      throw new CapUrnError(ErrorCodes.INVALID_FORMAT, msg);
+      throw capUrnErrorFromTaggedUrn(e);
     }
 
     if (taggedUrn.getPrefix() !== 'cap') {
-      throw new CapUrnError(ErrorCodes.MISSING_CAP_PREFIX, `Expected 'cap:' prefix, got '${taggedUrn.getPrefix()}:'`);
+      throw new CapUrnError(ErrorCodes.MISSING_CAP_PREFIX, "Cap identifier must start with 'cap:'");
     }
-
-    const inSpec = processDirectionTag(taggedUrn, 'in');
-    const outSpec = processDirectionTag(taggedUrn, 'out');
-
-    const effect = normalizeEffectValue(taggedUrn.getTag('effect'));
-
-    // Build remaining tags (excluding in/out/effect)
-    const remainingTags = {};
-    for (const [key, value] of Object.entries(taggedUrn.tags)) {
-      if (key !== 'in' && key !== 'out' && key !== 'effect') {
-        remainingTags[key] = value;
-      }
-    }
-
-    return new CapUrn(inSpec, outSpec, effect, remainingTags);
+    return CapUrn.fromTags(taggedUrn.tags);
   }
 
   /**
-   * Create a Cap URN from a tags object.
-   * Missing structural coordinates default exactly as they do in string
-   * parsing (`in=media:`, `out=media:`, `effect=declared`).
+   * Create a Cap URN from a tag map, as string parsing reads one: `in`, `out`
+   * and `effect` are taken out of it and read exactly as fromString reads
+   * them, and the rest are the cap-tags.
    *
-   * @param {Object} tags - Object containing all tags including 'in' and 'out'
-   * @returns {CapUrn} The parsed Cap URN
-   * @throws {CapUrnError} If `in` or `out` tags are missing or invalid
+   * @param {Object<string, Object>} tags - Every tag, as constraints
+   * @returns {CapUrn}
+   * @throws {CapUrnError} If a direction or the effect is refused
    */
   static fromTags(tags) {
-    const inSpec = tags['in'] || tags['IN'];
-    const outSpec = tags['out'] || tags['OUT'];
-
-    if (!inSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag for input media URN");
-    }
-    if (!outSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag for output media URN");
-    }
-
-    if (inSpec === '') {
-      throw new CapUrnError(ErrorCodes.INVALID_IN_SPEC, "Empty value for 'in' tag is not allowed");
-    }
-    if (outSpec === '') {
-      throw new CapUrnError(ErrorCodes.INVALID_OUT_SPEC, "Empty value for 'out' tag is not allowed");
-    }
-
-    const effect = normalizeEffectValue(tags['effect'] || tags['EFFECT']);
-
-    // Build remaining tags (excluding in/out/effect)
-    const remainingTags = {};
-    for (const [key, value] of Object.entries(tags)) {
+    const rest = {};
+    let inTag;
+    let outTag;
+    let effectTag;
+    for (const [key, constraint] of Object.entries(tags)) {
       const keyLower = key.toLowerCase();
-      if (keyLower !== 'in' && keyLower !== 'out' && keyLower !== 'effect') {
-        remainingTags[keyLower] = value;
-      }
+      if (keyLower === 'in') inTag = constraint;
+      else if (keyLower === 'out') outTag = constraint;
+      else if (keyLower === 'effect') effectTag = constraint;
+      else rest[key] = constraint;
     }
-
-    return new CapUrn(inSpec, outSpec, effect, remainingTags);
+    return CapUrn._fromCanonical(
+      processDirectionTag(inTag, 'in'),
+      processDirectionTag(outTag, 'out'),
+      normalizeEffectValue(effectTag),
+      rest
+    );
   }
 
   /**
-   * Get the canonical string representation of this cap URN
-   * Always includes "cap:" prefix
-   * Tags are sorted alphabetically for consistent representation (in/out included)
-   * Uses TaggedUrn for serialization to ensure consistent quoting
+   * The canonical text: `cap:` and every tag sorted by key, `in`, `out` and
+   * `effect` among them; `in` and `out` written only when they are not
+   * `media:`, `effect` only when it is not `declared` (the unconstrained
+   * effect is `?effect`); values quoted only when they must be.
    *
    * @returns {string} The canonical string representation
    */
   toString() {
-    // `in` and `out` segments are emitted only when they refine beyond
-    // the trivial wildcard `media:`. Missing `effect` means the default
-    // `declared`; `effect=none` is preserved.
     const allTags = { ...this.tags };
     if (this.inSpec !== 'media:') {
-      allTags['in'] = this.inSpec;
+      allTags['in'] = Constraint.exact(this.inSpec);
     }
     if (this.outSpec !== 'media:') {
-      allTags['out'] = this.outSpec;
+      allTags['out'] = Constraint.exact(this.outSpec);
     }
-    if (this.effectValue !== CapEffect.DECLARED) {
-      allTags['effect'] = this.effectValue;
+    if (this.effectValue === CapEffect.ANY) {
+      allTags['effect'] = Constraint.unconstrained();
+    } else if (this.effectValue !== CapEffect.DECLARED) {
+      allTags['effect'] = Constraint.exact(this.effectValue);
     }
-
-    const taggedUrn = new TaggedUrn('cap', allTags, true);
-    return taggedUrn.toString();
+    return new TaggedUrn('cap', allTags).toString();
   }
 
   /**
-   * Get the value of a specific tag
-   * Key is normalized to lowercase for lookup
-   * Returns inSpec for "in" key, outSpec for "out" key, and the effect
-   * coordinate for "effect".
+   * The constraint this cap writes for the cap-tag `key`, or undefined when
+   * it does not mention it. The direction and the effect are not cap-tags:
+   * they are read with getInSpec, getOutSpec and getEffect.
    *
    * @param {string} key - The tag key
-   * @returns {string|undefined} The tag value or undefined if not found
+   * @returns {Object|undefined} The constraint
    */
   getTag(key) {
-    const keyLower = key.toLowerCase();
-    if (keyLower === 'in') {
-      return this.inSpec;
-    }
-    if (keyLower === 'out') {
-      return this.outSpec;
-    }
-    if (keyLower === 'effect') {
-      return this.effectValue;
-    }
-    return this.tags[keyLower];
+    return this.tags[key.toLowerCase()];
   }
 
   /**
-   * Check if this cap has a specific tag with a specific value
-   * Key is normalized to lowercase; value comparison is case-sensitive
-   * Checks inSpec for "in" key, outSpec for "out" key, and effect for "effect"
+   * The exact value this cap writes for the cap-tag `key` (`key=value`);
+   * undefined when it does not mention the key or constrains it in another
+   * form.
+   *
+   * @param {string} key
+   * @returns {string|undefined}
+   */
+  exactValue(key) {
+    const constraint = this.getTag(key);
+    return constraint !== undefined && constraint.kind === 'exact' ? constraint.value : undefined;
+  }
+
+  /**
+   * Whether this cap writes the exact value `value` for the cap-tag `key`
+   * (`key=value`). Key is normalized to lowercase; value comparison is
+   * case-sensitive.
    *
    * @param {string} key - The tag key
-   * @param {string} value - The tag value to check
-   * @returns {boolean} Whether the tag exists with the specified value
+   * @param {string} value - The value
+   * @returns {boolean}
    */
   hasTag(key, value) {
-    const keyLower = key.toLowerCase();
-    if (keyLower === 'in') {
-      return this.inSpec === value;
-    }
-    if (keyLower === 'out') {
-      return this.outSpec === value;
-    }
-    if (keyLower === 'effect') {
-      return this.effectValue === value;
-    }
-    const tagValue = this.tags[keyLower];
-    return tagValue !== undefined && tagValue === value;
+    return this.exactValue(key) === value;
   }
 
   /**
-   * Check whether a marker tag (a tag whose value is "*") is present at the
-   * given key. Equivalent to hasTag(tagName, "*") but expresses authorial
-   * intent: this tag is present as a marker (a wildcard-valued tag that
-   * serializes as just the key), not as a key=value pair. Direction specs
-   * (in/out) are not markers.
-   * Example: cap:constrained;... has marker tag "constrained".
+   * Whether the cap-tag `tagName` is present as a marker (written as just the
+   * key). Example: cap:constrained;... has marker tag "constrained".
    *
    * @param {string} tagName - The marker key
-   * @returns {boolean} Whether the tag exists with value "*"
+   * @returns {boolean}
    */
   hasMarkerTag(tagName) {
-    const keyLower = tagName.toLowerCase();
-    if (keyLower === 'in' || keyLower === 'out' || keyLower === 'effect') {
-      return false;
-    }
-    return this.tags[keyLower] === '*';
+    const constraint = this.getTag(tagName);
+    return constraint !== undefined && constraint.kind === 'present';
   }
 
   /**
-   * Create a new cap URN with an added or updated tag.
-   * Reserved structural coordinates must be changed through dedicated
-   * accessors.
+   * Add or replace a cap-tag. The key must be an identifier; the constraint
+   * one a URN can write; a structural key (`in`, `out`, `effect`) is refused
+   * — those change with withInSpec, withOutSpec and withEffect.
    *
    * @param {string} key - The tag key
-   * @param {string} value - The tag value
-   * @returns {CapUrn} A new CapUrn instance with the tag added/updated
+   * @param {Object} constraint - The constraint (tagged-urn's Constraint)
+   * @returns {CapUrn}
    */
-  withTag(key, value) {
-    if (value === '') {
-      throw new CapUrnError(ErrorCodes.EMPTY_VALUE, `Empty value for key '${key}' (use '*' for wildcard)`);
-    }
-    const keyLower = key.toLowerCase();
-    if (keyLower === 'in' || keyLower === 'out' || keyLower === 'effect') {
-      throw new CapUrnError(
-        ErrorCodes.INVALID_TAG_FORMAT,
-        `Reserved structural key '${keyLower}' must be changed via withInSpec(), withOutSpec(), or withEffect()`
-      );
-    }
-    const newTags = { ...this.tags };
-    newTags[keyLower] = value;
-    return new CapUrn(this.inSpec, this.outSpec, this.effectValue, newTags);
+  withTag(key, constraint) {
+    return CapUrn._fromCanonical(this.inSpec, this.outSpec, this.effectValue,
+      { ...this.tags, [key.toLowerCase()]: constraint });
   }
 
   /**
@@ -586,37 +556,27 @@ class CapUrn {
    * @returns {CapUrn} A new CapUrn instance with the updated inSpec
    */
   withInSpec(inSpec) {
-    return new CapUrn(
-      validatePreservedDirectionSpec(inSpec, 'in'),
-      this.outSpec,
-      this.effectValue,
-      this.tags
-    );
+    return CapUrn._fromCanonical(directionSpec('in', inSpec), this.outSpec, this.effectValue, this.tags);
   }
 
   /**
    * Create a new cap URN with a different output spec
    *
-   * @param {string} outSpec - The new output spec ID
+   * @param {string} outSpec - The new output media URN
    * @returns {CapUrn} A new CapUrn instance with the updated outSpec
    */
   withOutSpec(outSpec) {
-    return new CapUrn(
-      this.inSpec,
-      validatePreservedDirectionSpec(outSpec, 'out'),
-      this.effectValue,
-      this.tags
-    );
+    return CapUrn._fromCanonical(this.inSpec, directionSpec('out', outSpec), this.effectValue, this.tags);
   }
 
   /**
    * Create a new cap URN with a different effect coordinate.
    *
-   * @param {string} effect
+   * @param {string} effect - declared, none, patch or ?
    * @returns {CapUrn}
    */
   withEffect(effect) {
-    return new CapUrn(this.inSpec, this.outSpec, normalizeEffectValue(effect), this.tags);
+    return CapUrn._fromCanonical(this.inSpec, this.outSpec, parseEffect(effect), this.tags);
   }
 
   /**
@@ -629,7 +589,7 @@ class CapUrn {
    */
   withoutTag(key) {
     const keyLower = key.toLowerCase();
-    if (keyLower === 'in' || keyLower === 'out' || keyLower === 'effect') {
+    if (STRUCTURAL_KEYS.includes(keyLower)) {
       throw new CapUrnError(
         ErrorCodes.INVALID_TAG_FORMAT,
         `Reserved structural key '${keyLower}' cannot be removed via withoutTag()`
@@ -637,7 +597,7 @@ class CapUrn {
     }
     const newTags = { ...this.tags };
     delete newTags[keyLower];
-    return new CapUrn(this.inSpec, this.outSpec, this.effectValue, newTags);
+    return CapUrn._fromCanonical(this.inSpec, this.outSpec, this.effectValue, newTags);
   }
 
   /**
@@ -721,25 +681,26 @@ class CapUrn {
   }
 
   /**
-   * Create a new cap with a specific tag set to wildcard
-   * Handles "in" and "out" specially
+   * The same cap with `key` made unconstrained where it constrains it: `in`
+   * or `out` becomes `media:`, `effect` the unconstrained `?`, and a cap-tag
+   * it has a marker (present).
    *
-   * @param {string} key - The tag key to set to wildcard
-   * @returns {CapUrn} A new CapUrn instance with the tag set to wildcard
+   * @param {string} key - The tag key
+   * @returns {CapUrn}
    */
   withWildcardTag(key) {
     const keyLower = key.toLowerCase();
     if (keyLower === 'in') {
-      return this.withInSpec('media:');
+      return CapUrn._fromCanonical('media:', this.outSpec, this.effectValue, this.tags);
     }
     if (keyLower === 'out') {
-      return this.withOutSpec('media:');
+      return CapUrn._fromCanonical(this.inSpec, 'media:', this.effectValue, this.tags);
     }
     if (keyLower === 'effect') {
-      return this.withEffect(CapEffect.ANY);
+      return CapUrn._fromCanonical(this.inSpec, this.outSpec, CapEffect.ANY, this.tags);
     }
-    if (this.tags.hasOwnProperty(keyLower)) {
-      return this.withTag(key, '*');
+    if (Object.prototype.hasOwnProperty.call(this.tags, keyLower)) {
+      return this.withTag(keyLower, Constraint.present());
     }
     return this;
   }
@@ -755,13 +716,11 @@ class CapUrn {
     const newTags = {};
     for (const key of keys) {
       const normalizedKey = key.toLowerCase();
-      if (normalizedKey !== 'in' && normalizedKey !== 'out' && normalizedKey !== 'effect') {
-        if (this.tags.hasOwnProperty(normalizedKey)) {
-          newTags[normalizedKey] = this.tags[normalizedKey];
-        }
+      if (Object.prototype.hasOwnProperty.call(this.tags, normalizedKey)) {
+        newTags[normalizedKey] = this.tags[normalizedKey];
       }
     }
-    return new CapUrn(this.inSpec, this.outSpec, this.effectValue, newTags);
+    return CapUrn._fromCanonical(this.inSpec, this.outSpec, this.effectValue, newTags);
   }
 
   /**
@@ -772,11 +731,8 @@ class CapUrn {
    * @returns {CapUrn} A new CapUrn instance with merged tags
    */
   merge(other) {
-    if (!other) {
-      return new CapUrn(this.inSpec, this.outSpec, this.effectValue, this.tags);
-    }
     const newTags = { ...this.tags, ...other.tags };
-    return new CapUrn(other.inSpec, other.outSpec, other.effectValue, newTags);
+    return CapUrn._fromCanonical(other.inSpec, other.outSpec, other.effectValue, newTags);
   }
 
   /**
@@ -829,7 +785,7 @@ class CapUrn {
       if (thisKeys[i] !== otherKeys[i]) {
         return false;
       }
-      if (this.tags[thisKeys[i]] !== other.tags[otherKeys[i]]) {
+      if (!Constraint.equals(this.tags[thisKeys[i]], other.tags[otherKeys[i]])) {
         return false;
       }
     }
@@ -1086,9 +1042,9 @@ class CapUrnBuilder {
   }
 
   /**
-   * Set the input spec ID
+   * Set the input media URN (required)
    *
-   * @param {string} spec - The input spec ID
+   * @param {string} spec - The input media URN
    * @returns {CapUrnBuilder} This builder instance for chaining
    */
   inSpec(spec) {
@@ -1097,9 +1053,9 @@ class CapUrnBuilder {
   }
 
   /**
-   * Set the output spec ID
+   * Set the output media URN (required)
    *
-   * @param {string} spec - The output spec ID
+   * @param {string} spec - The output media URN
    * @returns {CapUrnBuilder} This builder instance for chaining
    */
   outSpec(spec) {
@@ -1107,68 +1063,72 @@ class CapUrnBuilder {
     return this;
   }
 
+  /**
+   * Set the effect coordinate: declared, none, patch or ?.
+   *
+   * @param {string} effect
+   * @returns {CapUrnBuilder}
+   */
   effect(effect) {
-    this._effect = normalizeEffectValue(effect);
+    this._effect = parseEffect(effect);
     return this;
   }
 
   /**
-   * Add or update a tag
-   * Key is normalized to lowercase; value is preserved as-is
-   * Structural coordinates are reserved; use dedicated methods instead.
+   * Add a cap-tag of any form (tagged-urn's Constraint), its key normalized
+   * to lowercase. The key is checked, with the constraint, when the cap is
+   * built; a structural key (`in`, `out`, `effect`) is set with inSpec,
+   * outSpec or effect instead.
    *
-   * @param {string} key - The tag key
-   * @param {string} value - The tag value
-   * @returns {CapUrnBuilder} This builder instance for chaining
+   * @param {string} key
+   * @param {Object} constraint
+   * @returns {CapUrnBuilder}
+   */
+  constraint(key, constraint) {
+    const keyLower = key.toLowerCase();
+    if (STRUCTURAL_KEYS.includes(keyLower)) {
+      throw new CapUrnError(
+        ErrorCodes.INVALID_TAG_FORMAT,
+        `CapUrnBuilder cannot set reserved structural key '${keyLower}'; use inSpec/outSpec/effect`
+      );
+    }
+    this._tags[keyLower] = constraint;
+    return this;
+  }
+
+  /**
+   * Add a cap-tag with the exact value `value`, taken literally.
+   *
+   * @param {string} key
+   * @param {string} value
+   * @returns {CapUrnBuilder}
    */
   tag(key, value) {
-    const keyLower = key.toLowerCase();
-    if (keyLower === 'in' || keyLower === 'out' || keyLower === 'effect') {
-      throw new CapUrnError(
-        ErrorCodes.INVALID_TAG_FORMAT,
-        `Reserved structural key '${keyLower}' must be set via inSpec(), outSpec(), or effect()`
-      );
-    }
-    const nextTags = { ...this._tags, [keyLower]: value };
-    validateNonStructuralTags(nextTags);
-    this._tags[keyLower] = value;
-    return this;
+    return this.constraint(key, Constraint.exact(value));
   }
 
   /**
-   * Add a marker tag (a wildcard-valued tag that serializes as just the key).
-   * Equivalent to tag(key, "*") but expresses authorial intent: this tag is
-   * present as a marker, not a key=value pair.
+   * Add a cap-tag as a marker (written as just the key).
    *
-   * @param {string} key - The marker key
-   * @returns {CapUrnBuilder} This builder instance for chaining
+   * @param {string} key
+   * @returns {CapUrnBuilder}
    */
   marker(key) {
-    const keyLower = key.toLowerCase();
-    if (keyLower === 'in' || keyLower === 'out' || keyLower === 'effect') {
-      throw new CapUrnError(
-        ErrorCodes.INVALID_TAG_FORMAT,
-        `Reserved structural key '${keyLower}' cannot be used as a marker`
-      );
-    }
-    const nextTags = { ...this._tags, [keyLower]: '*' };
-    validateNonStructuralTags(nextTags);
-    this._tags[keyLower] = '*';
-    return this;
+    return this.constraint(key, Constraint.present());
   }
 
   /**
    * Build the final CapUrn
    *
    * @returns {CapUrn} A new CapUrn instance
-   * @throws {CapUrnError} If inSpec or outSpec are not set
+   * @throws {CapUrnError} If inSpec or outSpec are not set, or the cap is refused
    */
   build() {
-    if (!this._inSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' spec - call inSpec() before build()");
+    if (this._inSpec === null) {
+      throw new CapUrnError(ErrorCodes.MISSING_IN_SPEC, "Cap URN requires 'in' tag");
     }
-    if (!this._outSpec) {
-      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' spec - call outSpec() before build()");
+    if (this._outSpec === null) {
+      throw new CapUrnError(ErrorCodes.MISSING_OUT_SPEC, "Cap URN requires 'out' tag");
     }
     return new CapUrn(this._inSpec, this._outSpec, this._effect, this._tags);
   }
@@ -1195,7 +1155,7 @@ function gradeIsGuaranteed(grade) {
   return grade === MatchGrade.EXACT || grade === MatchGrade.GUARANTEED;
 }
 
-/** The cap-tag pattern a query asks for: `cap:` with these tags (none asks for none). */
+/** The cap-tag pattern a query asks for: `cap:` with these tags, as constraints (none asks for none). */
 function queryTagPattern(tags) {
   return modelUrn(new TaggedUrn('cap', { ...(tags || {}) }));
 }
@@ -1635,7 +1595,7 @@ class MediaUrn {
     // underneath it; refinements are conceptually wrong. Only the void
     // marker is atomic: media:!void;… and media:?void;… do not say void.
     const tagKeys = Object.keys(taggedUrn.tags);
-    if (taggedUrn.tags.void === '*' && tagKeys.length > 1) {
+    if (taggedUrn.hasMarkerTag('void') && tagKeys.length > 1) {
       const extras = tagKeys.filter((k) => k !== 'void').sort();
       throw new MediaUrnError(
         MediaUrnErrorCodes.VOID_NOT_ATOMIC,
@@ -1700,19 +1660,17 @@ class MediaUrn {
   // =========================================================================
 
   /**
-   * Check if a marker tag (tag with wildcard/no value) is present.
-   * A marker tag is stored as key="*" in the tagged URN.
+   * Check if a marker tag (present, written as just the key) is present.
    * @param {string} tagName
    * @returns {boolean}
    * @private
    */
   _hasMarkerTag(tagName) {
-    const value = this._urn.getTag(tagName);
-    return value === '*';
+    return this._urn.hasMarkerTag(tagName);
   }
 
   /** @returns {boolean} True if the content format is JSON (`fmt=json`) */
-  isJson() { return this._urn.getTag('fmt') === 'json'; }
+  isJson() { return this.exactValue('fmt') === 'json'; }
 
   /** @returns {boolean} True if the "void" marker tag is present —
    *  the **unit type** in the type-theoretic reading. media:void is
@@ -1746,7 +1704,7 @@ class MediaUrn {
    * @returns {boolean}
    */
   isYaml() {
-    return this._urn.getTag('fmt') === 'yaml';
+    return this.exactValue('fmt') === 'yaml';
   }
 
   /**
@@ -1754,7 +1712,7 @@ class MediaUrn {
    * @returns {boolean}
    */
   isCsv() {
-    return this._urn.getTag('fmt') === 'csv';
+    return this.exactValue('fmt') === 'csv';
   }
 
   /**
@@ -1829,31 +1787,63 @@ class MediaUrn {
   specificity() { return this._urn.specificity(); }
 
   /**
-   * Get the file extension from the ext tag, if present.
+   * The file extension: the exact value of the ext tag, if it has one.
    * @returns {string|null}
    */
   extension() {
-    const ext = this._urn.getTag('ext');
+    const ext = this.exactValue('ext');
     return ext !== undefined ? ext : null;
   }
 
   /**
+   * Whether this media URN writes the exact value `value` for `key`
+   * (`key=value`).
    * @param {string} key
-   * @param {string} [value]
+   * @param {string} value
    * @returns {boolean}
    */
   hasTag(key, value) {
-    if (value !== undefined) {
-      return this._urn.hasTag(key, value);
-    }
-    return this._urn.getTag(key) !== undefined;
+    return this._urn.hasTag(key, value);
   }
 
   /**
+   * Whether the tag `tagName` is present as a marker (written as just the key).
+   * @param {string} tagName
+   * @returns {boolean}
+   */
+  hasMarkerTag(tagName) {
+    return this._urn.hasMarkerTag(tagName);
+  }
+
+  /**
+   * The constraint this media URN writes for `key` (tagged-urn's
+   * Constraint), or undefined when it does not mention it.
+   * @param {string} key
+   * @returns {Object|undefined}
+   */
+  getTag(key) { return this._urn.getTag(key); }
+
+  /**
+   * The exact value this media URN writes for `key` (`key=value`); undefined
+   * when it does not mention the key or constrains it in another form.
    * @param {string} key
    * @returns {string|undefined}
    */
-  getTag(key) { return this._urn.getTag(key); }
+  exactValue(key) {
+    const constraint = this._urn.getTag(key);
+    return constraint !== undefined && constraint.kind === 'exact' ? constraint.value : undefined;
+  }
+
+  /**
+   * The same media URN with `key` set to `constraint` (tagged-urn's
+   * Constraint). The key must be an identifier.
+   * @param {string} key
+   * @param {Object} constraint
+   * @returns {MediaUrn}
+   */
+  withTag(key, constraint) {
+    return new MediaUrn(this._urn.withTag(key, constraint));
+  }
 
   /** @returns {string} Canonical string representation */
   toString() { return this._urn.toString(); }
@@ -1912,6 +1902,9 @@ class MediaUrn {
   equals(other) { return this._urn.equals(other._urn); }
 }
 
+/** Any medium with a text encoding, whichever it is. */
+const ANY_ENCODING = MediaUrn.fromString('media:enc');
+
 // =============================================================================
 // STANDARD CAP URN BUILDERS
 // =============================================================================
@@ -1937,7 +1930,7 @@ function llmGenerateTextUrn() {
  */
 function renderPageImageUrn(inputMedia) {
   return new CapUrnBuilder()
-    .marker('render_page_image')
+    .marker('render-page-image')
     .inSpec(inputMedia)
     .outSpec(MEDIA_PNG)
     .build();
@@ -1951,7 +1944,7 @@ function renderPageImageUrn(inputMedia) {
  */
 function formatConversionUrn(inMedia, outMedia) {
   return new CapUrnBuilder()
-    .marker('convert_format')
+    .marker('convert-format')
     .inSpec(inMedia)
     .outSpec(outMedia)
     .build();
@@ -2114,10 +2107,10 @@ class MediaDef {
     return this._parsedMediaUrn;
   }
 
-  /** @returns {boolean} True if binary (no `enc` encoding tag — not text-representable) */
+  /** @returns {boolean} True if binary (no guaranteed `enc` encoding tag — not text-representable) */
   isBinary() {
     const mu = this.parsedMediaUrn();
-    return mu ? mu.getTag('enc') === undefined : false;
+    return mu ? !mu.conformsTo(ANY_ENCODING) : false;
   }
 
   /** @returns {boolean} True if record structure (has record marker) */
@@ -2150,40 +2143,40 @@ class MediaDef {
     return mu ? mu.isJson() : false;
   }
 
-  /** @returns {boolean} True if text-representable (has `enc` encoding tag) */
+  /** @returns {boolean} True if text-representable: it guarantees an `enc` encoding tag (conforms to `media:enc`) */
   isText() {
     const mu = this.parsedMediaUrn();
-    return mu ? mu.getTag('enc') !== undefined : false;
+    return mu ? mu.conformsTo(ANY_ENCODING) : false;
   }
 
   /** @returns {boolean} True if image (image tag present) */
   isImage() {
     const mu = this.parsedMediaUrn();
-    return mu ? mu.hasTag('image') : false;
+    return mu ? mu.isImage() : false;
   }
 
   /** @returns {boolean} True if audio (audio tag present) */
   isAudio() {
     const mu = this.parsedMediaUrn();
-    return mu ? mu.hasTag('audio') : false;
+    return mu ? mu.isAudio() : false;
   }
 
   /** @returns {boolean} True if video (video tag present) */
   isVideo() {
     const mu = this.parsedMediaUrn();
-    return mu ? mu.hasTag('video') : false;
+    return mu ? mu.isVideo() : false;
   }
 
   /** @returns {boolean} True if numeric (numeric tag present) */
   isNumeric() {
     const mu = this.parsedMediaUrn();
-    return mu ? mu.hasTag('numeric') : false;
+    return mu ? mu.isNumeric() : false;
   }
 
   /** @returns {boolean} True if boolean (bool tag present) */
   isBool() {
     const mu = this.parsedMediaUrn();
-    return mu ? mu.hasTag('bool') : false;
+    return mu ? mu.isBool() : false;
   }
 
   /**
@@ -9350,39 +9343,25 @@ function compareStrings(a, b) {
   return compareCodePoints(a, b);
 }
 
-function compareTagPairs(left, right) {
-  const leftKeys = Object.keys(left).sort(compareStrings);
-  const rightKeys = Object.keys(right).sort(compareStrings);
-  const shared = Math.min(leftKeys.length, rightKeys.length);
-  for (let i = 0; i < shared; i += 1) {
-    const byKey = compareStrings(leftKeys[i], rightKeys[i]);
-    if (byKey !== 0) return byKey;
-    const byValue = compareStrings(String(left[leftKeys[i]]), String(right[rightKeys[i]]));
-    if (byValue !== 0) return byValue;
-  }
-  return leftKeys.length - rightKeys.length;
-}
-
 /**
- * The order media URNs are sorted by: the tags as (key, stored value) pairs in
- * key order (every media URN has the one prefix). This is the reference's
- * structural order — NOT the order of the canonical text, which differs
- * wherever one key is the beginning of another (`file` and `file-path`).
- * Everything canonical that sorts by URN sorts by this.
+ * The order media URNs are sorted by: the tagged URN's order, by its parts
+ * (tagged-urn's `compare`) — NOT the order of the canonical text, which
+ * differs wherever one key is the beginning of another (`file` and
+ * `file-path`). Everything canonical that sorts by URN sorts by this.
  * @param {MediaUrn} a
  * @param {MediaUrn} b
  * @returns {number}
  */
 function compareMediaUrns(a, b) {
-  return compareTagPairs(a._urn.tags, b._urn.tags);
+  return a._urn.compare(b._urn);
 }
 
 const EFFECT_ORDER = Object.freeze({ declared: 0, none: 1, patch: 2, '?': 3 });
 
 /**
  * The order cap URNs are sorted by: `in=` and `out=` as media URNs, then the
- * effect (declared, none, patch, unspecified), then the remaining tags as
- * (key, stored value) pairs in key order.
+ * effect (declared, none, patch, unspecified), then the remaining tags in the
+ * tagged URN's order.
  * @param {CapUrn} a
  * @param {CapUrn} b
  * @returns {number}
@@ -9394,7 +9373,7 @@ function compareCapUrns(a, b) {
   if (byOut !== 0) return byOut;
   const byEffect = EFFECT_ORDER[a.getEffect()] - EFFECT_ORDER[b.getEffect()];
   if (byEffect !== 0) return byEffect;
-  return compareTagPairs(a.tags, b.tags);
+  return a._capTags.compare(b._capTags);
 }
 
 function numberText(value) {
@@ -13075,6 +13054,9 @@ export {
   gradeIsGuaranteed,
   CapUrnError,
   ErrorCodes,
+  // The tagged-urn vocabulary a cap-tag is written in.
+  Constraint,
+  TaggedUrn,
   MediaUrn,
   MediaUrnError,
   MediaUrnErrorCodes,

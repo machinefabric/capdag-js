@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TaggedUrn } from 'tagged-urn';
+import { TaggedUrn, Constraint } from 'tagged-urn';
 import * as plannerNS from './planner.js';
 import { ASSURANCE } from './formal/index.js';
 import {
@@ -205,8 +205,8 @@ function makeGraphCap(inUrn, outUrn, title) {
 function test001_capUrnCreation() {
   const cap = CapUrn.fromString(test6204_Urn('generate;ext=pdf;target=thumbnail'));
   assert(cap.hasMarkerTag('generate'), 'Should get op tag');
-  assertEqual(cap.getTag('target'), 'thumbnail', 'Should get target tag');
-  assertEqual(cap.getTag('ext'), 'pdf', 'Should get ext tag');
+  assertEqual(cap.exactValue('target'), 'thumbnail', 'Should get target tag');
+  assertEqual(cap.exactValue('ext'), 'pdf', 'Should get ext tag');
   assertEqual(cap.getInSpec(), MEDIA_VOID, 'Should get inSpec');
   assertEqual(cap.getOutSpec(), MEDIA_OBJECT, 'Should get outSpec');
 }
@@ -246,34 +246,34 @@ function test003_directionMatching() {
 function test004_unquotedValuesLowercased() {
   const cap = CapUrn.fromString('cap:ext=pdf;generate;in=media:void;out="media:enc=utf8;record"');
   assert(cap.hasMarkerTag('generate'), 'Unquoted value should be lowercased');
-  assertEqual(cap.getTag('ext'), 'pdf', 'Unquoted value should be lowercased');
-  assertEqual(cap.getTag('EXT'), 'pdf', 'Key lookup should be case-insensitive');
+  assertEqual(cap.exactValue('ext'), 'pdf', 'Unquoted value should be lowercased');
+  assertEqual(cap.exactValue('EXT'), 'pdf', 'Key lookup should be case-insensitive');
 }
 
 // TEST5: Test that quoted values preserve case while unquoted are lowercased
 function test005_quotedValuesPreserveCase() {
   const cap = CapUrn.fromString('cap:in="media:void";key="HelloWorld";out="media:void"');
-  assertEqual(cap.getTag('key'), 'HelloWorld', 'Quoted value should preserve case');
+  assertEqual(cap.exactValue('key'), 'HelloWorld', 'Quoted value should preserve case');
 }
 
 // TEST6: Test that quoted values can contain special characters (semicolons, equals, spaces)
 function test006_quotedValueSpecialChars() {
   const cap = CapUrn.fromString('cap:in="media:void";key="val;ue=with spaces";out="media:void"');
-  assertEqual(cap.getTag('key'), 'val;ue=with spaces', 'Quoted value should preserve special chars');
+  assertEqual(cap.exactValue('key'), 'val;ue=with spaces', 'Quoted value should preserve special chars');
 }
 
 // TEST7: Test that escape sequences in quoted values (\" and \\) are parsed correctly
 function test007_quotedValueEscapeSequences() {
   const s = String.raw`cap:in="media:void";key="val\"ue\\test";out="media:void"`;
   const cap = CapUrn.fromString(s);
-  assertEqual(cap.getTag('key'), 'val"ue\\test', 'Escaped quote and backslash should be unescaped');
+  assertEqual(cap.exactValue('key'), 'val"ue\\test', 'Escaped quote and backslash should be unescaped');
 }
 
 // TEST8: Test that mixed quoted and unquoted values in same URN parse correctly
 function test008_mixedQuotedUnquoted() {
   const cap = CapUrn.fromString('cap:a=simple;b="Quoted";in="media:void";out="media:void"');
-  assertEqual(cap.getTag('a'), 'simple', 'Unquoted value should be lowercase');
-  assertEqual(cap.getTag('b'), 'Quoted', 'Quoted value should preserve case');
+  assertEqual(cap.exactValue('a'), 'simple', 'Unquoted value should be lowercase');
+  assertEqual(cap.exactValue('b'), 'Quoted', 'Quoted value should preserve case');
 }
 
 // TEST9: Test that unterminated quote produces UnterminatedQuote error
@@ -326,7 +326,7 @@ function test013_roundTripQuoted() {
   const serialized = original.toString();
   const reparsed = CapUrn.fromString(serialized);
   assert(original.equals(reparsed), 'Quoted round-trip should produce equal URN');
-  assertEqual(reparsed.getTag('key'), 'HelloWorld', 'Quoted value should survive round-trip');
+  assertEqual(reparsed.exactValue('key'), 'HelloWorld', 'Quoted value should survive round-trip');
 }
 
 // TEST14: Test that escape sequences round-trip correctly
@@ -336,7 +336,7 @@ function test014_roundTripEscapes() {
   const serialized = original.toString();
   const reparsed = CapUrn.fromString(serialized);
   assert(original.equals(reparsed), 'Escape round-trip should produce equal URN');
-  assertEqual(reparsed.getTag('key'), 'val"ue\\test', 'Escaped value should survive round-trip');
+  assertEqual(reparsed.exactValue('key'), 'val"ue\\test', 'Escaped value should survive round-trip');
 }
 
 // TEST15: Test that cap: prefix is required and case-insensitive
@@ -443,8 +443,8 @@ function test019_missingTagHandling() {
 
 // TEST020: Specificity is the sum of per-tag truth-table scores
 // across in/out/y. Marker tags (bare segments and `key=*`) score 2
-// (must-have-any), exact `key=value` tags score 3, missing/`?` score
-// 0, `!` scores 1.
+// (must-have-any), exact `key=value` tags score 4, missing/`?` score
+// 0, `x?=v` 1, `x!=v` 3, `!` 5.
 //
 // test6204_Urn() builds "cap:in=media:void;out=media:record;<tags>" so
 // the directional baseline is:
@@ -487,7 +487,7 @@ function test021_builder() {
     .tag('ext', 'pdf')
     .build();
   assert(cap.hasMarkerTag('generate'), 'Builder should set the generate marker');
-  assertEqual(cap.getTag('ext'), 'pdf', 'Builder should set ext');
+  assertEqual(cap.exactValue('ext'), 'pdf', 'Builder should set ext');
   assertEqual(cap.getInSpec(), 'media:void', 'Builder should set inSpec');
   assertEqual(cap.getOutSpec(), 'media:object', 'Builder should set outSpec');
 }
@@ -513,8 +513,8 @@ function test023_builderPreservesCase() {
     .outSpec('media:void')
     .tag('MyKey', 'MyValue')
     .build();
-  assertEqual(cap.getTag('mykey'), 'MyValue', 'Builder should lowercase key but preserve value case');
-  assertEqual(cap.getTag('MyKey'), 'MyValue', 'getTag should be case-insensitive for keys');
+  assertEqual(cap.exactValue('mykey'), 'MyValue', 'Builder should lowercase key but preserve value case');
+  assertEqual(cap.exactValue('MyKey'), 'MyValue', 'getTag should be case-insensitive for keys');
 }
 
 // TEST24: Directional accepts — pattern's tags are constraints, instance must satisfy
@@ -569,11 +569,11 @@ function test026_mergeAndSubset() {
   assertEqual(merged.getInSpec(), 'media:enc=utf8', 'Merge should take inSpec from other');
   assertEqual(merged.getOutSpec(), 'media:', 'Merge should take outSpec from other');
   assert(merged.hasMarkerTag('generate'), 'Merge should keep original tags');
-  assertEqual(merged.getTag('ext'), 'pdf', 'Merge should add other tags');
+  assertEqual(merged.exactValue('ext'), 'pdf', 'Merge should add other tags');
 
   // Subset (always preserves in/out)
   const sub = merged.subset(['ext']);
-  assertEqual(sub.getTag('ext'), 'pdf', 'Subset should keep ext');
+  assertEqual(sub.exactValue('ext'), 'pdf', 'Subset should keep ext');
   assert(!sub.hasMarkerTag('generate'), 'Subset should drop the generate marker');
   assertEqual(sub.getInSpec(), 'media:enc=utf8', 'Subset should preserve inSpec');
 }
@@ -582,7 +582,7 @@ function test026_mergeAndSubset() {
 function test027_wildcardTag() {
   const cap = CapUrn.fromString(test6204_Urn('ext=pdf'));
   const wildcardExt = cap.withWildcardTag('ext');
-  assertEqual(wildcardExt.getTag('ext'), '*', 'Should set ext to wildcard');
+  assert(wildcardExt.hasMarkerTag('ext'), 'Should set ext to wildcard');
 
   const wildcardIn = cap.withWildcardTag('in');
   assertEqual(wildcardIn.getInSpec(), 'media:', 'Should set in to canonical top media:');
@@ -611,8 +611,8 @@ function test029_minimalCapUrn() {
 // TEST30: Test extended characters (forward slashes, colons) in tag values
 function test030_extendedCharacterSupport() {
   const cap = CapUrn.fromString(test6204_Urn('url=https://example_org/api;path=/some/file'));
-  assertEqual(cap.getTag('url'), 'https://example_org/api', 'Should support colons and slashes');
-  assertEqual(cap.getTag('path'), '/some/file', 'Should support forward slashes');
+  assertEqual(cap.exactValue('url'), 'https://example_org/api', 'Should support colons and slashes');
+  assertEqual(cap.exactValue('path'), '/some/file', 'Should support forward slashes');
 }
 
 // TEST31: Test wildcard rejected in keys but accepted in values
@@ -625,7 +625,7 @@ function test031_wildcardRestrictions() {
 
   // Wildcard accepted in values
   const cap = CapUrn.fromString(test6204_Urn('key=*'));
-  assertEqual(cap.getTag('key'), '*', 'Should accept wildcard in value');
+  assert(cap.hasMarkerTag('key'), 'Should accept wildcard in value');
 
   // Wildcard in in/out normalizes to media:
   const capWild = CapUrn.fromString('cap:in=*;out=*;key=value');
@@ -642,31 +642,35 @@ function test032_duplicateKeyRejection() {
   );
 }
 
-// TEST33: Test pure numeric keys rejected, mixed alphanumeric allowed, numeric values allowed
+// TEST33: Test keys that begin with a digit are rejected, digits after the first letter allowed, numeric values allowed
 function test033_numericKeyRestriction() {
-  assertThrows(
-    () => CapUrn.fromString(test6204_Urn('123=value')),
-    ErrorCodes.NUMERIC_KEY,
-    'Should reject pure numeric keys'
-  );
-  // Mixed alphanumeric allowed
+  for (const text of ['123=value', '123key=value']) {
+    assertThrows(
+      () => CapUrn.fromString(test6204_Urn(text)),
+      ErrorCodes.INVALID_CHARACTER,
+      `A key begins with a letter: ${text}`
+    );
+  }
+  // Digits after the first letter are allowed
   const cap1 = CapUrn.fromString(test6204_Urn('key123=value'));
-  assertEqual(cap1.getTag('key123'), 'value', 'Mixed alphanumeric key should be allowed');
+  assertEqual(cap1.exactValue('key123'), 'value', 'Mixed alphanumeric key should be allowed');
   const cap2 = CapUrn.fromString(test6204_Urn('x123key=value'));
-  assertEqual(cap2.getTag('x123key'), 'value', 'Mixed alphanumeric key should be allowed');
+  assertEqual(cap2.exactValue('x123key'), 'value', 'Mixed alphanumeric key should be allowed');
 }
 
 // TEST34: Test empty values are rejected
 function test034_emptyValueError() {
-  let threw = false;
-  try {
-    CapUrn.fromString('cap:in="media:void";key=;out="media:void"');
-  } catch (e) {
-    if (e instanceof CapUrnError) {
-      threw = true;
+  for (const text of ['cap:in="media:void";key=;out="media:void"', 'cap:key=;other=value']) {
+    let threw = false;
+    try {
+      CapUrn.fromString(text);
+    } catch (e) {
+      if (e instanceof CapUrnError) {
+        threw = true;
+      }
     }
+    assert(threw, `Empty value should be rejected: ${text}`);
   }
-  assert(threw, 'Empty value (key=) should be rejected');
 }
 
 // TEST35: Test has_tag is case-sensitive for values, case-insensitive for keys, works for in/out
@@ -675,26 +679,27 @@ function test035_hasTagCaseSensitive() {
   assert(cap.hasTag('key', 'Value'), 'hasTag should match exact value');
   assert(cap.hasTag('KEY', 'Value'), 'hasTag should be case-insensitive for keys');
   assert(!cap.hasTag('key', 'value'), 'hasTag should be case-sensitive for values');
-  // Works for in/out
-  assert(cap.hasTag('in', 'media:void'), 'hasTag should work for in');
-  assert(cap.hasTag('IN', 'media:void'), 'hasTag should be case-insensitive for in key');
-  assert(cap.hasTag('out', 'media:void'), 'hasTag should work for out');
+  // The direction is not a cap-tag: it is read with getInSpec/getOutSpec
+  assert(!cap.hasTag('in', 'media:void'), 'in is not a cap-tag');
+  assert(!cap.hasTag('out', 'media:void'), 'out is not a cap-tag');
+  assertEqual(cap.getInSpec(), 'media:void', 'the input is read with getInSpec');
+  assertEqual(cap.getOutSpec(), 'media:void', 'the output is read with getOutSpec');
 }
 
 // TEST36: Test with_tag preserves value case
 function test036_withTagPreservesValue() {
   const cap = CapUrn.fromString('cap:in="media:void";out="media:void"');
-  const modified = cap.withTag('key', 'MyValue');
-  assertEqual(modified.getTag('key'), 'MyValue', 'withTag should preserve value case');
+  const modified = cap.withTag('key', Constraint.exact('MyValue'));
+  assert(Constraint.equals(modified.getTag('key'), Constraint.exact('MyValue')), 'withTag should preserve value case');
 }
 
 // TEST37: Test with_tag rejects empty value
 function test037_withTagRejectsEmptyValue() {
   const cap = CapUrn.fromString('cap:in="media:void";out="media:void"');
   assertThrows(
-    () => cap.withTag('key', ''),
-    ErrorCodes.EMPTY_VALUE,
-    'withTag should reject empty string values'
+    () => cap.withTag('key', Constraint.exact('')),
+    ErrorCodes.EMPTY_TAG,
+    'withTag should reject an empty exact value'
   );
 }
 
@@ -703,16 +708,19 @@ function test038_semanticEquivalence() {
   const c1 = CapUrn.fromString('cap:in="media:void";key=simple;out="media:void"');
   const c2 = CapUrn.fromString('cap:in="media:void";key="simple";out="media:void"');
   assert(c1.equals(c2), 'Unquoted simple and quoted "simple" should be equal');
-  assertEqual(c1.getTag('key'), c2.getTag('key'), 'Values should be identical');
+  assert(Constraint.equals(c1.getTag('key'), c2.getTag('key')), 'Values should be identical');
 }
 
-// TEST39: Test get_tag returns direction specs (in/out) with case-insensitive lookup
-function test039_getTagReturnsDirectionSpecs() {
-  const cap = CapUrn.fromString(`cap:in="${MEDIA_VOID}";out="${MEDIA_OBJECT}"`);
-  assertEqual(cap.getTag('in'), MEDIA_VOID, 'getTag(in) should return inSpec');
-  assertEqual(cap.getTag('IN'), MEDIA_VOID, 'getTag(IN) should return inSpec (case-insensitive)');
-  assertEqual(cap.getTag('out'), MEDIA_OBJECT, 'getTag(out) should return outSpec');
-  assertEqual(cap.getTag('OUT'), MEDIA_OBJECT, 'getTag(OUT) should return outSpec (case-insensitive)');
+// TEST39: Test the direction is read with getInSpec/getOutSpec, and getTag reads cap-tags only
+function test039_directionSpecsAreNotCapTags() {
+  const cap = CapUrn.fromString('cap:in="media:string";test;out="media:integer"');
+  assertEqual(cap.getInSpec(), 'media:string', 'the input is read with getInSpec');
+  assertEqual(cap.getOutSpec(), 'media:integer', 'the output is read with getOutSpec');
+  assert(cap.hasMarkerTag('test'), 'test is a cap-tag');
+  for (const key of ['in', 'out', 'effect', 'IN', 'OUT']) {
+    assertEqual(cap.getTag(key), undefined, `${key} is not a cap-tag`);
+  }
+  assertEqual(Object.keys(cap.tags).length, 1, 'one cap-tag');
 }
 
 // TEST40: Matching semantics - exact match succeeds
@@ -864,7 +872,7 @@ function test890_directionSemanticMatching() {
     'Generic output cap must NOT satisfy specific output request');
 }
 
-// TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 3.
+// TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 4.
 function test891_directionSemanticSpecificity() {
   const genericCap = CapUrn.fromString(
     'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
@@ -974,7 +982,7 @@ function test066_isJson() {
 function test067_isText() {
   // Has enc= → characters
   assert(MediaUrn.fromString(MEDIA_STRING).getTag('enc') !== undefined, 'MEDIA_STRING should have enc');
-  assertEqual(MediaUrn.fromString(MEDIA_JSON).getTag('enc'), 'utf8', 'a JSON record is UTF-8');
+  assertEqual(MediaUrn.fromString(MEDIA_JSON).exactValue('enc'), 'utf8', 'a JSON record is UTF-8');
   // No enc= → not characters
   assert(MediaUrn.fromString(MEDIA_BOOLEAN).getTag('enc') === undefined, 'MEDIA_BOOLEAN is its own kind, not text');
   assert(MediaUrn.fromString(MEDIA_INTEGER).getTag('enc') === undefined, 'MEDIA_INTEGER should not have enc');
@@ -1622,10 +1630,10 @@ function test283_capArgumentValueLargeBinary() {
 // TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags
 function test304_mediaAvailabilityOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
-  assertEqual(urn.getTag('fmt'), 'json', 'model-availability is a JSON record');
-  assertEqual(urn.getTag('enc'), 'utf8', 'a JSON record is UTF-8');
+  assertEqual(urn.exactValue('fmt'), 'json', 'model-availability is a JSON record');
+  assertEqual(urn.exactValue('enc'), 'utf8', 'a JSON record is UTF-8');
   assertEqual(urn.getTag('plain-text'), undefined, 'a JSON record is not plain text');
-  assertEqual(urn.getTag('record'), '*', 'model-availability must be record');
+  assert(urn.hasMarkerTag('record'), 'model-availability must be record');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
 }
@@ -1633,10 +1641,10 @@ function test304_mediaAvailabilityOutputConstant() {
 // TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags
 function test305_mediaPathOutputConstant() {
   const urn = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
-  assertEqual(urn.getTag('fmt'), 'json', 'model-path is a JSON record');
-  assertEqual(urn.getTag('enc'), 'utf8', 'a JSON record is UTF-8');
+  assertEqual(urn.exactValue('fmt'), 'json', 'model-path is a JSON record');
+  assertEqual(urn.exactValue('enc'), 'utf8', 'a JSON record is UTF-8');
   assertEqual(urn.getTag('plain-text'), undefined, 'a JSON record is not plain text');
-  assertEqual(urn.getTag('record'), '*', 'model-path must be record');
+  assert(urn.hasMarkerTag('record'), 'model-path must be record');
   const reparsed = TaggedUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
 }
@@ -3265,7 +3273,7 @@ function test558_predicateConstantConsistency() {
   // carries enc=utf8 (fmt= says how the characters are structured).
   const jsonUrn = MediaUrn.fromString(MEDIA_JSON);
   assert(jsonUrn.isJson(), 'MEDIA_JSON must be json');
-  assert(jsonUrn.getTag('enc') === 'utf8', 'MEDIA_JSON must carry enc=utf8');
+  assert(jsonUrn.exactValue('enc') === 'utf8', 'MEDIA_JSON must carry enc=utf8');
   assert(jsonUrn.isRecord(), 'MEDIA_JSON must be record');
   assert(jsonUrn.isScalar(), 'MEDIA_JSON must be scalar (no list marker)');
   assert(!jsonUrn.isList(), 'MEDIA_JSON must not be list');
@@ -3420,9 +3428,9 @@ function test564_areCompatible() {
 // TEST566: with_tag rejects structural keys
 function test566_withTagRejectsStructuralKeys() {
   const cap = CapUrn.fromString('cap:in="media:void";test;out="media:void"');
-  assertThrows(() => cap.withTag('in', 'media:'), ErrorCodes.INVALID_TAG_FORMAT, 'withTag must reject in');
-  assertThrows(() => cap.withTag('out', 'media:'), ErrorCodes.INVALID_TAG_FORMAT, 'withTag must reject out');
-  assertThrows(() => cap.withTag('effect', 'none'), ErrorCodes.INVALID_TAG_FORMAT, 'withTag must reject effect');
+  assertThrows(() => cap.withTag('in', Constraint.exact('media:')), ErrorCodes.INVALID_TAG_FORMAT, 'withTag must reject in');
+  assertThrows(() => cap.withTag('out', Constraint.exact('media:')), ErrorCodes.INVALID_TAG_FORMAT, 'withTag must reject out');
+  assertThrows(() => cap.withTag('effect', Constraint.exact('none')), ErrorCodes.INVALID_TAG_FORMAT, 'withTag must reject effect');
 }
 
 // TEST6544: builder rejects structural keys on tag/marker
@@ -3439,7 +3447,7 @@ function test6544_builderRejectsStructuralKeys() {
   );
   assertThrows(
     () => new CapUrnBuilder().inSpec('media:void').outSpec('media:record').tag('123', 'value').build(),
-    ErrorCodes.NUMERIC_KEY,
+    ErrorCodes.INVALID_CHARACTER,
     'builder.build must reject invalid non-structural tags'
   );
 }
@@ -7152,7 +7160,7 @@ function test1811_voidAtomicityReadsTheMarker() {
   for (const input of ['media:!void;enc=utf8', 'media:?void;enc=utf8']) {
     const urn = MediaUrn.fromString(input);
     assert(!urn.isVoid(), `${input} is not void`);
-    assertEqual(urn.getTag('enc'), 'utf8', `${input} keeps its other tags`);
+    assertEqual(urn.exactValue('enc'), 'utf8', `${input} keeps its other tags`);
   }
 }
 
@@ -7283,20 +7291,19 @@ function test1830_canonicalizeNoConstraint() {
   }
 }
 
-// TEST1831: ?x=v and x?=v both canonicalize to x?=v. The third hypothetical form `x=?v` is NOT recognized as a qualifier — a value starting with `?` is just an exact value beginning with a `?` character.
+// TEST1831: ?x=v, x?=v and x=?v all canonicalize to x?=v; a quoted x="?v" is the exact value ?v.
 function test1831_canonicalizeAbsentOrNotValue() {
   const canonical = 'cap:x?=foo';
-  for (const input of ['cap:?x=foo', 'cap:x?=foo']) {
+  for (const input of ['cap:?x=foo', 'cap:x?=foo', 'cap:x=?foo']) {
     const cap = CapUrn.fromString(input);
     assertEqual(cap.toString(), canonical,
       `input ${input} must canonicalize to ${canonical}`);
   }
 
-  // `x=?foo` is a plain exact tag whose value is the string `?foo`
-  // — NOT a canonicalization alias.
-  const exact = CapUrn.fromString('cap:x=?foo');
-  assertEqual(exact.toString(), 'cap:x=?foo');
-  assertEqual(exact.getTag('x'), '?foo');
+  // A quoted value is literal: the exact value `?foo`.
+  const literal = CapUrn.fromString('cap:x="?foo"');
+  assertEqual(literal.toString(), 'cap:x="?foo"');
+  assertEqual(literal.exactValue('x'), '?foo');
 }
 
 // TEST1832: x ≡ x=* both canonicalize to bare x.
@@ -7309,20 +7316,19 @@ function test1832_canonicalizeMustHaveAny() {
   }
 }
 
-// TEST1833: !x=v and x!=v both canonicalize to x!=v. The third hypothetical form `x=!v` is NOT recognized as a qualifier — a value starting with `!` is just an exact value beginning with a `!` character.
+// TEST1833: !x=v, x!=v and x=!v all canonicalize to x!=v; a quoted x="!v" is the exact value !v.
 function test1833_canonicalizePresentNotValue() {
   const canonical = 'cap:x!=foo';
-  for (const input of ['cap:!x=foo', 'cap:x!=foo']) {
+  for (const input of ['cap:!x=foo', 'cap:x!=foo', 'cap:x=!foo']) {
     const cap = CapUrn.fromString(input);
     assertEqual(cap.toString(), canonical,
       `input ${input} must canonicalize to ${canonical}`);
   }
 
-  // `x=!foo` is a plain exact tag whose value is the string `!foo`
-  // — NOT a canonicalization alias.
-  const exact = CapUrn.fromString('cap:x=!foo');
-  assertEqual(exact.toString(), 'cap:x=!foo');
-  assertEqual(exact.getTag('x'), '!foo');
+  // A quoted value is literal: the exact value `!foo`.
+  const literal = CapUrn.fromString('cap:x="!foo"');
+  assertEqual(literal.toString(), 'cap:x="!foo"');
+  assertEqual(literal.exactValue('x'), '!foo');
 }
 
 // TEST1834: x=v stays as x=v (the lone exact-value form).
@@ -7339,6 +7345,166 @@ function test1835_canonicalizeMustNotHave() {
     assertEqual(cap.toString(), canonical,
       `input ${input} must canonicalize to ${canonical}`);
   }
+}
+
+// TEST7242: A resolved media definition's kind predicates read the marker: !x and ?x are not x
+function test7242_mediaDefKindPredicatesReadTheMarker() {
+  const def = (urn) => new MediaDef('application/octet-stream', null, null, null, null, urn);
+  const predicates = {
+    image: (d) => d.isImage(),
+    audio: (d) => d.isAudio(),
+    video: (d) => d.isVideo(),
+    numeric: (d) => d.isNumeric(),
+    bool: (d) => d.isBool(),
+    record: (d) => d.isRecord(),
+    list: (d) => d.isList(),
+  };
+  for (const [marker, predicate] of Object.entries(predicates)) {
+    assert(predicate(def(`media:${marker}`)), `media:${marker}`);
+    assert(!predicate(def(`media:!${marker}`)), `media:!${marker}`);
+    assert(!predicate(def(`media:?${marker}`)), `media:?${marker}`);
+  }
+
+  // An encoding counts only where the URN guarantees one.
+  assert(def('media:enc=utf8').isText(), 'enc=utf8 is text');
+  assert(def('media:enc').isText(), 'enc is text');
+  assert(def('media:?enc').isBinary(), '?enc is binary');
+  assert(def('media:!enc').isBinary(), '!enc is binary');
+}
+
+// TEST6759: new CapUrn and fromTags read direction tags as parsing does: * is media:, an empty spec is refused, and a cap-tag map naming a structural key is refused
+function test6759_constructorsNormalizeDirectionsLikeParsing() {
+  const made = new CapUrn('*', 'media:record', CapEffect.DECLARED, { op: Constraint.present() });
+  assert(made.equals(CapUrn.fromString('cap:op;out=media:record')), 'new CapUrn reads * as media:');
+
+  const fromTags = CapUrn.fromTags({ op: Constraint.present(), in: Constraint.present(), out: Constraint.present() });
+  assert(fromTags.equals(CapUrn.fromString('cap:in=*;op;out=*')), 'fromTags reads the marker as media:');
+
+  assertThrows(
+    () => new CapUrn('', 'media:record', CapEffect.DECLARED, { op: Constraint.present() }),
+    ErrorCodes.INVALID_IN_SPEC,
+    'an empty input spec is refused'
+  );
+  assertThrows(
+    () => new CapUrn('media:pdf', 'media:record', CapEffect.DECLARED, { op: Constraint.present(), in: Constraint.exact('media:pdf') }),
+    ErrorCodes.INVALID_TAG_FORMAT,
+    'a cap-tag map naming in is refused'
+  );
+}
+
+// TEST6760: A quoted * in a direction tag and a quoted ? as the effect are literal values, which a cap refuses
+function test6760_quotedStructuralSigilsAreLiteral() {
+  assertThrows(() => CapUrn.fromString('cap:in="*";op'), ErrorCodes.INVALID_IN_SPEC, 'a quoted * is no media URN');
+  assertThrows(() => CapUrn.fromString('cap:effect="?";op'), ErrorCodes.INVALID_EFFECT, 'a quoted ? is no effect');
+  // Unquoted, they are the marker and the unconstrained effect.
+  assertEqual(CapUrn.fromString('cap:in=*;op').getInSpec(), 'media:', 'in=* is media:');
+  assertEqual(CapUrn.fromString('cap:effect=?;op').getEffect(), CapEffect.ANY, 'effect=? is unconstrained');
+}
+
+// TEST6761: A missing direction and a direction that is no media URN say what the validation rules say
+function test6761_cu1Cu2Messages() {
+  assertThrowsMessage(() => new CapUrnBuilder().outSpec('media:').build(), "Cap URN requires 'in' tag", 'missing in');
+  assertThrowsMessage(() => new CapUrnBuilder().inSpec('media:').build(), "Cap URN requires 'out' tag", 'missing out');
+  assertThrowsMessage(
+    () => CapUrn.fromString('cap:in=invalid;op'),
+    "Invalid 'in' media URN: invalid. Must start with 'media:' or be '*'",
+    'in is no media URN'
+  );
+  let notParsing = null;
+  try {
+    CapUrn.fromString('cap:in="media:void;x";op');
+  } catch (e) {
+    notParsing = e;
+  }
+  assert(notParsing instanceof CapUrnError, 'a media URN that does not parse is refused');
+  assert(notParsing.message.startsWith("Invalid 'in' media URN: media:void;x: "), notParsing.message);
+  assertThrowsMessage(
+    () => CapUrn.fromString('cap:op;out=invalid'),
+    "Invalid 'out' media URN: invalid. Must start with 'media:' or be '*'",
+    'out is no media URN'
+  );
+}
+
+// TEST6762: Every surface form the cap URN docs give canonicalizes to the canonical form they give, which reads back as itself
+function test6762_documentedCanonicalForms() {
+  const pairs = [
+    ['cap:test', 'cap:test'],
+    ['cap:in=media:;test;out=media:', 'cap:test'],
+    ['cap:in=*;test;out=*', 'cap:test'],
+    ['cap:in=media:pdf;extract;out=media:record', 'cap:extract;in=media:pdf;out=media:record'],
+    ['cap:in=media:;out=media:;effect=none', 'cap:effect=none'],
+    ['cap:effect=none', 'cap:effect=none'],
+    ['cap:extract;in="media:document;ext=pdf";out=media:record', 'cap:extract;in="media:document;ext=pdf";out=media:record'],
+    ['cap:in="media:enc=utf8";out="media:enc=utf8;fmt=json;record";prompt', 'cap:in="media:enc=utf8";out="media:enc=utf8;fmt=json;record";prompt'],
+    ['cap:in=media:;out=media:;transform', 'cap:transform'],
+    ['cap:in="media:document;ext=pdf";extract;out="media:record"', 'cap:extract;in="media:document;ext=pdf";out=media:record'],
+    ['cap:in=media:;generate;out="media:enc=utf8"', 'cap:generate;out="media:enc=utf8"'],
+  ];
+  for (const [surface, canonical] of pairs) {
+    const cap = CapUrn.fromString(surface);
+    assertEqual(cap.toString(), canonical, surface);
+    assert(CapUrn.fromString(canonical).equals(cap), `${canonical} reads back`);
+  }
+
+  assertThrows(
+    () => CapUrn.fromString('cap:effect=none;in="media:document;ext=pdf";out="media:enc=utf8"'),
+    ErrorCodes.ILLEGAL_DECLARATION,
+    'the illegal effect=none example is refused'
+  );
+
+  // The accessor example: the direction specs and the kind.
+  const cap = CapUrn.fromString('cap:extract;in="media:document;ext=pdf";out=media:record');
+  assertEqual(cap.getInSpec(), 'media:document;ext=pdf', 'the input');
+  assertEqual(cap.getOutSpec(), 'media:record', 'the output');
+  assert(cap.hasMarkerTag('extract'), 'the extract marker');
+  assertEqual(cap.kind(), CapKind.TRANSFORM, 'a transform');
+}
+
+// TEST6763: The ranking docs' worked examples hold: each candidate's specificity, that it serves the request, the order find_all_matches gives and the choice select makes
+function test6763_documentedRankingExamples() {
+  const p = (s) => CapUrn.fromString(s);
+  const same = (actual, expected, message) => {
+    assertEqual(actual.length, expected.length, message);
+    actual.forEach((cap, i) => assert(cap === expected[i], `${message}: position ${i}`));
+  };
+
+  // Exact match preferred.
+  let request = p('cap:extract;in=media:pdf;out=media:record');
+  let a = p('cap:extract;in=media:pdf;out=media:record');
+  let b = p('cap:extract;in=media:pdf;out=media:record;v=2');
+  let c = p('cap:extract;out=media:record');
+  assertEqual(request.specificity(), 20202, 'the request');
+  assertEqual([a, b, c].map((cap) => cap.specificity()).join(','), '20202,20206,20002', 'the candidates');
+  let caps = [c, b, a];
+  assert(caps.every((cap) => cap.isDispatchable(request)), 'every candidate serves');
+  same(CapMatcher.findAllMatches(caps, request), [a, b, c], 'exact first');
+  assertEqual(CapUrn.select(caps, request), 2, 'the exact match is chosen');
+
+  // Refinement when no exact match.
+  request = p('cap:convert');
+  a = p('cap:convert;in=media:pdf;out=media:html');
+  b = p('cap:convert;in=media:image;out=media:png');
+  c = p('cap:convert');
+  assertEqual(request.specificity(), 2, 'the request');
+  assertEqual([a, b, c].map((cap) => cap.specificity()).join(','), '20202,20202,2', 'the candidates');
+  caps = [a, b, c];
+  assert(caps.every((cap) => cap.isDispatchable(request)), 'every candidate serves');
+  same(CapMatcher.findAllMatches(caps, request), [c, a, b], 'the exact match, then the refinements in order');
+  assertEqual(CapUrn.select(caps, request), 2, 'the exact match is chosen');
+  // Without C, A and B tie, and the first in the list is chosen.
+  assertEqual(CapUrn.select([a, b], request), 0, 'a tie goes to the first');
+  assertEqual(CapUrn.select([b, a], request), 0, 'a tie goes to the first');
+
+  // Fallback only.
+  request = p('cap:extract;format=json;in="media:pdf;v=2.0";out=media:record');
+  a = p('cap:extract;format=json;in=media:pdf;out=media:record');
+  b = p('cap:extract;format=json;out=media:record');
+  assertEqual(request.specificity(), 20606, 'the request');
+  assertEqual([a, b].map((cap) => cap.specificity()).join(','), '20206,20006', 'the candidates');
+  caps = [b, a];
+  assert(caps.every((cap) => cap.isDispatchable(request)), 'every candidate serves');
+  same(CapMatcher.findAllMatches(caps, request), [a, b], 'the nearest fallback first');
+  assertEqual(CapUrn.select(caps, request), 1, 'the nearest fallback is chosen');
 }
 
 // TEST1842: Full 6×6 truth table.
@@ -8223,7 +8389,7 @@ async function runTests() {
   runTest('TEST036: with_tag_preserves_value', test036_withTagPreservesValue);
   runTest('TEST037: with_tag_rejects_empty_value', test037_withTagRejectsEmptyValue);
   runTest('TEST038: semantic_equivalence', test038_semanticEquivalence);
-  runTest('TEST039: get_tag_returns_direction_specs', test039_getTagReturnsDirectionSpecs);
+  runTest('TEST039: direction_specs_are_not_cap_tags', test039_directionSpecsAreNotCapTags);
   runTest('TEST040: matching_semantics_exact_match', test040_matchingSemanticsExactMatch);
   runTest('TEST041: matching_semantics_cap_missing_tag', test041_matchingSemanticsCapMissingTag);
   runTest('TEST042: matching_semantics_cap_has_extra_tag', test042_matchingSemanticsCapHasExtraTag);
@@ -8626,6 +8792,12 @@ async function runTests() {
   runTest('TEST1833: canonicalize_present_not_value',       test1833_canonicalizePresentNotValue);
   runTest('TEST1834: canonicalize_exact_value',             test1834_canonicalizeExactValue);
   runTest('TEST1835: canonicalize_must_not_have',           test1835_canonicalizeMustNotHave);
+  runTest('TEST6759: constructors_normalize_directions_like_parsing', test6759_constructorsNormalizeDirectionsLikeParsing);
+  runTest('TEST7242: media_def_kind_predicates_read_the_marker', test7242_mediaDefKindPredicatesReadTheMarker);
+  runTest('TEST6760: quoted_structural_sigils_are_literal', test6760_quotedStructuralSigilsAreLiteral);
+  runTest('TEST6761: cu1_cu2_messages', test6761_cu1Cu2Messages);
+  runTest('TEST6762: documented_canonical_forms', test6762_documentedCanonicalForms);
+  runTest('TEST6763: documented_ranking_examples', test6763_documentedRankingExamples);
 
   console.log('\n--- Truth-table cross-product + axis weighting (test1842–test1846) ---');
   runTest('TEST1842: truth_table_full_cross_product',       test1842_truthTableFullCrossProduct);
