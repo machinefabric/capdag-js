@@ -150,12 +150,13 @@ export type Patience =
 ;
 export function patienceType(): L.Type<Patience>;
 
-/** Lean's CapDAG.Bifaci.Request.Phase. */
-export type Phase =
-  | { readonly kind: "created" }
-  | { readonly kind: "streaming" }
-;
-export function phaseType(): L.Type<Phase>;
+/** Lean's CapDAG.Bifaci.Request.Emission. */
+export interface Emission {
+  readonly streams: Array<[string, bigint]>;
+  readonly ended: Array<string>;
+  readonly over: boolean;
+}
+export function emissionType(): L.Type<Emission>;
 
 /** Lean's CapDAG.Bifaci.Request.Emitted. */
 export type Emitted =
@@ -178,6 +179,13 @@ export type Violation =
   | { readonly kind: "endWithOpenStream"; readonly stream: string }
 ;
 export function violationType(): L.Type<Violation>;
+
+/** Lean's CapDAG.Bifaci.Request.Phase. */
+export type Phase =
+  | { readonly kind: "created" }
+  | { readonly kind: "streaming" }
+;
+export function phaseType(): L.Type<Phase>;
 
 /** Lean's CapDAG.Bifaci.Request.Disposition. */
 export type Disposition =
@@ -406,7 +414,7 @@ export class CapdagFormal {
   /** Lean's CapDAG.Bifaci.Flow.Reorder.accept : CapDAG.Bifaci.Flow.Reorder → Nat → Nat → CapDAG.Bifaci.Flow.Accepted */
   accept(r_: Reorder, seq: bigint, limit: bigint): Accepted;
   /** Lean's CapDAG.Bifaci.Flow.Reorder.start : CapDAG.Bifaci.Flow.Reorder */
-  start(): Reorder;
+  reorderStart(): Reorder;
   /** Lean's CapDAG.Bifaci.Hold.Held.initial : CapDAG.Bifaci.Hold.Held */
   initial(): Held;
   /** Lean's CapDAG.Bifaci.Hold.arrive : CapDAG.Bifaci.Hold.Bound → CapDAG.Bifaci.Hold.Held → CapDAG.Bifaci.Flow.FrameType → Nat → CapDAG.Bifaci.Hold.Arrival */
@@ -445,6 +453,10 @@ export class CapdagFormal {
   effective(configured: bigint, available: L.Option<bigint>): bigint;
   /** Lean's CapDAG.Bifaci.Pools.patience : Option Nat → Nat → CapDAG.Bifaci.Pools.Patience */
   patience(unavailableFor: L.Option<bigint>, grace: bigint): Patience;
+  /** Lean's CapDAG.Bifaci.Request.Emission.start : CapDAG.Bifaci.Request.Emission */
+  emissionStart(): Emission;
+  /** Lean's CapDAG.Bifaci.Request.Emission.step : CapDAG.Bifaci.Request.Emission →   CapDAG.Bifaci.Request.Emitted → Except CapDAG.Bifaci.Request.Violation CapDAG.Bifaci.Request.Emission */
+  step(e: Emission, frame: Emitted): L.Except<Violation, Emission>;
   /** Lean's CapDAG.Bifaci.Request.Phase.after : CapDAG.Bifaci.Request.Phase → CapDAG.Bifaci.Flow.FrameType → CapDAG.Bifaci.Request.Phase */
   after(p: Phase, frame: FrameType): Phase;
   /** Lean's CapDAG.Bifaci.Request.check : List CapDAG.Bifaci.Request.Emitted → Option CapDAG.Bifaci.Request.Violation */

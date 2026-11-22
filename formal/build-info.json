@@ -1,5 +1,5 @@
 {
-  "build_key": "58c73b47fb8de56f8eee73cd9bb27619ad7a398fd6533af53d55f9c9924f4cc7",
+  "build_key": "14e5137441c1de6d4284fcfd8163033aa12e416e17553257e74c5abc85ace7ef",
   "lean_version": "4.34.1",
   "lean_githash": "5045d0056413266e57c625dcd7c365b10e377c52",
   "bir_version": 3,
@@ -37,7 +37,7 @@
     "CapDAG/Bifaci/Laws/Flow.lean": "894cdeaaf2d4c55cd3d5fd3490b606b51607ae578489400d8bb574e6c8abae99",
     "CapDAG/Bifaci/Laws/Hold.lean": "59572b547a4de0ae9c8d8916969a0786f7ad637abf81838c8460831c7bf6da76",
     "CapDAG/Bifaci/Laws/Pools.lean": "dcff57786f8cafa72ef6869a69520dd7ae831843f017e46643b06c818c394828",
-    "CapDAG/Bifaci/Laws/Request.lean": "3d11731a0c4057d9554c859484372d761d6b2bfbd80fc48d80c87dd266ed87b0",
+    "CapDAG/Bifaci/Laws/Request.lean": "887845dcfce21892f90414b32521b07bb95c85c4bf7117412477a73af3b42cd9",
     "CapDAG/Bifaci/Pools.lean": "d908a12c733e27c4801581bedae058898e702ea27ad9e597a28cd123a94c8ace",
     "CapDAG/Bifaci/Request.lean": "604c9ab7c41ee1d61431c2a4bcaafd172b8dc8db5d31bda2f47feb226024b674",
     "CapDAG/Cap.lean": "f381b50acac53367fec2d5e17e1a698ae8469adfaa5f8b1765df35f2e7d2551c",
@@ -57,9 +57,9 @@
   "project": ".",
   "link_directives": [],
   "output_digests": {
-    "assurance.json": "61c859e420763284246a9779757112ecb60e13ec5243e4d2274f502c1e600630",
-    "index.d.ts": "e78c1c1d6b4e277e1382a0138145290489308ca6ad2e1ecb2d8b9266ac699115",
-    "index.js": "e378ab555a8cd2f37807f71ad8f2377372b5e6a9c21c9ec35ac5ceeb5725d874"
+    "assurance.json": "458bee8aedfbbd3a8130de1e1cee5c9dd95946c9be3921df62034ac7aebd91a9",
+    "index.d.ts": "dc5b04b4c8fdb56dae96f52dda179af43f57fb674c79ab61c34fb6d3210d0f0a",
+    "index.js": "b0d057b37985dd827df2e8f563a230203d7dffbf91574c6effdee81b3db19bce"
   },
   "platform_products": [
     "program.wasm"

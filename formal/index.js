@@ -535,30 +535,21 @@ export function patienceType() {
   );
 }
 
-/** Describes CapDAG.Bifaci.Request.Phase for polymorphic functions. */
-export function phaseType() {
+/** Describes CapDAG.Bifaci.Request.Emission for polymorphic functions. */
+export function emissionType() {
   return new L.Type(
     L.inductiveExpr(18),
     (w, v) => {
-      if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Bifaci.Request.Phase");
-      switch (v.kind) {
-        case "created":
-          w.u32(0);
-          return;
-        case "streaming":
-          w.u32(1);
-          return;
-        default:
-          throw new L.MalformedError(`${String(v.kind)} is not a constructor of CapDAG.Bifaci.Request.Phase`);
-      }
+      if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Bifaci.Request.Emission");
+      w.u32(0);
+      L.list(L.pair(L.STRING, L.NAT)).encode(w, v.streams);
+      L.list(L.STRING).encode(w, v.ended);
+      L.BOOL.encode(w, v.over);
     },
     (r) => {
       const c = r.u32();
-      switch (c) {
-        case 0: return ({ kind: "created" });
-        case 1: return ({ kind: "streaming" });
-        default: throw new L.MalformedError(`constructor index ${c} of CapDAG.Bifaci.Request.Phase`);
-      }
+      if (c !== 0) throw new L.MalformedError(`constructor index ${c} of CapDAG.Bifaci.Request.Emission`);
+      return ({ streams: L.list(L.pair(L.STRING, L.NAT)).decode(r), ended: L.list(L.STRING).decode(r), over: L.BOOL.decode(r) });
     },
   );
 }
@@ -665,10 +656,38 @@ export function violationType() {
   );
 }
 
+/** Describes CapDAG.Bifaci.Request.Phase for polymorphic functions. */
+export function phaseType() {
+  return new L.Type(
+    L.inductiveExpr(21),
+    (w, v) => {
+      if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Bifaci.Request.Phase");
+      switch (v.kind) {
+        case "created":
+          w.u32(0);
+          return;
+        case "streaming":
+          w.u32(1);
+          return;
+        default:
+          throw new L.MalformedError(`${String(v.kind)} is not a constructor of CapDAG.Bifaci.Request.Phase`);
+      }
+    },
+    (r) => {
+      const c = r.u32();
+      switch (c) {
+        case 0: return ({ kind: "created" });
+        case 1: return ({ kind: "streaming" });
+        default: throw new L.MalformedError(`constructor index ${c} of CapDAG.Bifaci.Request.Phase`);
+      }
+    },
+  );
+}
+
 /** Describes CapDAG.Bifaci.Request.Disposition for polymorphic functions. */
 export function dispositionType() {
   return new L.Type(
-    L.inductiveExpr(21),
+    L.inductiveExpr(22),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Bifaci.Request.Disposition");
       switch (v.kind) {
@@ -700,7 +719,7 @@ export function dispositionType() {
 /** Describes CapDAG.Bifaci.Request.Terminal for polymorphic functions. */
 export function terminalType() {
   return new L.Type(
-    L.inductiveExpr(22),
+    L.inductiveExpr(23),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Bifaci.Request.Terminal");
       switch (v.kind) {
@@ -736,7 +755,7 @@ export function terminalType() {
 /** Describes CapDAG.Bifaci.Request.Write for polymorphic functions. */
 export function writeType() {
   return new L.Type(
-    L.inductiveExpr(23),
+    L.inductiveExpr(24),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Bifaci.Request.Write");
       switch (v.kind) {
@@ -768,7 +787,7 @@ export class Wf extends L.Opaque {}
 /** Describes TaggedUrn.Exec.Wf for polymorphic functions. */
 export function wfType() {
   return new L.Type(
-    L.inductiveExpr(24),
+    L.inductiveExpr(25),
     (w, v) => {
       if (!(v instanceof Wf)) throw new L.MalformedError("not a TaggedUrn.Exec.Wf");
       L.OPAQUE.encode(w, v);
@@ -780,7 +799,7 @@ export function wfType() {
 /** Describes CapDAG.Detect.Candidate for polymorphic functions. */
 export function candidateType() {
   return new L.Type(
-    L.inductiveExpr(25),
+    L.inductiveExpr(26),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Detect.Candidate");
       w.u32(0);
@@ -798,7 +817,7 @@ export function candidateType() {
 /** Describes CapDAG.Exec.WfCap for polymorphic functions. */
 export function wfCapType() {
   return new L.Type(
-    L.inductiveExpr(26),
+    L.inductiveExpr(27),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Exec.WfCap");
       w.u32(0);
@@ -818,7 +837,7 @@ export function wfCapType() {
 /** Describes CapDAG.Illegal for polymorphic functions. */
 export function illegalType() {
   return new L.Type(
-    L.inductiveExpr(27),
+    L.inductiveExpr(28),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Illegal");
       switch (v.kind) {
@@ -846,7 +865,7 @@ export function illegalType() {
 /** Describes CapDAG.Effect for polymorphic functions. */
 export function effectType() {
   return new L.Type(
-    L.inductiveExpr(28),
+    L.inductiveExpr(29),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Effect");
       switch (v.kind) {
@@ -882,7 +901,7 @@ export function effectType() {
 /** Describes CapDAG.Exec.WfQuery for polymorphic functions. */
 export function wfQueryType() {
   return new L.Type(
-    L.inductiveExpr(29),
+    L.inductiveExpr(30),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Exec.WfQuery");
       w.u32(0);
@@ -902,7 +921,7 @@ export function wfQueryType() {
 /** Describes CapDAG.Grade for polymorphic functions. */
 export function gradeType() {
   return new L.Type(
-    L.inductiveExpr(30),
+    L.inductiveExpr(31),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Grade");
       switch (v.kind) {
@@ -938,7 +957,7 @@ export function gradeType() {
 /** Describes CapDAG.Run.Control.RunPhase for polymorphic functions. */
 export function runPhaseType() {
   return new L.Type(
-    L.inductiveExpr(31),
+    L.inductiveExpr(32),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunPhase");
       switch (v.kind) {
@@ -974,7 +993,7 @@ export function runPhaseType() {
 /** Describes CapDAG.Run.Control.RunOutcome for polymorphic functions. */
 export function runOutcomeType() {
   return new L.Type(
-    L.inductiveExpr(32),
+    L.inductiveExpr(33),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunOutcome");
       switch (v.kind) {
@@ -1014,7 +1033,7 @@ export function runOutcomeType() {
 /** Describes CapDAG.Run.Control.RunAsk for polymorphic functions. */
 export function runAskType() {
   return new L.Type(
-    L.inductiveExpr(33),
+    L.inductiveExpr(34),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunAsk");
       switch (v.kind) {
@@ -1054,7 +1073,7 @@ export function runAskType() {
 /** Describes CapDAG.Run.Control.RunNext for polymorphic functions. */
 export function runNextType() {
   return new L.Type(
-    L.inductiveExpr(34),
+    L.inductiveExpr(35),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunNext");
       w.u32(0);
@@ -1072,7 +1091,7 @@ export function runNextType() {
 /** Describes CapDAG.Run.Step.StepState for polymorphic functions. */
 export function stepStateType() {
   return new L.Type(
-    L.inductiveExpr(35),
+    L.inductiveExpr(36),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Step.StepState");
       switch (v.kind) {
@@ -1124,7 +1143,7 @@ export function stepStateType() {
 /** Describes CapDAG.Run.Step.StepReport for polymorphic functions. */
 export function stepReportType() {
   return new L.Type(
-    L.inductiveExpr(36),
+    L.inductiveExpr(37),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Step.StepReport");
       switch (v.kind) {
@@ -1167,7 +1186,7 @@ export function stepReportType() {
 /** Describes TaggedUrn.Constraint for polymorphic functions. */
 export function constraintType() {
   return new L.Type(
-    L.inductiveExpr(37),
+    L.inductiveExpr(38),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a TaggedUrn.Constraint");
       switch (v.kind) {
@@ -1218,7 +1237,7 @@ export function constraintType() {
 /** Describes CapDAG.Bifaci.Pools.Pool for polymorphic functions. */
 export function poolType() {
   return new L.Type(
-    L.inductiveExpr(38),
+    L.inductiveExpr(39),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Bifaci.Pools.Pool");
       w.u32(0);
@@ -1237,7 +1256,7 @@ export function poolType() {
 /** Describes CapDAG.Detect.Rules for polymorphic functions. */
 export function rulesType() {
   return new L.Type(
-    L.inductiveExpr(39),
+    L.inductiveExpr(40),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Detect.Rules");
       switch (v.kind) {
@@ -1269,7 +1288,7 @@ export function rulesType() {
 /** Describes CapDAG.Exec.WfAsk for polymorphic functions. */
 export function wfAskType() {
   return new L.Type(
-    L.inductiveExpr(40),
+    L.inductiveExpr(41),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Exec.WfAsk");
       switch (v.kind) {
@@ -1308,7 +1327,7 @@ export function wfAskType() {
 /** Describes CapDAG.Run.Control.RunAct for polymorphic functions. */
 export function runActType() {
   return new L.Type(
-    L.inductiveExpr(41),
+    L.inductiveExpr(42),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunAct");
       switch (v.kind) {
@@ -4288,6 +4307,68 @@ export const ASSURANCE = L.parseAssurance({
         "end": {
           "line": 30,
           "column": 66
+        }
+      }
+    },
+    {
+      "name": "CapDAG.Bifaci.Request.start_opens_anything",
+      "relation": "lungo.law",
+      "subjects": [
+        "CapDAG.Bifaci.Request.Emission.start"
+      ],
+      "specifications": [],
+      "statement": "∀ (stream : String),\n  CapDAG.Bifaci.Request.Emission.start.step (CapDAG.Bifaci.Request.Emitted.streamStart stream) =\n      Except.ok { streams := [(stream, 0)], ended := [], over := false } ∧\n    CapDAG.Bifaci.Request.Emission.start.step CapDAG.Bifaci.Request.Emitted.fin =\n      Except.ok { streams := [], ended := [], over := true }",
+      "status": "proved",
+      "evidence_trust": {
+        "axioms": [
+          "propext"
+        ],
+        "depends_on_sorry": false
+      },
+      "assumptions": [],
+      "package": "capdagFormal",
+      "fingerprint": "e11d31da483daea31ca8e411bc92a114989c2c96c4cc7d161da8aee2d76cd422",
+      "source": {
+        "package": "capdagFormal",
+        "file": "CapDAG/Bifaci/Laws/Request.lean",
+        "start": {
+          "line": 282,
+          "column": 1
+        },
+        "end": {
+          "line": 288,
+          "column": 55
+        }
+      }
+    },
+    {
+      "name": "CapDAG.Bifaci.Request.step_is_check",
+      "relation": "lungo.law",
+      "subjects": [
+        "CapDAG.Bifaci.Request.Emission.step"
+      ],
+      "specifications": [],
+      "statement": "∀ (frames : List CapDAG.Bifaci.Request.Emitted),\n  CapDAG.Bifaci.Request.check frames =\n    match List.foldlM (fun e f => e.step f) CapDAG.Bifaci.Request.Emission.start frames with\n    | Except.ok a => none\n    | Except.error v => some v",
+      "status": "proved",
+      "evidence_trust": {
+        "axioms": [
+          "propext"
+        ],
+        "depends_on_sorry": false
+      },
+      "assumptions": [],
+      "package": "capdagFormal",
+      "fingerprint": "0cb18aa4a6471eadcd3759028432b19b87ffec6640b09fda64e113b5ff8d62c4",
+      "source": {
+        "package": "capdagFormal",
+        "file": "CapDAG/Bifaci/Laws/Request.lean",
+        "start": {
+          "line": 290,
+          "column": 1
+        },
+        "end": {
+          "line": 307,
+          "column": 33
         }
       }
     },
@@ -8149,6 +8230,70 @@ export const ASSURANCE = L.parseAssurance({
       }
     },
     {
+      "name": "CapDAG.Bifaci.Request.Emission.start",
+      "module": "CapDAG.Bifaci.Request",
+      "async": false,
+      "trust": {
+        "axioms": [],
+        "depends_on_sorry": false,
+        "unsafe_dependencies": [],
+        "partial_dependencies": [],
+        "extern_dependencies": []
+      },
+      "claims": [
+        "CapDAG.Bifaci.Request.start_opens_anything"
+      ],
+      "assumptions": [],
+      "facilities": [],
+      "roles": [],
+      "source": {
+        "package": "capdagFormal",
+        "file": "CapDAG/Bifaci/Request.lean",
+        "start": {
+          "line": 170,
+          "column": 1
+        },
+        "end": {
+          "line": 170,
+          "column": 49
+        }
+      }
+    },
+    {
+      "name": "CapDAG.Bifaci.Request.Emission.step",
+      "module": "CapDAG.Bifaci.Request",
+      "async": false,
+      "trust": {
+        "axioms": [],
+        "depends_on_sorry": false,
+        "unsafe_dependencies": [],
+        "partial_dependencies": [],
+        "extern_dependencies": [
+          "lean_nat_add",
+          "lean_nat_dec_eq",
+          "lean_string_dec_eq"
+        ]
+      },
+      "claims": [
+        "CapDAG.Bifaci.Request.step_is_check"
+      ],
+      "assumptions": [],
+      "facilities": [],
+      "roles": [],
+      "source": {
+        "package": "capdagFormal",
+        "file": "CapDAG/Bifaci/Request.lean",
+        "start": {
+          "line": 172,
+          "column": 1
+        },
+        "end": {
+          "line": 207,
+          "column": 94
+        }
+      }
+    },
+    {
       "name": "CapDAG.Bifaci.Request.Phase.after",
       "module": "CapDAG.Bifaci.Request",
       "async": false,
@@ -9515,9 +9660,10 @@ export const leanTypes = Object.freeze({
   "CapDAG.Bifaci.Pools.Waiter": Object.freeze({ fingerprint: "48d81c7e41df114e88751bb5c1f4a84c16bac3ad28d8eacba141d45f92c79da0", type: waiterType }),
   "CapDAG.Bifaci.Pools.Arrival": Object.freeze({ fingerprint: "6bee196c56c330c4ef348f4dd5a68558b2d19105592969cc64a0e7150bd22451", type: poolsArrivalType }),
   "CapDAG.Bifaci.Pools.Patience": Object.freeze({ fingerprint: "d32e3427e590ca6002e38cface52d020c7df74603f952bf568401f7291d5648c", type: patienceType }),
-  "CapDAG.Bifaci.Request.Phase": Object.freeze({ fingerprint: "7407437b58ce033618bf82341b13aaa9661d29a5a9b0f1bf1547ea0bfcfd8374", type: phaseType }),
+  "CapDAG.Bifaci.Request.Emission": Object.freeze({ fingerprint: "ed86e54f20b38d926597dacf88c3de65ae68867ee18db71faed8192cf879afca", type: emissionType }),
   "CapDAG.Bifaci.Request.Emitted": Object.freeze({ fingerprint: "97a274be14c5baecf9c50243d3651da838c5de4375366d4102cbcff85fb211c8", type: emittedType }),
   "CapDAG.Bifaci.Request.Violation": Object.freeze({ fingerprint: "203fb2fc4f8ff3c79b70871b4274852e742adf97c3cc4e6631439ec66d838f09", type: violationType }),
+  "CapDAG.Bifaci.Request.Phase": Object.freeze({ fingerprint: "7407437b58ce033618bf82341b13aaa9661d29a5a9b0f1bf1547ea0bfcfd8374", type: phaseType }),
   "CapDAG.Bifaci.Request.Disposition": Object.freeze({ fingerprint: "540307dfb6e509ccde4b894c69566edd1f3f9c3223b9325e97ee91b20d0fb82f", type: dispositionType }),
   "CapDAG.Bifaci.Request.Terminal": Object.freeze({ fingerprint: "3597c3196cef5e4468b5449eb0da09af414bb8c3aa40d92b027089f6ae81c870", type: terminalType }),
   "CapDAG.Bifaci.Request.Write": Object.freeze({ fingerprint: "9ae21282903c8131c25ca1cc527e51fd1fa5137aa77c9ef4f3d091e9415a109a", type: writeType }),
@@ -9595,7 +9741,7 @@ export class CapdagFormal {
   accept(r_, seq, limit) {
     return this.#program.invoke("capdagFormal__call_l_CapDAG_dBifaci_dFlow_dReorder_daccept", [], [[reorderType(), r_], [L.NAT, seq], [L.NAT, limit]], L.value(acceptedType()));
   }
-  start() {
+  reorderStart() {
     return this.#program.invoke("capdagFormal__call_l_CapDAG_dBifaci_dFlow_dReorder_dstart", [], [], L.value(reorderType()));
   }
   initial() {
@@ -9654,6 +9800,12 @@ export class CapdagFormal {
   }
   patience(unavailableFor, grace) {
     return this.#program.invoke("capdagFormal__call_l_CapDAG_dBifaci_dPools_dpatience", [], [[L.option(L.NAT), unavailableFor], [L.NAT, grace]], L.value(patienceType()));
+  }
+  emissionStart() {
+    return this.#program.invoke("capdagFormal__call_l_CapDAG_dBifaci_dRequest_dEmission_dstart", [], [], L.value(emissionType()));
+  }
+  step(e, frame) {
+    return this.#program.invoke("capdagFormal__call_l_CapDAG_dBifaci_dRequest_dEmission_dstep", [], [[emissionType(), e], [emittedType(), frame]], L.value(L.except(violationType(), emissionType())));
   }
   after(p, frame) {
     return this.#program.invoke("capdagFormal__call_l_CapDAG_dBifaci_dRequest_dPhase_dafter", [], [[phaseType(), p], [frameTypeType(), frame]], L.value(phaseType()));
