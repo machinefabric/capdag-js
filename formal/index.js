@@ -869,61 +869,10 @@ export function wfCapType() {
   );
 }
 
-/** Describes TaggedUrn.Constraint for polymorphic functions. */
-export function constraintType() {
-  return new L.Type(
-    L.inductiveExpr(29),
-    (w, v) => {
-      if (typeof v !== "object" || v === null) throw new L.MalformedError("not a TaggedUrn.Constraint");
-      switch (v.kind) {
-        case "missing":
-          w.u32(0);
-          return;
-        case "unconstrained":
-          w.u32(1);
-          return;
-        case "optionalNot":
-          w.u32(2);
-          L.STRING.encode(w, v.value);
-          return;
-        case "present":
-          w.u32(3);
-          return;
-        case "presentNot":
-          w.u32(4);
-          L.STRING.encode(w, v.value);
-          return;
-        case "exact":
-          w.u32(5);
-          L.STRING.encode(w, v.value);
-          return;
-        case "absent":
-          w.u32(6);
-          return;
-        default:
-          throw new L.MalformedError(`${String(v.kind)} is not a constructor of TaggedUrn.Constraint`);
-      }
-    },
-    (r) => {
-      const c = r.u32();
-      switch (c) {
-        case 0: return ({ kind: "missing" });
-        case 1: return ({ kind: "unconstrained" });
-        case 2: return ({ kind: "optionalNot", value: L.STRING.decode(r) });
-        case 3: return ({ kind: "present" });
-        case 4: return ({ kind: "presentNot", value: L.STRING.decode(r) });
-        case 5: return ({ kind: "exact", value: L.STRING.decode(r) });
-        case 6: return ({ kind: "absent" });
-        default: throw new L.MalformedError(`constructor index ${c} of TaggedUrn.Constraint`);
-      }
-    },
-  );
-}
-
 /** Describes CapDAG.Illegal for polymorphic functions. */
 export function illegalType() {
   return new L.Type(
-    L.inductiveExpr(30),
+    L.inductiveExpr(29),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Illegal");
       switch (v.kind) {
@@ -951,7 +900,7 @@ export function illegalType() {
 /** Describes CapDAG.Effect for polymorphic functions. */
 export function effectType() {
   return new L.Type(
-    L.inductiveExpr(31),
+    L.inductiveExpr(30),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Effect");
       switch (v.kind) {
@@ -987,7 +936,7 @@ export function effectType() {
 /** Describes CapDAG.Exec.WfQuery for polymorphic functions. */
 export function wfQueryType() {
   return new L.Type(
-    L.inductiveExpr(32),
+    L.inductiveExpr(31),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Exec.WfQuery");
       w.u32(0);
@@ -1007,7 +956,7 @@ export function wfQueryType() {
 /** Describes CapDAG.Grade for polymorphic functions. */
 export function gradeType() {
   return new L.Type(
-    L.inductiveExpr(33),
+    L.inductiveExpr(32),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Grade");
       switch (v.kind) {
@@ -1043,7 +992,7 @@ export function gradeType() {
 /** Describes CapDAG.Run.Control.RunPhase for polymorphic functions. */
 export function runPhaseType() {
   return new L.Type(
-    L.inductiveExpr(34),
+    L.inductiveExpr(33),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunPhase");
       switch (v.kind) {
@@ -1079,7 +1028,7 @@ export function runPhaseType() {
 /** Describes CapDAG.Run.Control.RunOutcome for polymorphic functions. */
 export function runOutcomeType() {
   return new L.Type(
-    L.inductiveExpr(35),
+    L.inductiveExpr(34),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunOutcome");
       switch (v.kind) {
@@ -1119,7 +1068,7 @@ export function runOutcomeType() {
 /** Describes CapDAG.Run.Control.RunAsk for polymorphic functions. */
 export function runAskType() {
   return new L.Type(
-    L.inductiveExpr(36),
+    L.inductiveExpr(35),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunAsk");
       switch (v.kind) {
@@ -1159,7 +1108,7 @@ export function runAskType() {
 /** Describes CapDAG.Run.Control.RunNext for polymorphic functions. */
 export function runNextType() {
   return new L.Type(
-    L.inductiveExpr(37),
+    L.inductiveExpr(36),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunNext");
       w.u32(0);
@@ -1177,7 +1126,7 @@ export function runNextType() {
 /** Describes CapDAG.Run.Step.StepState for polymorphic functions. */
 export function stepStateType() {
   return new L.Type(
-    L.inductiveExpr(38),
+    L.inductiveExpr(37),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Step.StepState");
       switch (v.kind) {
@@ -1229,7 +1178,7 @@ export function stepStateType() {
 /** Describes CapDAG.Run.Step.StepReport for polymorphic functions. */
 export function stepReportType() {
   return new L.Type(
-    L.inductiveExpr(39),
+    L.inductiveExpr(38),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Step.StepReport");
       switch (v.kind) {
@@ -1264,6 +1213,57 @@ export function stepReportType() {
         case 3: return ({ kind: "failed" });
         case 4: return ({ kind: "runEnded", completed: L.BOOL.decode(r), aborted: L.BOOL.decode(r) });
         default: throw new L.MalformedError(`constructor index ${c} of CapDAG.Run.Step.StepReport`);
+      }
+    },
+  );
+}
+
+/** Describes TaggedUrn.Constraint for polymorphic functions. */
+export function constraintType() {
+  return new L.Type(
+    L.inductiveExpr(39),
+    (w, v) => {
+      if (typeof v !== "object" || v === null) throw new L.MalformedError("not a TaggedUrn.Constraint");
+      switch (v.kind) {
+        case "missing":
+          w.u32(0);
+          return;
+        case "unconstrained":
+          w.u32(1);
+          return;
+        case "optionalNot":
+          w.u32(2);
+          L.STRING.encode(w, v.value);
+          return;
+        case "present":
+          w.u32(3);
+          return;
+        case "presentNot":
+          w.u32(4);
+          L.STRING.encode(w, v.value);
+          return;
+        case "exact":
+          w.u32(5);
+          L.STRING.encode(w, v.value);
+          return;
+        case "absent":
+          w.u32(6);
+          return;
+        default:
+          throw new L.MalformedError(`${String(v.kind)} is not a constructor of TaggedUrn.Constraint`);
+      }
+    },
+    (r) => {
+      const c = r.u32();
+      switch (c) {
+        case 0: return ({ kind: "missing" });
+        case 1: return ({ kind: "unconstrained" });
+        case 2: return ({ kind: "optionalNot", value: L.STRING.decode(r) });
+        case 3: return ({ kind: "present" });
+        case 4: return ({ kind: "presentNot", value: L.STRING.decode(r) });
+        case 5: return ({ kind: "exact", value: L.STRING.decode(r) });
+        case 6: return ({ kind: "absent" });
+        default: throw new L.MalformedError(`constructor index ${c} of TaggedUrn.Constraint`);
       }
     },
   );
@@ -4953,11 +4953,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 383,
+          "line": 380,
           "column": 1
         },
         "end": {
-          "line": 387,
+          "line": 384,
           "column": 49
         }
       }
@@ -4988,11 +4988,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 120,
+          "line": 117,
           "column": 1
         },
         "end": {
-          "line": 131,
+          "line": 128,
           "column": 104
         }
       }
@@ -5004,7 +5004,7 @@ export const ASSURANCE = L.parseAssurance({
         "CapDAG.Exec.capGives"
       ],
       "specifications": [],
-      "statement": "∀ (c : CapDAG.Exec.WfCap) (x : TaggedUrn.Exec.Wf),\n  CapDAG.Exec.capGives c x = ((CapDAG.Exec.WfCap.toCap✝ c).gives x.urn).tags ∧\n    TaggedUrn.Sorted ((CapDAG.Exec.WfCap.toCap✝ c).gives x.urn).tags",
+      "statement": "∀ (c : CapDAG.Exec.WfCap) (x : TaggedUrn.Exec.Wf),\n  (CapDAG.Exec.capGives c x).urn = (CapDAG.Exec.WfCap.toCap✝ c).gives x.urn",
       "status": "proved",
       "evidence_trust": {
         "axioms": [
@@ -5016,7 +5016,7 @@ export const ASSURANCE = L.parseAssurance({
       },
       "assumptions": [],
       "package": "capdagFormal",
-      "fingerprint": "a1f54e87b84ad9b0152600bce4b18e099d50fed6e07209511fac223785723d81",
+      "fingerprint": "6a8a3e4cb1fe3ec29e9781d4562a06be88c7113f6add3d168aa1ee447f0fb9a5",
       "source": {
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
@@ -5025,8 +5025,8 @@ export const ASSURANCE = L.parseAssurance({
           "column": 1
         },
         "end": {
-          "line": 102,
-          "column": 54
+          "line": 99,
+          "column": 18
         }
       }
     },
@@ -5091,11 +5091,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 434,
+          "line": 431,
           "column": 1
         },
         "end": {
-          "line": 438,
+          "line": 435,
           "column": 61
         }
       }
@@ -5126,11 +5126,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 363,
+          "line": 360,
           "column": 1
         },
         "end": {
-          "line": 367,
+          "line": 364,
           "column": 46
         }
       }
@@ -5190,11 +5190,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 440,
+          "line": 437,
           "column": 1
         },
         "end": {
-          "line": 458,
+          "line": 455,
           "column": 72
         }
       }
@@ -5225,11 +5225,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 428,
+          "line": 425,
           "column": 1
         },
         "end": {
-          "line": 432,
+          "line": 429,
           "column": 62
         }
       }
@@ -5260,11 +5260,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 465,
+          "line": 462,
           "column": 1
         },
         "end": {
-          "line": 467,
+          "line": 464,
           "column": 62
         }
       }
@@ -5295,11 +5295,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 373,
+          "line": 370,
           "column": 1
         },
         "end": {
-          "line": 377,
+          "line": 374,
           "column": 48
         }
       }
@@ -5330,11 +5330,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 472,
+          "line": 469,
           "column": 1
         },
         "end": {
-          "line": 474,
+          "line": 471,
           "column": 64
         }
       }
@@ -5365,11 +5365,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 305,
+          "line": 302,
           "column": 1
         },
         "end": {
-          "line": 311,
+          "line": 308,
           "column": 24
         }
       }
@@ -5400,11 +5400,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 207,
+          "line": 204,
           "column": 1
         },
         "end": {
-          "line": 212,
+          "line": 209,
           "column": 80
         }
       }
@@ -5435,11 +5435,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 203,
+          "line": 200,
           "column": 1
         },
         "end": {
-          "line": 205,
+          "line": 202,
           "column": 84
         }
       }
@@ -5470,11 +5470,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 346,
+          "line": 343,
           "column": 1
         },
         "end": {
-          "line": 355,
+          "line": 352,
           "column": 46
         }
       }
@@ -5505,11 +5505,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 318,
+          "line": 315,
           "column": 1
         },
         "end": {
-          "line": 324,
+          "line": 321,
           "column": 24
         }
       }
@@ -5540,11 +5540,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 186,
+          "line": 183,
           "column": 1
         },
         "end": {
-          "line": 188,
+          "line": 185,
           "column": 58
         }
       }
@@ -5575,11 +5575,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 190,
+          "line": 187,
           "column": 1
         },
         "end": {
-          "line": 197,
+          "line": 194,
           "column": 30
         }
       }
@@ -5610,11 +5610,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 199,
+          "line": 196,
           "column": 1
         },
         "end": {
-          "line": 201,
+          "line": 198,
           "column": 86
         }
       }
@@ -5645,11 +5645,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 485,
+          "line": 482,
           "column": 1
         },
         "end": {
-          "line": 487,
+          "line": 484,
           "column": 90
         }
       }
@@ -5680,11 +5680,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 502,
+          "line": 499,
           "column": 1
         },
         "end": {
-          "line": 544,
+          "line": 541,
           "column": 77
         }
       }
@@ -5715,11 +5715,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 478,
+          "line": 475,
           "column": 1
         },
         "end": {
-          "line": 479,
+          "line": 476,
           "column": 77
         }
       }
@@ -6749,11 +6749,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 64,
+          "line": 81,
           "column": 1
         },
         "end": {
-          "line": 67,
+          "line": 84,
           "column": 74
         }
       }
@@ -6784,11 +6784,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 57,
+          "line": 74,
           "column": 1
         },
         "end": {
-          "line": 60,
+          "line": 77,
           "column": 75
         }
       }
@@ -6817,11 +6817,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 151,
+          "line": 168,
           "column": 1
         },
         "end": {
-          "line": 160,
+          "line": 177,
           "column": 12
         }
       }
@@ -6850,11 +6850,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 144,
+          "line": 161,
           "column": 1
         },
         "end": {
-          "line": 149,
+          "line": 166,
           "column": 21
         }
       }
@@ -6883,11 +6883,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 188,
+          "line": 205,
           "column": 1
         },
         "end": {
-          "line": 207,
+          "line": 224,
           "column": 46
         }
       }
@@ -6916,11 +6916,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 162,
+          "line": 179,
           "column": 1
         },
         "end": {
-          "line": 177,
+          "line": 194,
           "column": 12
         }
       }
@@ -6949,11 +6949,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 179,
+          "line": 196,
           "column": 1
         },
         "end": {
-          "line": 186,
+          "line": 203,
           "column": 67
         }
       }
@@ -6988,6 +6988,39 @@ export const ASSURANCE = L.parseAssurance({
         "end": {
           "line": 45,
           "column": 21
+        }
+      }
+    },
+    {
+      "name": "TaggedUrn.Exec.make_parts",
+      "relation": "lungo.law",
+      "subjects": [
+        "TaggedUrn.Exec.parts"
+      ],
+      "specifications": [],
+      "statement": "∀ (w : TaggedUrn.Exec.Wf),\n  Option.map (fun x => x.urn) (TaggedUrn.Exec.make (TaggedUrn.Exec.parts w).fst (TaggedUrn.Exec.parts w).snd) =\n    some w.urn",
+      "status": "proved",
+      "evidence_trust": {
+        "axioms": [
+          "Classical.choice",
+          "Quot.sound",
+          "propext"
+        ],
+        "depends_on_sorry": false
+      },
+      "assumptions": [],
+      "package": "tagged_urn_formal",
+      "fingerprint": "c8a0d59be68c4e53ad705b7f8e779e3815628db8b4e74448f5bc1571f7b75d45",
+      "source": {
+        "package": "tagged_urn_formal",
+        "file": "TaggedUrn/Exec.lean",
+        "start": {
+          "line": 57,
+          "column": 1
+        },
+        "end": {
+          "line": 62,
+          "column": 6
         }
       }
     },
@@ -7050,11 +7083,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 112,
+          "line": 129,
           "column": 1
         },
         "end": {
-          "line": 116,
+          "line": 133,
           "column": 16
         }
       }
@@ -7085,12 +7118,45 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 86,
+          "line": 103,
           "column": 1
         },
         "end": {
-          "line": 88,
+          "line": 105,
           "column": 90
+        }
+      }
+    },
+    {
+      "name": "TaggedUrn.Exec.parts_eq",
+      "relation": "lungo.law",
+      "subjects": [
+        "TaggedUrn.Exec.parts"
+      ],
+      "specifications": [],
+      "statement": "∀ (w : TaggedUrn.Exec.Wf), TaggedUrn.Exec.parts w = (w.urn.scheme, w.urn.tags) ∧ TaggedUrn.Sorted w.urn.tags",
+      "status": "proved",
+      "evidence_trust": {
+        "axioms": [
+          "Classical.choice",
+          "Quot.sound",
+          "propext"
+        ],
+        "depends_on_sorry": false
+      },
+      "assumptions": [],
+      "package": "tagged_urn_formal",
+      "fingerprint": "3c389a9c5b3d0b92c65d126c934395b16cc6b13be125931cdb80b1afa6d6bab3",
+      "source": {
+        "package": "tagged_urn_formal",
+        "file": "TaggedUrn/Exec.lean",
+        "start": {
+          "line": 52,
+          "column": 1
+        },
+        "end": {
+          "line": 55,
+          "column": 18
         }
       }
     },
@@ -7120,11 +7186,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 122,
+          "line": 139,
           "column": 1
         },
         "end": {
-          "line": 126,
+          "line": 143,
           "column": 34
         }
       }
@@ -7155,11 +7221,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 102,
+          "line": 119,
           "column": 1
         },
         "end": {
-          "line": 106,
+          "line": 123,
           "column": 16
         }
       }
@@ -7190,11 +7256,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 51,
+          "line": 68,
           "column": 1
         },
         "end": {
-          "line": 53,
+          "line": 70,
           "column": 94
         }
       }
@@ -7225,11 +7291,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 72,
+          "line": 89,
           "column": 1
         },
         "end": {
-          "line": 73,
+          "line": 90,
           "column": 72
         }
       }
@@ -7260,11 +7326,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 131,
+          "line": 148,
           "column": 1
         },
         "end": {
-          "line": 134,
+          "line": 151,
           "column": 33
         }
       }
@@ -7295,11 +7361,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 78,
+          "line": 95,
           "column": 1
         },
         "end": {
-          "line": 80,
+          "line": 97,
           "column": 85
         }
       }
@@ -7330,11 +7396,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Exec.lean",
         "start": {
-          "line": 93,
+          "line": 110,
           "column": 1
         },
         "end": {
-          "line": 95,
+          "line": 112,
           "column": 84
         }
       }
@@ -9015,11 +9081,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 379,
+          "line": 376,
           "column": 1
         },
         "end": {
-          "line": 381,
+          "line": 378,
           "column": 43
         }
       }
@@ -9056,11 +9122,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 114,
+          "line": 111,
           "column": 1
         },
         "end": {
-          "line": 118,
+          "line": 115,
           "column": 63
         }
       }
@@ -9101,7 +9167,7 @@ export const ASSURANCE = L.parseAssurance({
         },
         "end": {
           "line": 94,
-          "column": 89
+          "column": 54
         }
       }
     },
@@ -9172,11 +9238,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 426,
+          "line": 423,
           "column": 1
         },
         "end": {
-          "line": 426,
+          "line": 423,
           "column": 70
         }
       }
@@ -9213,11 +9279,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 359,
+          "line": 356,
           "column": 1
         },
         "end": {
-          "line": 361,
+          "line": 358,
           "column": 46
         }
       }
@@ -9284,11 +9350,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 425,
+          "line": 422,
           "column": 1
         },
         "end": {
-          "line": 425,
+          "line": 422,
           "column": 70
         }
       }
@@ -9321,11 +9387,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 462,
+          "line": 459,
           "column": 1
         },
         "end": {
-          "line": 463,
+          "line": 460,
           "column": 74
         }
       }
@@ -9366,11 +9432,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 369,
+          "line": 366,
           "column": 1
         },
         "end": {
-          "line": 371,
+          "line": 368,
           "column": 48
         }
       }
@@ -9403,11 +9469,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 469,
+          "line": 466,
           "column": 1
         },
         "end": {
-          "line": 470,
+          "line": 467,
           "column": 74
         }
       }
@@ -9444,11 +9510,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 300,
+          "line": 297,
           "column": 1
         },
         "end": {
-          "line": 303,
+          "line": 300,
           "column": 78
         }
       }
@@ -9478,11 +9544,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 182,
+          "line": 179,
           "column": 1
         },
         "end": {
-          "line": 184,
+          "line": 181,
           "column": 99
         }
       }
@@ -9512,11 +9578,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 178,
+          "line": 175,
           "column": 1
         },
         "end": {
-          "line": 180,
+          "line": 177,
           "column": 93
         }
       }
@@ -9557,11 +9623,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 338,
+          "line": 335,
           "column": 1
         },
         "end": {
-          "line": 344,
+          "line": 341,
           "column": 18
         }
       }
@@ -9602,11 +9668,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 313,
+          "line": 310,
           "column": 1
         },
         "end": {
-          "line": 316,
+          "line": 313,
           "column": 76
         }
       }
@@ -9636,11 +9702,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 160,
+          "line": 157,
           "column": 1
         },
         "end": {
-          "line": 163,
+          "line": 160,
           "column": 96
         }
       }
@@ -9673,11 +9739,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 165,
+          "line": 162,
           "column": 1
         },
         "end": {
-          "line": 171,
+          "line": 168,
           "column": 42
         }
       }
@@ -9707,11 +9773,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 173,
+          "line": 170,
           "column": 1
         },
         "end": {
-          "line": 176,
+          "line": 173,
           "column": 94
         }
       }
@@ -9746,11 +9812,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 481,
+          "line": 478,
           "column": 1
         },
         "end": {
-          "line": 483,
+          "line": 480,
           "column": 50
         }
       }
@@ -9792,11 +9858,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 489,
+          "line": 486,
           "column": 1
         },
         "end": {
-          "line": 500,
+          "line": 497,
           "column": 9
         }
       }
@@ -9829,11 +9895,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Exec.lean",
         "start": {
-          "line": 476,
+          "line": 473,
           "column": 1
         },
         "end": {
-          "line": 476,
+          "line": 473,
           "column": 54
         }
       }
@@ -10119,6 +10185,41 @@ export const ASSURANCE = L.parseAssurance({
           "column": 61
         }
       }
+    },
+    {
+      "name": "TaggedUrn.Exec.parts",
+      "module": "TaggedUrn.Exec",
+      "async": false,
+      "trust": {
+        "axioms": [
+          "Classical.choice",
+          "Quot.sound",
+          "propext"
+        ],
+        "depends_on_sorry": false,
+        "unsafe_dependencies": [],
+        "partial_dependencies": [],
+        "extern_dependencies": []
+      },
+      "claims": [
+        "TaggedUrn.Exec.make_parts",
+        "TaggedUrn.Exec.parts_eq"
+      ],
+      "assumptions": [],
+      "facilities": [],
+      "roles": [],
+      "source": {
+        "package": "tagged_urn_formal",
+        "file": "TaggedUrn/Exec.lean",
+        "start": {
+          "line": 47,
+          "column": 1
+        },
+        "end": {
+          "line": 50,
+          "column": 87
+        }
+      }
     }
   ]
 });
@@ -10154,7 +10255,6 @@ export const leanTypes = Object.freeze({
   "CapDAG.Detect.AdapterChoice": Object.freeze({ fingerprint: "b2913e0b15cdb7e5eeb0ae7b326977674e4374898cf7ad6524c99cd7ee6198f5", type: adapterChoiceType }),
   "CapDAG.Detect.Candidate": Object.freeze({ fingerprint: "44b0af3c53fe735247dd93bf66fcba31fe6e73818339bcb1d382fdb21b3cc65e", type: candidateType }),
   "CapDAG.Exec.WfCap": Object.freeze({ fingerprint: "2b8d6466d218f4ae6bc98d95bba55d98f21cac4a49446ae170993773cefdb830", type: wfCapType }),
-  "TaggedUrn.Constraint": Object.freeze({ fingerprint: "481fc09e23c6415a7c3f05887577ec940a6ecc84b005e63476c1060b59edcac7", type: constraintType }),
   "CapDAG.Illegal": Object.freeze({ fingerprint: "a8ff18eaaff4ebd30f6722ab9492b959e2e1db00d14532ca7790977b3eb7a528", type: illegalType }),
   "CapDAG.Effect": Object.freeze({ fingerprint: "38c7bd3c0527cda156713cd441c9b6b92bd5df8a39108fa101449a789abcb477", type: effectType }),
   "CapDAG.Exec.WfQuery": Object.freeze({ fingerprint: "e734861d70e3177f6563c4492990bb65131f0450b8dfc62071eb61b6c5f08b8e", type: wfQueryType }),
@@ -10165,6 +10265,7 @@ export const leanTypes = Object.freeze({
   "CapDAG.Run.Control.RunNext": Object.freeze({ fingerprint: "ed3067eec3d1ed1784061abb5cd9f6a344c9044fb5ce4e2e991157d961689844", type: runNextType }),
   "CapDAG.Run.Step.StepState": Object.freeze({ fingerprint: "29605211a3fdc3a760359c75d5cb65673e50c5813e851ed461dd9b955dbdfcfa", type: stepStateType }),
   "CapDAG.Run.Step.StepReport": Object.freeze({ fingerprint: "72ac48415e459328353488d886a31a3874490648ec761e7e8b14a08f7644ac29", type: stepReportType }),
+  "TaggedUrn.Constraint": Object.freeze({ fingerprint: "481fc09e23c6415a7c3f05887577ec940a6ecc84b005e63476c1060b59edcac7", type: constraintType }),
   "CapDAG.Bifaci.Pools.Pool": Object.freeze({ fingerprint: "60bca9d670886c7830c76779ad692b4fbb6e4e30c0ce6b3e9d5a91a9b5b7b1e6", type: poolType }),
   "CapDAG.Detect.Rules": Object.freeze({ fingerprint: "b29b984315894498d060c0db21d0688a1c4494edb9982b616acb8b1d9f2d41b4", type: rulesType }),
   "CapDAG.Exec.WfAsk": Object.freeze({ fingerprint: "d286477c7abc4e6bc6ee2d06889372b71a5bb06605b592ebabb6ad3eaf71b952", type: wfAskType }),
@@ -10328,7 +10429,7 @@ export class CapdagFormal {
     return this.#program.invoke("capdagFormal__call_l_CapDAG_dExec_daudit", [], [[wfCapType(), c], [wfType(), input], [wfType(), emitted]], L.value(L.BOOL));
   }
   capGives(c, x) {
-    return this.#program.invoke("capdagFormal__call_l_CapDAG_dExec_dcapGives", [], [[wfCapType(), c], [wfType(), x]], L.value(L.list(L.pair(L.STRING, constraintType()))));
+    return this.#program.invoke("capdagFormal__call_l_CapDAG_dExec_dcapGives", [], [[wfCapType(), c], [wfType(), x]], L.value(wfType()));
   }
   capIllegal(c) {
     return this.#program.invoke("capdagFormal__call_l_CapDAG_dExec_dcapIllegal", [], [[wfCapType(), c]], L.value(L.option(illegalType())));
@@ -10410,6 +10511,9 @@ export class CapdagFormal {
   }
   make(scheme, tags) {
     return this.#program.invoke("capdagFormal__call_l_TaggedUrn_dExec_dmake", [], [[L.STRING, scheme], [L.list(L.pair(L.STRING, constraintType())), tags]], L.value(L.option(wfType())));
+  }
+  parts(w_) {
+    return this.#program.invoke("capdagFormal__call_l_TaggedUrn_dExec_dparts", [], [[wfType(), w_]], L.value(L.pair(L.STRING, L.list(L.pair(L.STRING, constraintType())))));
   }
 }
 

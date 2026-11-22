@@ -241,18 +241,6 @@ export interface WfCap {
 }
 export function wfCapType(): L.Type<WfCap>;
 
-/** Lean's TaggedUrn.Constraint. */
-export type Constraint =
-  | { readonly kind: "missing" }
-  | { readonly kind: "unconstrained" }
-  | { readonly kind: "optionalNot"; readonly value: string }
-  | { readonly kind: "present" }
-  | { readonly kind: "presentNot"; readonly value: string }
-  | { readonly kind: "exact"; readonly value: string }
-  | { readonly kind: "absent" }
-;
-export function constraintType(): L.Type<Constraint>;
-
 /** Lean's CapDAG.Illegal. */
 export type Illegal =
   | { readonly kind: "bareTop" }
@@ -345,6 +333,18 @@ export type StepReport =
   | { readonly kind: "runEnded"; readonly completed: boolean; readonly aborted: boolean }
 ;
 export function stepReportType(): L.Type<StepReport>;
+
+/** Lean's TaggedUrn.Constraint. */
+export type Constraint =
+  | { readonly kind: "missing" }
+  | { readonly kind: "unconstrained" }
+  | { readonly kind: "optionalNot"; readonly value: string }
+  | { readonly kind: "present" }
+  | { readonly kind: "presentNot"; readonly value: string }
+  | { readonly kind: "exact"; readonly value: string }
+  | { readonly kind: "absent" }
+;
+export function constraintType(): L.Type<Constraint>;
 
 /** Lean's CapDAG.Bifaci.Pools.Pool. */
 export interface Pool {
@@ -489,8 +489,8 @@ export class CapdagFormal {
   accepts(pattern: WfCap, cap: WfCap): boolean;
   /** Lean's CapDAG.Exec.audit : CapDAG.Exec.WfCap → TaggedUrn.Exec.Wf → TaggedUrn.Exec.Wf → Bool */
   audit(c: WfCap, input: Wf, emitted: Wf): boolean;
-  /** Lean's CapDAG.Exec.capGives : CapDAG.Exec.WfCap → TaggedUrn.Exec.Wf → List (String × TaggedUrn.Constraint) */
-  capGives(c: WfCap, x: Wf): Array<[string, Constraint]>;
+  /** Lean's CapDAG.Exec.capGives : CapDAG.Exec.WfCap → TaggedUrn.Exec.Wf → TaggedUrn.Exec.Wf */
+  capGives(c: WfCap, x: Wf): Wf;
   /** Lean's CapDAG.Exec.capIllegal : CapDAG.Exec.WfCap → Option CapDAG.Illegal */
   capIllegal(c: WfCap): L.Option<Illegal>;
   /** Lean's CapDAG.Exec.comparable : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
@@ -545,6 +545,8 @@ export class CapdagFormal {
   on(a: StepState, a2: StepReport): L.Option<StepState>;
   /** Lean's TaggedUrn.Exec.make : String → List (String × TaggedUrn.Constraint) → Option TaggedUrn.Exec.Wf */
   make(scheme: string, tags: Array<[string, Constraint]>): L.Option<Wf>;
+  /** Lean's TaggedUrn.Exec.parts : TaggedUrn.Exec.Wf → String × List (String × TaggedUrn.Constraint) */
+  parts(w_: Wf): [string, Array<[string, Constraint]>];
 }
 
 /** The program's assurance document. */
