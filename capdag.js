@@ -96,7 +96,7 @@ const STRUCTURAL_KEYS = Object.freeze(['in', 'out', 'effect']);
 
 /** A tag a parsed tag map holds, as written, for an error that names it. */
 function writtenTag(key, constraint) {
-  return new TaggedUrn('cap', { [key]: constraint }).tagsToString();
+  return new TaggedUrn('cap', { [key]: constraint }).toString().slice('cap:'.length);
 }
 
 function directionCode(side) {

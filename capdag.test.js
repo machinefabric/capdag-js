@@ -1629,23 +1629,23 @@ function test283_capArgumentValueLargeBinary() {
 
 // TEST304: Test MEDIA_AVAILABILITY_OUTPUT constant parses as valid media URN with correct tags
 function test304_mediaAvailabilityOutputConstant() {
-  const urn = TaggedUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
+  const urn = MediaUrn.fromString(MEDIA_AVAILABILITY_OUTPUT);
   assertEqual(urn.exactValue('fmt'), 'json', 'model-availability is a JSON record');
   assertEqual(urn.exactValue('enc'), 'utf8', 'a JSON record is UTF-8');
-  assertEqual(urn.getTag('plain-text'), undefined, 'a JSON record is not plain text');
-  assert(urn.hasMarkerTag('record'), 'model-availability must be record');
-  const reparsed = TaggedUrn.fromString(urn.toString());
+  assert(!urn.hasMarkerTag('plain-text'), 'a JSON record is not plain text');
+  assert(urn.isRecord(), 'model-availability must be record');
+  const reparsed = MediaUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
 }
 
 // TEST305: Test MEDIA_PATH_OUTPUT constant parses as valid media URN with correct tags
 function test305_mediaPathOutputConstant() {
-  const urn = TaggedUrn.fromString(MEDIA_PATH_OUTPUT);
+  const urn = MediaUrn.fromString(MEDIA_PATH_OUTPUT);
   assertEqual(urn.exactValue('fmt'), 'json', 'model-path is a JSON record');
   assertEqual(urn.exactValue('enc'), 'utf8', 'a JSON record is UTF-8');
-  assertEqual(urn.getTag('plain-text'), undefined, 'a JSON record is not plain text');
-  assert(urn.hasMarkerTag('record'), 'model-path must be record');
-  const reparsed = TaggedUrn.fromString(urn.toString());
+  assert(!urn.hasMarkerTag('plain-text'), 'a JSON record is not plain text');
+  assert(urn.isRecord(), 'model-path must be record');
+  const reparsed = MediaUrn.fromString(urn.toString());
   assert(urn.conformsTo(reparsed), 'roundtrip must match original');
 }
 
@@ -4121,11 +4121,11 @@ function test12369_aQuerysTagsAreAskedOfTheTagsACapHas() {
   const someImage = CapUrn.fromString('cap:render;in="media:document;ext=pdf";out="media:image"');
   const anyImage = MediaUrn.fromString('media:image');
 
-  const converters = CapQuery.producing(anyImage, { 'convert-image': '*' });
+  const converters = CapQuery.producing(anyImage, { 'convert-image': Constraint.present() });
   assert(converters.admits(toJpeg));
   assert(!converters.admits(someImage), 'it renders; it is not tagged convert-image');
 
-  const notConverters = CapQuery.producing(anyImage, { 'convert-image': '!' });
+  const notConverters = CapQuery.producing(anyImage, { 'convert-image': Constraint.absent() });
   assert(notConverters.admits(someImage), 'it does not have the tag');
   assert(!notConverters.admits(toJpeg), 'it has it');
   assertEqual(notConverters.grade(toJpeg), MatchGrade.NONE);
