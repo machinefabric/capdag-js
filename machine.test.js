@@ -1128,7 +1128,7 @@ function test12838_urnsAreOrderedByTheirPartsNotTheirText() {
 // ============================================================================
 
 function refusedMatch(sources, args, argIsSequence) {
-  const error = thrown(() => matchSourcesToArgs(sources, args, argIsSequence, null), 'the matching');
+  const error = thrown(() => matchSourcesToArgs(sources, sources.map(() => false), args, argIsSequence, null), 'the matching');
   assert(error instanceof MatchFailure, error.stack);
   return error;
 }
@@ -1139,7 +1139,7 @@ function refusedMatch(sources, args, argIsSequence) {
 function test1400_gatherNSourcesIntoSequenceArg() {
   const sources = [1, 2, 3].map(() => media('media:enc=utf8;page'));
   const args = [media('media:enc=utf8')];
-  const pairs = matchSourcesToArgs(sources, args, [true], null);
+  const pairs = matchSourcesToArgs(sources, sources.map(() => false), args, [true], null);
   assertEqual(pairs.length, 3, 'one binding per gathered source');
   for (const [arg, source] of pairs) {
     assert(arg.isEquivalent(media('media:enc=utf8')), 'the arg');
@@ -1156,7 +1156,7 @@ function test1400_gatherNSourcesIntoSequenceArg() {
 function test1401_productPrecedenceOverGather() {
   const sources = [media('media:enc=utf8;page'), media('media:enc=utf8;summary')];
   const args = [media('media:enc=utf8;page'), media('media:enc=utf8')];
-  const pairs = matchSourcesToArgs(sources, args, [false, true], null);
+  const pairs = matchSourcesToArgs(sources, sources.map(() => false), args, [false, true], null);
   assertEqual(pairs.length, 2, 'two pairs');
   // The page source must claim the scalar page arg (injection), NOT be
   // gathered into the sequence arg alongside the summary.
@@ -2007,8 +2007,8 @@ function simpleCap(capUrn, stdinUrn, outUrn, slotUrn = stdinUrn) {
   return cap;
 }
 
-/** The matching over scalar args, with no arg that must be bound. */
-const match = (sources, args) => matchSourcesToArgs(sources, args, args.map(() => false), null);
+/** The matching of written types over scalar args, with no arg that must be bound. */
+const match = (sources, args) => matchSourcesToArgs(sources, sources.map(() => false), args, args.map(() => false), null);
 const refusedScalar = (sources, args) => refusedMatch(sources, args, args.map(() => false));
 
 const URN_EXTRACT = 'cap:extract;in="media:document;ext=pdf";out="media:enc=utf8;ext=txt;plain-text"';
@@ -2076,6 +2076,85 @@ function test1182_matchSourcesAmbiguousRaisesAmbiguousError() {
   failure = refusedScalar([text, number, text], [text, text, number]);
   assert(failure.ambiguous, 'a tie');
   assertEqual(failure.undecided, [[0, [0, 1]], [2, [0, 1]]], 'only the two that tie');
+}
+
+// TEST7217: a node a step gives is read complete when it is bound: a JSON
+// record, which does not mention `list`, binds to an input that refuses lists,
+// at a distance below zero, and is preferred to an input that takes any text.
+// The same type written for an input of the machine is a type, which may be a
+// list, and binds to neither.
+function test7217_aGivenNodeBindsBySatisfactionAtANegativeDistance() {
+  const record = media('media:enc=utf8;ext=json;fmt=json;record');
+  const noList = media('media:enc=utf8;fmt=json;record;!list');
+  const text = media('media:enc=utf8');
+  assert(record.specificity() < noList.specificity(), 'the distance is below zero');
+
+  for (const args of [[noList, text], [text, noList]]) {
+    const pairs = matchSourcesToArgs([record], [true], args, [false, false], null);
+    assertEqual(pairs.length, 1, 'one pair');
+    assert(pairs[0][0].isEquivalent(noList), `bound to ${pairs[0][0]}`);
+  }
+  const failure = thrown(() => matchSourcesToArgs([record], [false], [noList], [false], null), 'a written record');
+  assert(failure instanceof MatchFailure, failure.stack);
+  assertEqual([failure.ambiguous, failure.source], [false, 0], 'binds to nothing');
+
+  // Through the resolver: a step that gives the record feeds one whose input
+  // refuses lists.
+  const make = 'cap:in=media:enc=utf8;make-record;out="media:enc=utf8;ext=json;fmt=json;record"';
+  const toYaml = 'cap:in="media:enc=utf8;fmt=json;record;!list";to-yaml;out="media:enc=utf8;fmt=yaml;record"';
+  const definitions = definitionsOf([
+    simpleCap(make, 'media:enc=utf8', 'media:enc=utf8;ext=json;fmt=json;record'),
+    simpleCap(toYaml, 'media:enc=utf8;fmt=json;record;!list', 'media:enc=utf8;fmt=yaml;record'),
+  ]);
+  const yaml = media('media:enc=utf8;fmt=yaml;record');
+  const strand = resolvePreInterned([text, record, yaml],
+    [preInterned('tok-1', make, [0], [1]), preInterned('tok-2', toYaml, [1], [2])], definitions, 0);
+  assertEqual(strand.edges().length, 2, 'the given record feeds the step that refuses lists');
+
+  // The record as an input of the machine: a type, which may be a list.
+  const error = thrown(() => resolvePreInterned([record, yaml], [preInterned('tok-3', toYaml, [0], [1])], definitions, 0),
+    'a written record');
+  assert(isAbstraction(error, AE.UNMATCHED_SOURCE_IN_CAP_ARGS), error.stack);
+}
+
+// TEST7222: the node a patch cap produces holds what the cap gives for the node
+// it is sent, not its declared output: a series (a JSON list of records)
+// converted to YAML is a YAML list of records, so a step that takes YAML lists
+// of records takes it, whichever order the text writes the steps in.
+function test7222_aPatchOutputNodeHoldsWhatTheCapGives() {
+  const yamlRecords = 'media:enc=utf8;fmt=yaml;list;record';
+  const toYamlUrn = 'cap:effect=patch;in="media:enc=utf8;fmt=json";json-to-yaml;out="media:enc=utf8;fmt=yaml;!ext"';
+  const countUrn = `cap:in="${yamlRecords}";count;out="media:count;numeric"`;
+  const definitions = notationDefinitions().addCaps([
+    definition(toYamlUrn, 'to-yaml', [stdinArg('media:enc=utf8;fmt=json', 'input')],
+      [outputOf('media:enc=utf8;fmt=yaml;!ext', 'output', 'YAML')]),
+    definition(countUrn, 'count', [stdinArg(yamlRecords, 'rows')], [outputOf('media:count;numeric', 'count', 'How many')]),
+  ]);
+  const headers = `${HEADERS}[to_yaml ${toYamlUrn}][count ${countUrn}]`;
+  const want = media('media:enc=utf8;fmt=yaml;list;record;time-series;!ext');
+  for (const wirings of [
+    '[(reference="a") -> fetch -> s][s -> to_yaml -> y][y -> count -> n]',
+    '[y -> count -> n][s -> to_yaml -> y][(reference="a") -> fetch -> s]',
+  ]) {
+    const [machine, names] = withNames(headers + wirings, definitions);
+    const strand = machine.strands()[0];
+    const y = strand.nodeUrn(names[0].y);
+    assert(y.isEquivalent(want), `${wirings}: the YAML node is what the patch gives for the series, got ${y}`);
+    assertEqual(strand.edges().length, 3, wirings);
+  }
+
+  // An input of the machine converted for a step that takes YAML lists of
+  // records is a JSON list of records: what that step takes, read back through
+  // the patch.
+  for (const wirings of ['[x -> to_yaml -> y][y -> count -> n]', '[y -> count -> n][x -> to_yaml -> y]']) {
+    const [machine, names] = withNames(headers + wirings, definitions);
+    const strand = machine.strands()[0];
+    const x = strand.nodeUrn(names[0].x);
+    assert(x.isEquivalent(media('media:enc=utf8;fmt=json;list;record')),
+      `${wirings}: the input is what the step after the patch takes, read back, got ${x}`);
+    const y = strand.nodeUrn(names[0].y);
+    assert(y.isEquivalent(media('media:enc=utf8;fmt=yaml;list;record;!ext')), `${wirings}: got ${y}`);
+  }
 }
 
 // TEST1308: A wiring that forms a cycle is refused, naming the strand.
@@ -2719,6 +2798,8 @@ function runTests() {
   runTest('TEST1179: match_sources_more_specific_source_matches_general_arg', test1179_matchSourcesMoreSpecificSourceMatchesGeneralArg);
   runTest('TEST1180: match_sources_unmatched_source_fails_hard', test1180_matchSourcesUnmatchedSourceFailsHard);
   runTest('TEST1182: match_sources_ambiguous_raises_ambiguous_error', test1182_matchSourcesAmbiguousRaisesAmbiguousError);
+  runTest('TEST7217: a_given_node_binds_by_satisfaction_at_a_negative_distance', test7217_aGivenNodeBindsBySatisfactionAtANegativeDistance);
+  runTest('TEST7222: a_patch_output_node_holds_what_the_cap_gives', test7222_aPatchOutputNodeHoldsWhatTheCapGives);
   runTest('TEST1308: cyclic_strand_fails_hard', test1308_cyclicStrandFailsHard);
   runTest('TEST1171: machine_parse_error_wraps_syntax_error', test1171_machineParseErrorWrapsSyntaxError);
   runTest('TEST1165: parse_machine_unknown_cap_raises_parse_error_with_abstraction_cause', test1165_parseMachineUnknownCapRaisesParseErrorWithAbstractionCause);

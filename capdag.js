@@ -642,14 +642,16 @@ class CapUrn {
 
   /**
    * Whether `cap` fits this cap read as a PATTERN over caps — what a search
-   * asks: `cap`'s input is within this pattern's, its output covers the
-   * pattern's, its effect is the pattern's (a pattern's `?effect` fits any),
-   * and its cap-tags — complete: a cap has the tags it has — satisfy the
-   * pattern's.
+   * asks: `cap`'s input is within this pattern's, its output is within the
+   * pattern's — everything it gives is of the type the pattern names, its
+   * declared output read complete — its effect is the pattern's (a pattern's
+   * `?effect` fits any), and its cap-tags — complete: a cap has the tags it
+   * has — satisfy the pattern's. `cap:out="media:ext=pdf"` fits caps giving
+   * `media:ext=pdf` or `media:document;ext=pdf`, and not one giving `media:`,
+   * which gives a thing with no tags.
    *
-   * A side the pattern leaves open is not asked about. `cap:candle` fits every
-   * cap tagged `candle`, whatever it takes and gives: its open output is "not
-   * established", not the type "anything".
+   * An output the pattern leaves open asks nothing. `cap:candle` fits every
+   * cap tagged `candle`, whatever it gives.
    *
    * Decided by the proved model (CapDAG.Exec.accepts, which is CapDAG.fits).
    * For a question no cap URN can spell — "what gives this, whatever it
@@ -859,16 +861,19 @@ class CapUrn {
    * Whether this candidate SERVES `request` — the predicate routing and
    * dispatch act on.
    *
-   * The candidate takes at least what the request sends, gives at least what
-   * the request needs, has the effect asked for unless the request says
-   * `?effect`, and has the cap-tags asked for — its own tags being complete, so
-   * a request for `!x` is served by a candidate that does not mention `x`, and
-   * a candidate may carry tags the request does not ask about.
+   * The request is a call: it sends what its input says and asks for its
+   * output. The candidate takes at least what the call sends; what it gives
+   * for that is inside what the call asks for; it has the effect asked for
+   * unless the call says `?effect`; and it has the cap-tags asked for — its own
+   * tags being complete, so a request for `!x` is served by a candidate that
+   * does not mention `x`, and a candidate may carry tags the request does not
+   * ask about.
    *
-   * An input the request leaves open is not established: the caller has not
-   * said what it will send, and every candidate passes that side. That is
-   * "some input", not "any input" — `media:` on a CANDIDATE's input does mean
-   * it takes anything.
+   * What the candidate gives is what its effect says: a declared output, read
+   * complete — what it does not mention, the candidate does not give — or, for
+   * effect=none and effect=patch, what the call sends with the effect applied.
+   * A call always says what it sends: one whose input is `media:` (or omitted)
+   * sends anything, and only a candidate that takes anything serves it.
    *
    * This is a guarantee. What only could serve does not; see mayDispatch and
    * CapQuery.grade. Decided by the proved model (CapDAG.Exec.dispatch, which is
@@ -970,30 +975,17 @@ class CapUrn {
       );
     }
 
-    let runtimeOut;
-    switch (this.effectValue) {
-      case CapEffect.DECLARED:
-        runtimeOut = declaredOut;
-        break;
-      case CapEffect.NONE:
-        runtimeOut = runtimeInput;
-        break;
-      case CapEffect.PATCH: {
-        const delta = declaredOut.deltaFrom(declaredIn);
-        runtimeOut = runtimeInput.applyDelta(delta);
-        break;
-      }
-      case CapEffect.ANY:
-        throw new CapUrnError(
-          ErrorCodes.INVALID_EFFECT_APPLICATION,
-          'Cannot infer runtime output for an unconstrained effect request'
-        );
-      default:
-        throw new CapUrnError(
-          ErrorCodes.INVALID_EFFECT_APPLICATION,
-          `Unexpected effect '${this.effectValue}' during runtime output inference`
-        );
+    if (this.effectValue === CapEffect.ANY) {
+      throw new CapUrnError(
+        ErrorCodes.INVALID_EFFECT_APPLICATION,
+        'Cannot infer runtime output for an unconstrained effect request'
+      );
     }
+    // What the cap gives for it is the proved model's (CapDAG.Exec.capGives,
+    // which is Cap.gives): its declared output, the input itself, or the input
+    // with the keys the declared input and output disagree on set to the output's.
+    const given = model.capGives(this.formal, modelUrn(runtimeInput._urn));
+    const runtimeOut = new MediaUrn(new TaggedUrn('media', Object.fromEntries(given)));
 
     if (!runtimeOut.satisfies(declaredOut)) {
       throw new CapUrnError(
@@ -1005,47 +997,38 @@ class CapUrn {
   }
 
   /**
-   * THE effect-audit predicate: does an actually-emitted runtime output
-   * satisfy this cap's declared effect contract for the given runtime
-   * input? Every check of "did the cap emit what its effect promised"
-   * must go through this — never a hand-rolled combination of
-   * inferRuntimeOutputMedia with equality or conformance checks, so the
-   * contract has exactly one definition.
+   * THE effect-audit predicate: does an actually-emitted runtime output keep
+   * this cap's effect contract for the given runtime input? Every check of
+   * "did the cap emit what its effect promised" goes through this, so the
+   * contract has exactly one definition — the proved model's
+   * (CapDAG.Exec.audit, which is Cap.audits). Both media are those of values
+   * that exist, read complete:
+   * - effect=declared promises its declared out=, read complete — what it
+   *   does not mention, the cap does not give — so the emission must be
+   *   inside it, read complete: a cap declaring out=media:record may emit
+   *   media:record, and not media:enc=utf8;fmt=json;record.
+   * - effect=none / effect=patch give exactly what their effect makes of the
+   *   input (inferRuntimeOutputMedia), so the emission must be that.
    *
-   * The condition is deliberately asymmetric per effect:
-   * - effect=none / effect=patch compute an EXACT runtime output type,
-   *   so the emission must be tag-equivalent to the inference. A more
-   *   specific emission would still be a lie: the effect promises the
-   *   type is fully determined by the input.
-   * - effect=declared promises only the declared out=, so an emission
-   *   that is MORE specific than the declaration is legal and desirable;
-   *   the emission must conform to the declared output. A more generic
-   *   emission breaks downstream plan refinement and fails.
-   *
-   * Throws (rather than returning false) when the inference itself is
-   * impossible: the runtime input does not conform to the declared
-   * input, the effect is the unconstrained request form (?effect), or
-   * the URN state is internally inconsistent — those are upstream
-   * contract breaks, not emission mismatches.
+   * Throws (rather than returning false) when the input itself is wrong:
+   * the runtime input does not conform to the declared input, the effect is
+   * the unconstrained request form (?effect), or the URN state is internally
+   * inconsistent — those are upstream contract breaks, not emission
+   * mismatches.
    *
    * @param {MediaUrn} runtimeInput
    * @param {MediaUrn} runtimeOutput
    * @returns {boolean}
    */
   isConformantRuntimeOutput(runtimeInput, runtimeOutput) {
-    const inferred = this.inferRuntimeOutputMedia(runtimeInput);
-    switch (this.effectValue) {
-      case CapEffect.NONE:
-      case CapEffect.PATCH:
-        return runtimeOutput.isEquivalent(inferred);
-      case CapEffect.DECLARED:
-        return runtimeOutput.satisfies(inferred);
-      default:
-        throw new CapUrnError(
-          ErrorCodes.INVALID_EFFECT_APPLICATION,
-          'Cannot audit an emission against an unconstrained effect request'
-        );
+    if (this.effectValue === CapEffect.ANY) {
+      throw new CapUrnError(
+        ErrorCodes.INVALID_EFFECT_APPLICATION,
+        'Cannot audit an emission against an unconstrained effect request'
+      );
     }
+    this.inferRuntimeOutputMedia(runtimeInput);
+    return model.audit(this.formal, modelUrn(runtimeInput._urn), modelUrn(runtimeOutput._urn));
   }
 
   /**
@@ -1204,12 +1187,17 @@ function queryTagPattern(tags) {
  * A question about caps.
  *
  * A request is not a cap. A cap takes this and gives that; a request is a
- * QUESTION about caps, and may leave a side unasked: "what gives me this file,
- * whatever it takes?", "what can this input become?". Those are not cap URNs
- * with `media:` on a side — `media:` is the type "anything", a claim about
- * every input — they are queries with that side unknown.
+ * QUESTION about caps. A call always says what it sends, but a search may leave
+ * a side unasked: "what gives me this file, whatever it takes?", "what can this
+ * input become?". Those are not cap URNs with `media:` on a side — `media:` is
+ * the type "anything", a claim about every input — they are queries with that
+ * side unknown.
  *
- * A cap URN read as a request or as a pattern is one (fromRequest, fromPattern)
+ * A query asks of what a cap GIVES for what is sent: a declared output, read
+ * complete — what it does not mention, the cap does not give — or, for an
+ * effect=none or effect=patch cap, what it was sent with its effect applied.
+ *
+ * A cap URN read as a typed call or as a pattern is one (fromCall, fromPattern)
  * — which is what CapUrn.isDispatchable and CapUrn.accepts ask — and so are the
  * questions no cap URN can spell (producing, consuming, between). Every answer
  * is decided by the proved model (formal/CapDAG/Query.lean).
@@ -1225,9 +1213,13 @@ class CapQuery {
     return this.asked;
   }
 
-  /** The cap URN `request`, read as a request: an input it leaves open is not established. */
-  static fromRequest(request) {
-    return new CapQuery(model.queryOfRequest(request.formal), `request ${request}`);
+  /**
+   * The cap URN `call`, read as a typed call: it sends what its input says —
+   * `media:`, if it says nothing, is anything — and asks for its output, tags
+   * and effect.
+   */
+  static fromCall(call) {
+    return new CapQuery(model.queryOfCall(call.formal), `call ${call}`);
   }
 
   /** The cap URN `pattern`, read as a pattern over caps: an output it leaves open is not established. */
@@ -1865,6 +1857,25 @@ class MediaUrn {
    * @returns {boolean}
    */
   isEquivalent(other) { return this._urn.isEquivalent(other._urn); }
+
+  /**
+   * The published media definition this URN, written as a reference, resolves
+   * to: the URN without every tag that lets its key be absent (`!k`, `?k`,
+   * `k?=v`). Such a tag names no value — `!k` says the dim has none, `?k`
+   * leaves it open — so it refines a published type rather than naming
+   * another: `media:enc=utf8;fmt=json;!ext` and
+   * `media:enc=utf8;fmt=json;?list;?record` both resolve to
+   * `media:enc=utf8;fmt=json`. Which tags go is decided from the parsed
+   * constraint by tagged-urn's model (`TaggedUrn.admitsAbsence`).
+   * @returns {MediaUrn}
+   */
+  referenceBase() {
+    let base = this._urn;
+    for (const key of Object.keys(this._urn.tags)) {
+      if (this._urn.admitsAbsence(key)) base = base.withoutTag(key);
+    }
+    return new MediaUrn(base);
+  }
 
   /**
    * The most specific media type every one of `urns` conforms to: their common
@@ -8259,6 +8270,8 @@ const MachineAbstractionErrorCodes = Object.freeze({
   AMBIGUOUS_MACHINE_NOTATION: 'AmbiguousMachineNotation',
   CYCLIC_MACHINE_STRAND: 'CyclicMachineStrand',
   CAP_DOES_NOT_DECLARE_INPUT: 'CapDoesNotDeclareInput',
+  /** What a cap gives for what it is sent could not be worked out. */
+  RUNTIME_MEDIA_INFERENCE: 'RuntimeMediaInference',
   UNKNOWN_ARG_NAME: 'UnknownArgName',
   UNKNOWN_OUTPUT_NAME: 'UnknownOutputName',
   SOURCE_DOES_NOT_CONFORM_TO_ARG: 'SourceDoesNotConformToArg',
@@ -8359,6 +8372,10 @@ const abstractionError = Object.freeze({
     AE.CAP_DOES_NOT_DECLARE_INPUT,
     `strand ${strandIndex}: cap '${capUrn}' does not declare its input (no argument declares a stdin source whose URN is its in=)`,
     { strandIndex, capUrn }),
+  runtimeMediaInference: (strandIndex, capUrn, runtimeInput, reason) => new MachineAbstractionError(
+    AE.RUNTIME_MEDIA_INFERENCE,
+    `strand ${strandIndex}: cap '${capUrn}' cannot be applied to runtime input '${runtimeInput}': ${reason}`,
+    { strandIndex, capUrn, runtimeInput, reason }),
   unknownArgName: (strandIndex, capUrn, name, declared) => inStrand(
     AE.UNKNOWN_ARG_NAME, strandIndex,
     `cap '${capUrn}' declares no arg named '${name}' (it declares: ${declared.join(', ')})`,
@@ -9836,19 +9853,64 @@ function oneAssignment(best, sources, args) {
 }
 
 /**
- * Match a wiring's sources to a cap's args by minimum total
- * specificity-distance, with a uniqueness requirement.
+ * Whether a cap's main output says what the cap gives, so that what it
+ * produces there is a complete thing: it does unless the cap's effect is none
+ * or patch, whose main output says how what it gives follows from what it
+ * takes (07 §What a cap gives).
+ *
+ * @param {Cap} definition
+ * @returns {boolean}
+ */
+function mainOutputIsGiven(definition) {
+  const effect = definition.urn.getEffect();
+  return effect !== CapEffect.NONE && effect !== CapEffect.PATCH;
+}
+
+/**
+ * Whether `output` is the cap's main output.
+ *
+ * @param {Cap} definition
+ * @param {CapOutput} output
+ * @returns {boolean}
+ */
+function isMainOutput(definition, output) {
+  const main = definition.mainOutput();
+  return main !== null && main.name === output.name;
+}
+
+/**
+ * Whether a source fits a type an arg accepts. A source that is what a step
+ * gave (`given`) is a complete thing: what it does not mention it does not
+ * have, so it fits a type it satisfies. A source the text or an input anchor
+ * typed is a type, and fits a type it conforms to (04 §Complete things).
+ *
+ * @param {MediaUrn} source
+ * @param {boolean} given
+ * @param {MediaUrn} accepts
+ * @returns {boolean}
+ */
+function sourceFits(source, given, accepts) {
+  return given ? source.satisfies(accepts) : source.conformsTo(accepts);
+}
+
+/**
+ * Match a wiring's sources to a cap's args by minimum total signed
+ * specificity distance, with a uniqueness requirement.
+ *
+ * `sourceGiven[s]` says that `sources[s]` is what a step gave, a complete
+ * thing; otherwise it is a written type (see `sourceFits`).
  *
  * 1. Product — each source claims a distinct arg. It wins whenever such an
  *    assignment exists, including the hard failure on tied minimum-cost
  *    assignments.
  * 2. Gather — only when no such assignment exists: a sequence arg may absorb
- *    several conforming sources; a scalar arg still takes at most one.
+ *    several sources that fit it; a scalar arg still takes at most one.
  *
  * `mustBind` is the index of the arg an assignment MUST bind — the cap's main
  * input, when these sources are what can feed it — or null.
  *
  * @param {MediaUrn[]} sources
+ * @param {boolean[]} sourceGiven
  * @param {MediaUrn[]} args - What each arg accepts
  * @param {boolean[]} argIsSequence
  * @param {number|null} mustBind
@@ -9856,20 +9918,18 @@ function oneAssignment(best, sources, args) {
  *   URN (stably: sources gathered into one arg keep their declaration order).
  * @throws {MatchFailure}
  */
-function matchSourcesToArgs(sources, args, argIsSequence, mustBind) {
+function matchSourcesToArgs(sources, sourceGiven, args, argIsSequence, mustBind) {
+  if (sources.length !== sourceGiven.length) {
+    throw new Error(`every source says whether a step gave it: ${sources.length} sources, ${sourceGiven.length} flags`);
+  }
   const hasSequenceArg = argIsSequence.some(Boolean);
-  const fitsSomething = source => args.some(arg => source.conformsTo(arg));
+  const fits = (position, arg) => sourceFits(sources[position], sourceGiven[position], arg);
   const cost = sources.map((source, position) => {
-    if (!fitsSomething(source)) throw new MatchFailure(position);
-    return args.map(arg => {
-      if (!source.conformsTo(arg)) return null;
-      // How much more the source says than the arg asks: never negative.
-      const distance = source.specificity() - arg.specificity();
-      if (distance < 0) {
-        throw new Error(`a source that conforms to an arg is never less specific than it: ${source} conforms to ${arg}`);
-      }
-      return distance;
-    });
+    if (!args.some(arg => fits(position, arg))) throw new MatchFailure(position);
+    // The signed specificity distance: how much more the source says than the
+    // arg asks. A complete source may say less than an arg it satisfies, so it
+    // may be negative.
+    return args.map(arg => (fits(position, arg) ? source.specificity() - arg.specificity() : null));
   });
   // An assignment binds the arg that MUST be bound: a way of placing the
   // sources that leaves the main input out is not an assignment at all. It is
@@ -10015,7 +10075,14 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
   // Step 0: the outputs each wiring takes, by the names its targets wrote, and
   // with them the cardinality of every node: a node holds a sequence, in the
   // scope it lives in, iff the output that produces it is declared one.
+  //
+  // A node some wiring produces from a declared output holds what that step
+  // gives, a complete thing. The main output of an effect=none or
+  // effect=patch cap says how what it gives follows from what it takes, not
+  // what it gives, so a node it produces holds a type, as every node nothing
+  // produces does: one the text or an input anchor wrote.
   const nodeIsSequence = new Array(nodes.length).fill(false);
+  const nodeIsGiven = new Array(nodes.length).fill(false);
   const defs = [];
   const wiringOutputs = [];
   for (const wiring of wirings) {
@@ -10048,6 +10115,7 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
         throw abstractionError.outputTakenTwice(strandIndex, capUrn, output.name);
       }
       nodeIsSequence[target.node] = output.is_sequence === true;
+      nodeIsGiven[target.node] = mainOutputIsGiven(definition) || !isMainOutput(definition, output);
       outputs.push(new EdgeOutput(outputMediaUrn, output.name, target.node));
     }
     // Canonical order, like the assignment's.
@@ -10071,7 +10139,7 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
       if (found < 0) throw abstractionError.capDoesNotDeclareInput(strandIndex, capUrn);
       primaryArgIndex = found;
     }
-    // Every arg, by what it ACCEPTS (the type a source must conform to) and by
+    // Every arg, by what it ACCEPTS (the type a source must fit) and by
     // its SLOT (its media_urn, the identity a binding records and the URN its
     // stream is delivered under). How an arg is supplied on a command line
     // plays no part: every arg can be bound by a wiring.
@@ -10090,7 +10158,7 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
         checkConstant(definitions, capUrn, args[argIndex], source.constant, strandIndex);
       } else {
         const sourceUrn = nodes[source.node];
-        if (!sourceUrn.conformsTo(argAccepts[argIndex])) {
+        if (!sourceFits(sourceUrn, nodeIsGiven[source.node], argAccepts[argIndex])) {
           throw abstractionError.sourceDoesNotConformToArg(strandIndex, capUrn, name,
             argAccepts[argIndex].toString(), sourceUrn.toString());
         }
@@ -10111,10 +10179,11 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
     // The main input, when no named member bound it.
     const mustBind = primaryArgIndex !== null && free.includes(primaryArgIndex) ? free.indexOf(primaryArgIndex) : null;
     const sourceUrns = wiring.sourceNodeIds.map(nodeId => nodes[nodeId]);
+    const sourceGiven = wiring.sourceNodeIds.map(nodeId => nodeIsGiven[nodeId]);
     if (sourceUrns.length > 0) {
       let matched;
       try {
-        matched = matchSourcesToArgs(sourceUrns, freeAccepts, freeIsSequence, mustBind);
+        matched = matchSourcesToArgs(sourceUrns, sourceGiven, freeAccepts, freeIsSequence, mustBind);
       } catch (failure) {
         if (!(failure instanceof MatchFailure)) throw failure;
         if (!failure.ambiguous) {
@@ -10632,6 +10701,86 @@ function typeNodes(wirings, aliasMap, machines, includedMedia, definitions, stra
   }
   for (const [node, given] of fromMainInput) giveMedia(nodeMedia, node, given);
 
+  // What an effect=none or effect=patch cap gives follows from what it is sent
+  // (07 §What a cap gives), so the types on either side of one are read
+  // through it, both ways:
+  // - forward, its main output's node holds what the cap gives for the type
+  //   of the node feeding its main input, which refines the declared output
+  //   it was given above: a JSON list of records sent to a patch to YAML gives
+  //   a YAML list of records;
+  // - backward, a step's main input says what the patches feeding it must
+  //   give, and so what the input of the machine at the start of them must be:
+  //   walked back through each, its input put back where its output changes
+  //   it. A YAML input of the machine converted to JSON for a step that takes
+  //   JSON lists of records is a YAML list of records.
+  // Read again until nothing changes, so a chain of such caps is typed
+  // whatever order it is written in.
+  const steps = wirings.filter(wiring => !machines.has(wiring.capAlias)).map(wiring => {
+    const [capUrn, definition] = capOf(wiring);
+    return { wiring, capUrn, definition, inMedia: mainInputOf(wiring, capUrn) };
+  });
+  const patches = new Map();
+  for (const step of steps) {
+    if (mainOutputIsGiven(step.definition)) continue;
+    for (const target of step.wiring.targets) {
+      if (isMainTarget(step.definition, target)) patches.set(target.node, step);
+    }
+  }
+  for (let round = 0; round < wirings.length; round += 1) {
+    let changed = false;
+    for (const { wiring, capUrn, definition, inMedia } of steps) {
+      if (inMedia === null) continue;
+      const source = mainSource(wiring, definition, inMedia);
+      if (source === null) continue;
+
+      // Backward, from this step's main input to the input of the machine at
+      // the start of the patches feeding it.
+      let required = inMedia;
+      let start = source;
+      let walked = 0;
+      while (patches.has(start) && walked < wirings.length) {
+        walked += 1;
+        const patch = patches.get(start);
+        if (patch.inMedia === null) break;
+        let patchOut;
+        try {
+          patchOut = patch.capUrn.outMediaUrn();
+        } catch (error) {
+          throw syntaxError.invalidMediaUrn(patch.wiring.capAlias, `out= spec: ${error.message}`, patch.wiring.stepLocation);
+        }
+        required = required.applyDelta(patch.inMedia.deltaFrom(patchOut));
+        const feeding = mainSource(patch.wiring, patch.definition, patch.inMedia);
+        if (feeding === null) break;
+        start = feeding;
+      }
+      const held = nodeMedia.get(start);
+      if (walked > 0 && !produced.has(start) && held !== undefined && held.isComparable(required)) {
+        const before = held.toString();
+        giveMedia(nodeMedia, start, required);
+        changed = changed || before !== nodeMedia.get(start).toString();
+      }
+
+      // Forward, from what this step is sent to what it gives.
+      if (mainOutputIsGiven(definition)) continue;
+      const sent = nodeMedia.get(source);
+      // A member that does not fit the input is the resolver's to refuse.
+      if (sent === undefined || !sent.satisfies(inMedia)) continue;
+      let given;
+      try {
+        given = capUrn.inferRuntimeOutputMedia(sent);
+      } catch (error) {
+        throw abstractionError.runtimeMediaInference(strandIndex, capUrn.toString(), sent.toString(), error.message);
+      }
+      for (const target of wiring.targets) {
+        if (!isMainTarget(definition, target)) continue;
+        const before = nodeMedia.has(target.node) ? nodeMedia.get(target.node).toString() : null;
+        giveMedia(nodeMedia, target.node, given);
+        changed = changed || before !== nodeMedia.get(target.node).toString();
+      }
+    }
+    if (!changed) break;
+  }
+
   // A machine step has no main input: an unnamed member that nothing above
   // gave a type has none to be matched by.
   for (const wiring of wirings) {
@@ -10640,6 +10789,36 @@ function typeNodes(wirings, aliasMap, machines, includedMedia, definitions, stra
     if (untyped.length > 0) throw abstractionError.untypedMachineMember(wiring.position, wiring.capAlias, untyped);
   }
   return nodeMedia;
+}
+
+/**
+ * Whether a target, by the output name it wrote, takes the cap's main output.
+ *
+ * @param {Cap} definition
+ * @param {{name: string|null}} target
+ * @returns {boolean}
+ */
+function isMainTarget(definition, target) {
+  if (target.name === null) return true;
+  const main = definition.mainOutput();
+  return main !== null && main.name === target.name;
+}
+
+/**
+ * The node feeding a step's main input (`inMedia`): the member that names the
+ * main input's arg, or else the one member that names nothing. null when
+ * neither says.
+ *
+ * @returns {string|null}
+ */
+function mainSource(wiring, definition, inMedia) {
+  const mainArg = definition.args.find(arg => arg.isMainInput(inMedia));
+  if (mainArg !== undefined) {
+    const named = wiring.sources.find(member => member.name === mainArg.name && !member.value.isConstant);
+    if (named !== undefined) return named.value.node;
+  }
+  const unnamed = rawUnnamedNodes(wiring);
+  return unnamed.length === 1 ? unnamed[0] : null;
 }
 
 /**
@@ -10694,6 +10873,23 @@ function includeMachines(wirings, aliasMap, machines, includedMedia, definitions
     }
   });
 
+  // A node a cap produces from a declared output holds what that step gives,
+  // a complete thing. Every other node holds a type: the one the text wrote,
+  // the main output of an effect=none or effect=patch cap (which says how
+  // what it gives follows from what it takes), or an output of a machine step.
+  const produced = new Set();
+  for (const wiring of wirings) {
+    if (machines.has(wiring.capAlias)) continue;
+    const capUrn = aliasMap.get(wiring.capAlias).capUrn;
+    const definition = lookupDefinition(urn => definitions.capDefinition(urn), capUrn.toString(),
+      () => abstractionError.unknownCap(capUrn.toString()));
+    const main = definition.mainOutput();
+    for (const target of wiring.targets) {
+      const isMain = target.name === null || (main !== null && main.name === target.name);
+      if (!isMain || mainOutputIsGiven(definition)) produced.add(target.node);
+    }
+  }
+
   const uses = new Map();
   const written = [];
   wirings.forEach((wiring, index) => {
@@ -10718,7 +10914,7 @@ function includeMachines(wirings, aliasMap, machines, includedMedia, definitions
       }
       if (!member.value.isConstant) {
         const held = nodeMedia.get(member.value.node);
-        if (!held.conformsTo(accepts)) {
+        if (!sourceFits(held, produced.has(member.value.node), accepts)) {
           throw abstractionError.sourceDoesNotConformToMachineInput(position, alias, member.name, accepts.toString(), held.toString());
         }
       }
@@ -10730,10 +10926,11 @@ function includeMachines(wirings, aliasMap, machines, includedMedia, definitions
     if (unnamed.length > 0) {
       const free = machine.inputs.filter(([name]) => !bound.has(name));
       const sources = unnamed.map(node => nodeMedia.get(node));
+      const given = unnamed.map(node => produced.has(node));
       const accepted = free.map(([, media]) => media);
       let pairs;
       try {
-        pairs = matchSourcesToArgs(sources, accepted, new Array(accepted.length).fill(false), null);
+        pairs = matchSourcesToArgs(sources, given, accepted, new Array(accepted.length).fill(false), null);
       } catch (failure) {
         if (!(failure instanceof MatchFailure)) throw failure;
         if (!failure.ambiguous) throw abstractionError.unmatchedMachineMember(position, alias, sources[failure.source].toString());
@@ -11596,6 +11793,19 @@ function checkedDim(obj, name, defver) {
 }
 
 /**
+ * The key the registry holds the media definition `urn` resolves to under: the
+ * canonical text of its `referenceBase`. A URN that refines a published type
+ * by an absence or an open key (`media:enc=utf8;fmt=json;!ext`,
+ * `…;?list;?record`) names that published definition, and a published
+ * definition writes no such tag, so it is its own key.
+ * @param {string} urn
+ * @returns {string}
+ */
+function mediaDefinitionKey(urn) {
+  return MediaUrn.fromString(urn).referenceBase().toString();
+}
+
+/**
  * A client of the fabric registry, pinned to one manifest version.
  *
  * The manifest names every cap URN, media URN, alias and dim of its snapshot
@@ -11790,7 +12000,7 @@ class FabricRegistryClient {
    * @returns {Promise<MediaDef>}
    */
   async getMediaDef(urn) {
-    const canonical = MediaUrn.fromString(urn).toString();
+    const canonical = mediaDefinitionKey(urn);
     if (this._media.has(canonical)) return this._media.get(canonical);
     return this._once(`media ${canonical}`, async () => {
       const defver = await this._defver('media', canonical, `media definition '${canonical}'`);
@@ -11821,7 +12031,7 @@ class FabricRegistryClient {
     // Every media URN the cap names, the universal type `media:` among
     // them: the fabric defines it like any other media URN.
     const named = new Set();
-    const name = text => named.add(MediaUrn.fromString(text).toString());
+    const name = text => named.add(mediaDefinitionKey(text));
     name(cap.urn.getInSpec());
     name(cap.urn.getOutSpec());
     for (const arg of cap.args) {
@@ -12066,7 +12276,7 @@ class FabricRegistryClient {
 
   /** The fetched definition of the media a URN names, as `capDefinition` answers. */
   mediaDefinition(urn) {
-    const canonical = MediaUrn.fromString(urn).toString();
+    const canonical = mediaDefinitionKey(urn);
     if (this._media.has(canonical)) return this._media.get(canonical);
     return this._notHeld(`media ${canonical}`, 'media', canonical, `media definition '${canonical}'`);
   }
@@ -12105,7 +12315,7 @@ class FabricRegistryClient {
     const kind = classifyAliasTarget(urn);
     let canonical;
     if (kind === ALIAS_TARGET_CAP) canonical = CapUrn.fromString(urn).toString();
-    else if (kind === ALIAS_TARGET_MEDIA) canonical = MediaUrn.fromString(urn).toString();
+    else if (kind === ALIAS_TARGET_MEDIA) canonical = mediaDefinitionKey(urn);
     else return null;
     const names = [];
     for (const alias of this._aliases.values()) {
