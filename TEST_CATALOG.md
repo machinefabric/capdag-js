@@ -2,7 +2,7 @@
 
 Generated from the test catalogue. Edit the tests, not this file.
 
-471 tests: 471 numbered, 0 unnumbered.
+473 tests: 473 numbered, 0 unnumbered.
 
 ## Numbered
 
@@ -385,6 +385,8 @@ Generated from the test catalogue. Edit the tests, not this file.
 | TEST7120 | capdag/capdag-js | js | `test7120_Renderer_validateStrandPayload_requiresAuthoritativeInputs` | capdag.test.js:6087 | TEST7120: Renderer requires the authoritative cap input graph |
 | TEST7121 | capdag/capdag-js | js | `test7121_Renderer_validateBodyOutcome_requiresExplicitFailureCoordinate` | capdag.test.js:6142 | TEST7121: Renderer body outcomes require an explicit stable failure coordinate |
 | TEST7122 | capdag/capdag-js | js | `test7122_Renderer_validateRunPayload_requiresForEachRegionCoordinate` | capdag.test.js:6203 | TEST7122: Renderer body outcomes reject execution-region tokens for non-ForEach steps |
+| TEST7123 | capdag/capdag-js | js | `test7123_admissibilityIsTheModels` | capdag.test.js:9074 |  |
+| TEST7124 | capdag/capdag-js | js | `test7124_detectionIsTheModels` | capdag.test.js:9106 |  |
 | TEST7167 | capdag/capdag-js | js | `test7167_aRefusedManifestFetchIsReportedAsTheRefusal` | capdag.test.js:4506 | TEST7167: a manifest fetch the registry refuses (403) is reported as the refusal — the URL, the status and the manifest version — and not as a manifest that is not found. |
 | TEST7168 | capdag/capdag-js | js | `test7168_aManifestTheRegistryDoesNotHaveIsNotFound` | capdag.test.js:4523 | TEST7168: a manifest the registry answers 404 for is the registry's word that it has no such manifest: NotFound, naming the URL and the status. |
 | TEST7169 | capdag/capdag-js | js | `test7169_aRefusedDefinitionFetchIsReportedAsTheRefusal` | capdag.test.js:4532 | TEST7169: a refused fetch of a cap, a media def, an alias or a dim is reported as the refusal, each with its own URL, the status and the manifest version it was fetched for. |
@@ -408,20 +410,20 @@ Generated from the test catalogue. Edit the tests, not this file.
 | TEST8121 | capdag/capdag-js | js | `test8121_effectConformanceDeclaredAsymmetry` | capdag.test.js:4213 | TEST8121: isConformantRuntimeOutput — effect=declared accepts a more specific emission, rejects a more generic one |
 | TEST8122 | capdag/capdag-js | js | `test8122_effectConformanceNoneRequiresEquivalence` | capdag.test.js:4237 | TEST8122: isConformantRuntimeOutput — effect=none requires the emission to be tag-equivalent to the runtime input; MORE specific is still a lie |
 | TEST8123 | capdag/capdag-js | js | `test8123_effectConformancePatchRequiresPatchedInput` | capdag.test.js:4265 | TEST8123: isConformantRuntimeOutput — effect=patch requires exactly the delta-patched input type |
-| TEST8150 | capdag/capdag-js | js | `test8150_registryVerdictStatesAreTheClosedWireVocabulary` | capdag.test.js:8694 |  |
-| TEST8151 | capdag/capdag-js | js | `test8151_unreadableFormatIsUnverifiableAndRejectedKeyIsUntrusted` | capdag.test.js:8722 |  |
-| TEST8152 | capdag/capdag-js | js | `test8152_onlyVerifiedPermitsAttachment` | capdag.test.js:8767 |  |
-| TEST8153 | capdag/capdag-js | js | `test8153_trustFailuresAreNeverTransient` | capdag.test.js:8785 |  |
-| TEST8154 | capdag/capdag-js | js | `test8154_contradictoryVerdictsAreRefused` | capdag.test.js:8868 |  |
-| TEST8155 | capdag/capdag-js | js | `test8155_registryVerdictWireRoundTrip` | capdag.test.js:8905 |  |
-| TEST8157 | capdag/capdag-js | js | `test8157_signatureFormatDiscriminatorsComeFromTheLibrary` | capdag.test.js:8946 |  |
-| TEST8158 | capdag/capdag-js | js | `test8158_attachmentKindsSeparateTheirSituations` | capdag.test.js:8953 |  |
-| TEST8159 | capdag/capdag-js | js | `test8159_theRemedyFollowsFromTheState` | capdag.test.js:8841 |  |
-| TEST8162 | capdag/capdag-js | js | `test8162_aVerdictSaysTheSameThingAtADifferentTime` | capdag.test.js:8808 |  |
-| TEST12166 | capdag/capdag-js | js | `test12166_theImplementationIsTheProvedModel` | capdag.test.js:9004 |  |
+| TEST8150 | capdag/capdag-js | js | `test8150_registryVerdictStatesAreTheClosedWireVocabulary` | capdag.test.js:8696 |  |
+| TEST8151 | capdag/capdag-js | js | `test8151_unreadableFormatIsUnverifiableAndRejectedKeyIsUntrusted` | capdag.test.js:8724 |  |
+| TEST8152 | capdag/capdag-js | js | `test8152_onlyVerifiedPermitsAttachment` | capdag.test.js:8769 |  |
+| TEST8153 | capdag/capdag-js | js | `test8153_trustFailuresAreNeverTransient` | capdag.test.js:8787 |  |
+| TEST8154 | capdag/capdag-js | js | `test8154_contradictoryVerdictsAreRefused` | capdag.test.js:8870 |  |
+| TEST8155 | capdag/capdag-js | js | `test8155_registryVerdictWireRoundTrip` | capdag.test.js:8907 |  |
+| TEST8157 | capdag/capdag-js | js | `test8157_signatureFormatDiscriminatorsComeFromTheLibrary` | capdag.test.js:8948 |  |
+| TEST8158 | capdag/capdag-js | js | `test8158_attachmentKindsSeparateTheirSituations` | capdag.test.js:8955 |  |
+| TEST8159 | capdag/capdag-js | js | `test8159_theRemedyFollowsFromTheState` | capdag.test.js:8843 |  |
+| TEST8162 | capdag/capdag-js | js | `test8162_aVerdictSaysTheSameThingAtADifferentTime` | capdag.test.js:8810 |  |
+| TEST12166 | capdag/capdag-js | js | `test12166_theImplementationIsTheProvedModel` | capdag.test.js:9006 |  |
 | TEST12368 | capdag/capdag-js | js | `test12368_aQuestionMayLeaveASideUnknown` | capdag.test.js:4058 | TEST12368: "what gives me this, whatever it takes?" and "what can this become?" are questions with a side unknown, and each cap answers with a grade. No cap URN can ask them: `media:` on a side is the type "anything", so a request spelled that way asked for a cap that takes everything, and found none. The unknown side asks nothing; the stated side is held to. |
 | TEST12369 | capdag/capdag-js | js | `test12369_aQuerysTagsAreAskedOfTheTagsACapHas` | capdag.test.js:4096 | TEST12369: the cap-tags a query asks for are matched against the tags the cap HAS — a cap's own list is complete. So asking that a tag be absent selects the caps that do not carry it, which no cap needs to declare; and a cap may carry tags nobody asked about. |
-| TEST12597 | capdag/capdag-js | js | `test12597_everyModelFunctionCarriesAProvedClaim` | capdag.test.js:8975 |  |
+| TEST12597 | capdag/capdag-js | js | `test12597_everyModelFunctionCarriesAProvedClaim` | capdag.test.js:8977 |  |
 | TEST12705 | capdag/capdag-js | js | `test12705_rule15TheStdinArgumentIsTheCapsInput` | capdag.test.js:3611 | TEST12705: RULE15 - the stdin argument's URN is the cap's `in=`, as a tagged URN: the same tags in another order pass, another type does not. |
 | TEST12706 | capdag/capdag-js | js | `test12706_rule17ArgumentNames` | capdag.test.js:3622 | TEST12706: RULE17 - every argument has a well-formed name, unique in its cap. |
 | TEST12707 | capdag/capdag-js | js | `test12707_rule18AcceptsAndTheTwoUrnsOfAnArgument` | capdag.test.js:3650 | TEST12707: RULE18 - an argument says what it accepts in one place; and what it accepts is not what it is delivered under. |
