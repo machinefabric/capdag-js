@@ -799,7 +799,7 @@ export function wfType() {
 /** Describes CapDAG.Detect.AdapterChoice for polymorphic functions. */
 export function adapterChoiceType() {
   return new L.Type(
-    L.inductiveExpr(25),
+    L.inductiveExpr(26),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Detect.AdapterChoice");
       switch (v.kind) {
@@ -834,7 +834,7 @@ export function adapterChoiceType() {
 /** Describes CapDAG.Detect.Candidate for polymorphic functions. */
 export function candidateType() {
   return new L.Type(
-    L.inductiveExpr(26),
+    L.inductiveExpr(27),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Detect.Candidate");
       w.u32(0);
@@ -852,7 +852,7 @@ export function candidateType() {
 /** Describes CapDAG.Exec.WfCap for polymorphic functions. */
 export function wfCapType() {
   return new L.Type(
-    L.inductiveExpr(27),
+    L.inductiveExpr(28),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Exec.WfCap");
       w.u32(0);
@@ -872,7 +872,7 @@ export function wfCapType() {
 /** Describes CapDAG.Illegal for polymorphic functions. */
 export function illegalType() {
   return new L.Type(
-    L.inductiveExpr(28),
+    L.inductiveExpr(29),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Illegal");
       switch (v.kind) {
@@ -900,7 +900,7 @@ export function illegalType() {
 /** Describes CapDAG.Effect for polymorphic functions. */
 export function effectType() {
   return new L.Type(
-    L.inductiveExpr(29),
+    L.inductiveExpr(30),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Effect");
       switch (v.kind) {
@@ -936,7 +936,7 @@ export function effectType() {
 /** Describes CapDAG.Exec.WfQuery for polymorphic functions. */
 export function wfQueryType() {
   return new L.Type(
-    L.inductiveExpr(30),
+    L.inductiveExpr(31),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Exec.WfQuery");
       w.u32(0);
@@ -956,7 +956,7 @@ export function wfQueryType() {
 /** Describes CapDAG.Grade for polymorphic functions. */
 export function gradeType() {
   return new L.Type(
-    L.inductiveExpr(31),
+    L.inductiveExpr(32),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Grade");
       switch (v.kind) {
@@ -992,7 +992,7 @@ export function gradeType() {
 /** Describes CapDAG.Run.Control.RunPhase for polymorphic functions. */
 export function runPhaseType() {
   return new L.Type(
-    L.inductiveExpr(32),
+    L.inductiveExpr(33),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunPhase");
       switch (v.kind) {
@@ -1028,7 +1028,7 @@ export function runPhaseType() {
 /** Describes CapDAG.Run.Control.RunOutcome for polymorphic functions. */
 export function runOutcomeType() {
   return new L.Type(
-    L.inductiveExpr(33),
+    L.inductiveExpr(34),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunOutcome");
       switch (v.kind) {
@@ -1068,7 +1068,7 @@ export function runOutcomeType() {
 /** Describes CapDAG.Run.Control.RunAsk for polymorphic functions. */
 export function runAskType() {
   return new L.Type(
-    L.inductiveExpr(34),
+    L.inductiveExpr(35),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunAsk");
       switch (v.kind) {
@@ -1108,7 +1108,7 @@ export function runAskType() {
 /** Describes CapDAG.Run.Control.RunNext for polymorphic functions. */
 export function runNextType() {
   return new L.Type(
-    L.inductiveExpr(35),
+    L.inductiveExpr(36),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunNext");
       w.u32(0);
@@ -1126,7 +1126,7 @@ export function runNextType() {
 /** Describes CapDAG.Run.Step.StepState for polymorphic functions. */
 export function stepStateType() {
   return new L.Type(
-    L.inductiveExpr(36),
+    L.inductiveExpr(37),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Step.StepState");
       switch (v.kind) {
@@ -1178,7 +1178,7 @@ export function stepStateType() {
 /** Describes CapDAG.Run.Step.StepReport for polymorphic functions. */
 export function stepReportType() {
   return new L.Type(
-    L.inductiveExpr(37),
+    L.inductiveExpr(38),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Step.StepReport");
       switch (v.kind) {
@@ -1221,7 +1221,7 @@ export function stepReportType() {
 /** Describes TaggedUrn.Constraint for polymorphic functions. */
 export function constraintType() {
   return new L.Type(
-    L.inductiveExpr(38),
+    L.inductiveExpr(39),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a TaggedUrn.Constraint");
       switch (v.kind) {
@@ -1272,7 +1272,7 @@ export function constraintType() {
 /** Describes CapDAG.Bifaci.Pools.Pool for polymorphic functions. */
 export function poolType() {
   return new L.Type(
-    L.inductiveExpr(39),
+    L.inductiveExpr(40),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Bifaci.Pools.Pool");
       w.u32(0);
@@ -1291,7 +1291,7 @@ export function poolType() {
 /** Describes CapDAG.Detect.Rules for polymorphic functions. */
 export function rulesType() {
   return new L.Type(
-    L.inductiveExpr(40),
+    L.inductiveExpr(41),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Detect.Rules");
       switch (v.kind) {
@@ -1323,7 +1323,7 @@ export function rulesType() {
 /** Describes CapDAG.Exec.WfAsk for polymorphic functions. */
 export function wfAskType() {
   return new L.Type(
-    L.inductiveExpr(41),
+    L.inductiveExpr(42),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Exec.WfAsk");
       switch (v.kind) {
@@ -1362,7 +1362,7 @@ export function wfAskType() {
 /** Describes CapDAG.Run.Control.RunAct for polymorphic functions. */
 export function runActType() {
   return new L.Type(
-    L.inductiveExpr(42),
+    L.inductiveExpr(43),
     (w, v) => {
       if (typeof v !== "object" || v === null) throw new L.MalformedError("not a CapDAG.Run.Control.RunAct");
       switch (v.kind) {
