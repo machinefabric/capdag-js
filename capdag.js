@@ -3468,7 +3468,7 @@ class CapManifest {
    */
   validate() {
     const identity = CapUrn.fromString(CAP_IDENTITY);
-    if (!this.allCaps().some(cap => identity.conformsTo(cap.urn))) {
+    if (!this.allCaps().some(cap => cap.urn.isEquivalent(identity))) {
       throw new Error(`Manifest missing required CAP_IDENTITY (${CAP_IDENTITY})`);
     }
     this.validateDefinitions();
