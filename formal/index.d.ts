@@ -241,6 +241,18 @@ export interface WfCap {
 }
 export function wfCapType(): L.Type<WfCap>;
 
+/** Lean's TaggedUrn.Constraint. */
+export type Constraint =
+  | { readonly kind: "missing" }
+  | { readonly kind: "unconstrained" }
+  | { readonly kind: "optionalNot"; readonly value: string }
+  | { readonly kind: "present" }
+  | { readonly kind: "presentNot"; readonly value: string }
+  | { readonly kind: "exact"; readonly value: string }
+  | { readonly kind: "absent" }
+;
+export function constraintType(): L.Type<Constraint>;
+
 /** Lean's CapDAG.Illegal. */
 export type Illegal =
   | { readonly kind: "bareTop" }
@@ -333,18 +345,6 @@ export type StepReport =
   | { readonly kind: "runEnded"; readonly completed: boolean; readonly aborted: boolean }
 ;
 export function stepReportType(): L.Type<StepReport>;
-
-/** Lean's TaggedUrn.Constraint. */
-export type Constraint =
-  | { readonly kind: "missing" }
-  | { readonly kind: "unconstrained" }
-  | { readonly kind: "optionalNot"; readonly value: string }
-  | { readonly kind: "present" }
-  | { readonly kind: "presentNot"; readonly value: string }
-  | { readonly kind: "exact"; readonly value: string }
-  | { readonly kind: "absent" }
-;
-export function constraintType(): L.Type<Constraint>;
 
 /** Lean's CapDAG.Bifaci.Pools.Pool. */
 export interface Pool {
@@ -487,6 +487,10 @@ export class CapdagFormal {
   stands(cs: Array<Candidate>, owners: Array<Wf>, claims: Array<Wf>, c: Candidate): boolean;
   /** Lean's CapDAG.Exec.accepts : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
   accepts(pattern: WfCap, cap: WfCap): boolean;
+  /** Lean's CapDAG.Exec.audit : CapDAG.Exec.WfCap → TaggedUrn.Exec.Wf → TaggedUrn.Exec.Wf → Bool */
+  audit(c: WfCap, input: Wf, emitted: Wf): boolean;
+  /** Lean's CapDAG.Exec.capGives : CapDAG.Exec.WfCap → TaggedUrn.Exec.Wf → List (String × TaggedUrn.Constraint) */
+  capGives(c: WfCap, x: Wf): Array<[string, Constraint]>;
   /** Lean's CapDAG.Exec.capIllegal : CapDAG.Exec.WfCap → Option CapDAG.Illegal */
   capIllegal(c: WfCap): L.Option<Illegal>;
   /** Lean's CapDAG.Exec.comparable : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
@@ -513,10 +517,10 @@ export class CapdagFormal {
   queryGrade(q: WfQuery, c: WfCap): Grade;
   /** Lean's CapDAG.Exec.queryMayAdmit : CapDAG.Exec.WfQuery → CapDAG.Exec.WfCap → Bool */
   queryMayAdmit(q: WfQuery, c: WfCap): boolean;
+  /** Lean's CapDAG.Exec.queryOfCall : CapDAG.Exec.WfCap → CapDAG.Exec.WfQuery */
+  queryOfCall(r_: WfCap): WfQuery;
   /** Lean's CapDAG.Exec.queryOfPattern : CapDAG.Exec.WfCap → CapDAG.Exec.WfQuery */
   queryOfPattern(p: WfCap): WfQuery;
-  /** Lean's CapDAG.Exec.queryOfRequest : CapDAG.Exec.WfCap → CapDAG.Exec.WfQuery */
-  queryOfRequest(r_: WfCap): WfQuery;
   /** Lean's CapDAG.Exec.queryProducing : TaggedUrn.Exec.Wf → TaggedUrn.Exec.Wf → CapDAG.Exec.WfQuery */
   queryProducing(output: Wf, tags: Wf): WfQuery;
   /** Lean's CapDAG.Exec.rankingKey : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Nat × Nat */
