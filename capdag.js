@@ -261,6 +261,16 @@ function modelUrn(urn) {
   return made;
 }
 
+/**
+ * The tagged URN one of this program's URN values stands for, such as what a
+ * cap gives: read back with the same model's `parts`, and checked as every
+ * tagged URN is made.
+ */
+function urnOfModel(made) {
+  const [prefix, tags] = model.parts(made);
+  return new TaggedUrn(prefix, Object.fromEntries(tags));
+}
+
 const MODEL_EFFECTS = Object.freeze({
   declared: Object.freeze({ kind: 'declared' }),
   none: Object.freeze({ kind: 'none' }),
@@ -941,7 +951,7 @@ class CapUrn {
     // which is Cap.gives): its declared output, the input itself, or the input
     // with the keys the declared input and output disagree on set to the output's.
     const given = model.capGives(this.formal, modelUrn(runtimeInput._urn));
-    const runtimeOut = new MediaUrn(new TaggedUrn('media', Object.fromEntries(given)));
+    const runtimeOut = new MediaUrn(urnOfModel(given));
 
     if (!runtimeOut.satisfies(declaredOut)) {
       throw new CapUrnError(

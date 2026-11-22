@@ -532,7 +532,7 @@ function test024_compatibility() {
   assert(general.accepts(cap1), 'General request should accept more specific instance');
   assert(!cap1.accepts(general), 'Specific pattern should reject general instance');
 
-  const broadIn = CapUrn.fromString('cap:in="media:";generate;out="media:enc=utf8;record"');
+  const broadIn = CapUrn.fromString(`cap:in="media:";generate;out="${MEDIA_OBJECT}"`);
   assert(!cap1.accepts(broadIn), 'Specific input should not accept broad wildcard input');
   assert(broadIn.accepts(cap1), 'Wildcard input should accept specific input');
 }
@@ -782,9 +782,10 @@ function test046_matchingSemanticsFallbackPattern() {
 
 // TEST47: Matching semantics - thumbnail fallback with void input
 function test047_matchingSemanticsThumbnailVoidInput() {
-  const cap = CapUrn.fromString('cap:in="media:void";generate-thumbnail;out="media:ext=png;image;thumbnail"');
-  const request = CapUrn.fromString('cap:ext=pdf;in="media:void";generate-thumbnail;out="media:image"');
-  assert(cap.accepts(request), 'Void input cap should accept request; cap output conforms to less-specific request output');
+  const outBin = 'media:binary';
+  const cap = CapUrn.fromString(`cap:in="${MEDIA_VOID}";generate-thumbnail;out="${outBin}"`);
+  const request = CapUrn.fromString(`cap:ext=wav;in="${MEDIA_VOID}";generate-thumbnail;out="${outBin}"`);
+  assert(cap.accepts(request), 'Thumbnail fallback with void input should match');
 }
 
 // TEST48: A pattern that leaves a side open asks nothing of it
@@ -851,25 +852,27 @@ function test890_directionSemanticMatching() {
   // PDF cap does NOT accept epub request
   assert(!pdfCap.accepts(epubRequest), 'PDF cap must NOT accept epub request');
 
-  // Output direction: cap producing more specific output satisfies less specific request
+  // Output direction: a pattern asking for an image fits a cap that gives
+  // png thumbnails, since everything it gives is an image
   const specificOutCap = CapUrn.fromString(
     'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
   );
   const genericOutRequest = CapUrn.fromString(
     'cap:in="media:";generate-thumbnail;out="media:image"'
   );
-  assert(specificOutCap.accepts(genericOutRequest),
-    'Cap producing image;png;thumbnail must satisfy request for image');
+  assert(genericOutRequest.accepts(specificOutCap),
+    'a pattern asking for an image fits a cap producing image;png;thumbnail');
 
-  // Reverse output: generic output cap does NOT satisfy specific output request
+  // Reverse output: a pattern asking for png thumbnails does not fit a cap
+  // whose declared output is an image of no file type
   const genericOutCap = CapUrn.fromString(
     'cap:in="media:";generate-thumbnail;out="media:image"'
   );
   const specificOutRequest = CapUrn.fromString(
     'cap:in="media:";generate-thumbnail;out="media:ext=png;image;thumbnail"'
   );
-  assert(!genericOutCap.accepts(specificOutRequest),
-    'Generic output cap must NOT satisfy specific output request');
+  assert(!specificOutRequest.accepts(genericOutCap),
+    'a pattern requiring image;png;thumbnail does not fit a cap producing an image of no file type');
 }
 
 // TEST891: Semantic direction specificity — more constraints in either axis means a higher score under the truth-table-driven sum. media: (top, no tags) scores 0; each marker tag scores 2; each exact tag scores 4.
@@ -4045,7 +4048,7 @@ function test648_wildcardAcceptsSpecific() {
   assert(wildcard.accepts(specific), 'an open pattern fits a cap that gives text');
   assert(specific.conformsTo(wildcard), 'the same, asked from the cap\'s side');
   assert(!wildcard.isDispatchable(specific), 'a media:-output candidate does not serve a request that needs text');
-  assert(specific.accepts(wildcard), 'a pattern asking for text out is covered by a cap that gives anything');
+  assert(!specific.accepts(wildcard), 'a pattern asking for text out does not fit a cap whose declared output names no tag: it gives a thing with none');
   const specificIn = CapUrn.fromString('cap:in="media:text";out=*;raw');
   assert(wildcard.accepts(specificIn), 'an open pattern fits a cap that takes text');
   assert(specificIn.conformsTo(wildcard));
@@ -4653,7 +4656,7 @@ async function test7211_aCapNamingAPublishedTypeRefinedByAbsenceIsHeld() {
     version: 12, previous: 11, caps: { [capUrn]: 1 }, media: { [jsonKey]: 1 }, aliases: {}, dims: {},
   });
   objects.set(await at('caps', capUrn), {
-    urn: capUrn, title: 'Reference probe', aliases: [], version: 1,
+    urn: capUrn, title: 'Reference probe', aliases: ['reference-probe'], version: 1,
     args: [{ media_urn: content, name: 'input', required: true, sources: [{ stdin: content }] }],
     outputs: [{ media_urn: anyShape, name: 'output', output_description: 'out' }],
   });
@@ -7618,14 +7621,16 @@ function test6763_documentedRankingExamples() {
   assertEqual(CapUrn.select(caps, request), 2, 'the exact match is chosen');
 
   // Refinement when no exact match.
-  request = p('cap:convert');
-  a = p('cap:convert;in=media:pdf;out=media:html');
-  b = p('cap:convert;in=media:image;out=media:png');
-  c = p('cap:convert');
-  assertEqual(request.specificity(), 2, 'the request');
-  assertEqual([a, b, c].map((cap) => cap.specificity()).join(','), '20202,20202,2', 'the candidates');
+  request = p('cap:convert;in=media:image;out=media:image');
+  a = p('cap:convert;in=media:image;out="media:ext=png;image"');
+  b = p('cap:convert;in=media:image;out="media:ext=jpeg;image"');
+  c = p('cap:convert;in=media:image;out=media:image');
+  assertEqual(request.specificity(), 20202, 'the request');
+  assertEqual([a, b, c].map((cap) => cap.specificity()).join(','), '60202,60202,20202', 'the candidates');
   caps = [a, b, c];
   assert(caps.every((cap) => cap.isDispatchable(request)), 'every candidate serves');
+  assert(!p('cap:convert;in=media:pdf;out=media:image').isDispatchable(request),
+    'a cap that takes only PDFs does not serve a request that sends any image');
   same(CapMatcher.findAllMatches(caps, request), [c, a, b], 'the exact match, then the refinements in order');
   assertEqual(CapUrn.select(caps, request), 2, 'the exact match is chosen');
   // Without C, A and B tie, and the first in the list is chosen.

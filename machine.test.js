@@ -2100,7 +2100,7 @@ function test7217_aGivenNodeBindsBySatisfactionAtANegativeDistance() {
 
   // Through the resolver: a step that gives the record feeds one whose input
   // refuses lists.
-  const make = 'cap:in=media:enc=utf8;make-record;out="media:enc=utf8;ext=json;fmt=json;record"';
+  const make = 'cap:in="media:enc=utf8";make-record;out="media:enc=utf8;ext=json;fmt=json;record"';
   const toYaml = 'cap:in="media:enc=utf8;fmt=json;record;!list";to-yaml;out="media:enc=utf8;fmt=yaml;record"';
   const definitions = definitionsOf([
     simpleCap(make, 'media:enc=utf8', 'media:enc=utf8;ext=json;fmt=json;record'),
