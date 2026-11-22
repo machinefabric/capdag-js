@@ -633,6 +633,21 @@ function test031_wildcardRestrictions() {
   assertEqual(capWild.getOutSpec(), MEDIA_IDENTITY, 'Wildcard outSpec should normalize to media:');
 }
 
+// TEST7230: a cap-tag may be a set of values, and a value given twice in one
+// set is refused as a DuplicateValue.
+function test7230_aCapTagSetAndAValueGivenTwice() {
+  const cap = CapUrn.fromString(test6204_Urn('format=yaml|json'));
+  assert(Constraint.equals(cap.getTag('format'), Constraint.oneOf(['json', 'yaml'], false)),
+    `the set of both values, got ${JSON.stringify(cap.getTag('format'))}`);
+  assert(cap.toString().includes('format=json|yaml'), cap.toString());
+  assertThrows(
+    () => CapUrn.fromString(test6204_Urn('format=json|json')),
+    ErrorCodes.DUPLICATE_VALUE,
+    'a value given twice is refused'
+  );
+  assertRefuses(() => CapUrn.fromString(test6204_Urn('format=json|json')), /json/, 'the refusal names the value');
+}
+
 // TEST32: Test duplicate keys are rejected with DuplicateKey error
 function test032_duplicateKeyRejection() {
   assertThrows(
@@ -3185,16 +3200,16 @@ function test852_lubIdentical() {
   assert(MediaUrn.leastUpperBound([pdf, pdf]).isEquivalent(pdf), 'LUB of pdf and pdf is pdf');
 }
 
-// TEST853: LUB promotes a shared key with differing values to "some value": both
-// inputs HAVE an ext (pdf vs png), so the bound is media:ext — the denominator
-// generic caps like in="media:ext" accept — not the trivial media:. The image
-// marker is only on one side, so it is dropped.
-function test853_lubSharedKeyPromotesToWildcard() {
+// TEST853: LUB keeps a shared key with differing values as the set of them:
+// both inputs HAVE an ext (pdf vs png), so the bound is media:ext=pdf|png,
+// which generic caps like in="media:ext" accept — not the trivial media:. The
+// image marker is only on one side, so it is dropped.
+function test853_lubSharedKeyKeepsTheValues() {
   const pdf = MediaUrn.fromString('media:document;ext=pdf');
   const png = MediaUrn.fromString('media:ext=png;image');
   const lub = MediaUrn.leastUpperBound([pdf, png]);
-  assert(lub.isEquivalent(MediaUrn.fromString('media:ext')),
-    `LUB of ext=pdf and ext=png;image should be media:ext but got ${lub.toString()}`);
+  assertEqual(lub.toString(), 'media:ext=pdf|png', 'the bound is the set of both values');
+  assert(lub.conformsTo(MediaUrn.fromString('media:ext')), 'the bound is inside media:ext');
   assert(pdf.conformsTo(lub) && png.conformsTo(lub), 'every input conforms to the LUB');
 }
 
@@ -3237,20 +3252,44 @@ function test858_lubThreeInputs() {
   const c = MediaUrn.fromString('media:enc=utf8;fmt=ndjson;list');
   const lub = MediaUrn.leastUpperBound([a, b, c]);
   // All three are UTF-8 lists and all three HAVE a fmt (json/csv/ndjson —
-  // differing values → "some fmt"); record is on a and b only → dropped.
-  assert(lub.isEquivalent(MediaUrn.fromString('media:enc=utf8;fmt;list')),
-    `LUB should be media:enc=utf8;fmt;list but got ${lub.toString()}`);
+  // differing values → one of them); record is on a and b only → dropped.
+  assertEqual(lub.toString(), 'media:enc=utf8;fmt=csv|json|ndjson;list', 'the bound');
   assert(a.conformsTo(lub) && b.conformsTo(lub) && c.conformsTo(lub), 'every input conforms to the LUB');
 }
 
-// TEST859: LUB with valued tags (non-marker) that differ promotes the key
+// TEST859: LUB with valued tags (non-marker) that differ keeps both values
 function test859_lubValuedTags() {
   const lub = MediaUrn.leastUpperBound([
     MediaUrn.fromString('media:ext=png;image'),
     MediaUrn.fromString('media:ext=jpeg;image'),
   ]);
-  assert(lub.isEquivalent(MediaUrn.fromString('media:ext;image')),
-    `LUB should promote conflicting ext to some ext, got ${lub.toString()}`);
+  assertEqual(lub.toString(), 'media:ext=jpeg|png;image', 'the bound keeps both values');
+}
+
+// TEST7231: a media type splits into the shapes it may have — absence apart
+// from presence, each value of a set apart — and ends on the bookends those
+// shapes are, read complete; one shape that is no bookend ends it on none.
+function test7231_aMediaTypeSplitsIntoItsShapesAndEndsOnTheirBookends() {
+  const texts = urns => urns.map(u => u.toString()).sort();
+  assertEqual(JSON.stringify(texts(MediaUrn.fromString('media:enc=utf8;fmt=json;?list').splits())),
+    JSON.stringify(['media:enc=utf8;fmt=json;!list', 'media:enc=utf8;fmt=json;list']),
+    'absence apart from presence');
+  assertEqual(JSON.stringify(texts(MediaUrn.fromString('media:ext=jpeg|png;image').splits())),
+    JSON.stringify(['media:ext=jpeg;image', 'media:ext=png;image']),
+    'each value of the set apart');
+
+  const saved = MediaUrn.fromString('media:enc=utf8;ext=json;fmt=json;?list;?record');
+  const files = [
+    'media:enc=utf8;ext=json;fmt=json',
+    'media:enc=utf8;ext=json;fmt=json;list',
+    'media:enc=utf8;ext=json;fmt=json;record',
+    'media:enc=utf8;ext=json;fmt=json;list;record',
+  ].map(f => MediaUrn.fromString(f));
+  const ends = saved.endsOn(files);
+  assert(ends !== null, 'every shape is one of the bookends');
+  assertEqual(JSON.stringify(texts(ends)), JSON.stringify(texts(files)), 'one bookend for each shape');
+  assertEqual(saved.endsOn(files.slice(1)), null,
+    'without a file type for JSON that is neither a list nor a record, one shape is no bookend');
 }
 
 // TEST558: predicates are consistent with constants — every constant triggers exactly the expected predicates
@@ -8524,6 +8563,7 @@ async function runTests() {
   runTest('TEST029: minimal_cap_urn', test029_minimalCapUrn);
   runTest('TEST030: extended_character_support', test030_extendedCharacterSupport);
   runTest('TEST031: wildcard_restrictions', test031_wildcardRestrictions);
+  runTest('TEST7230: a_cap_tag_set_and_a_value_given_twice', test7230_aCapTagSetAndAValueGivenTwice);
   runTest('TEST032: duplicate_key_rejection', test032_duplicateKeyRejection);
   runTest('TEST033: numeric_key_restriction', test033_numericKeyRestriction);
   runTest('TEST034: empty_value_error', test034_emptyValueError);
@@ -8707,13 +8747,15 @@ async function runTests() {
   runTest('TEST553: is_live_feed', test553_isLiveFeed);
   runTest('TEST1302: predicate_constant_consistency', test558_predicateConstantConsistency);
   runTest('TEST852: lub_identical', test852_lubIdentical);
-  runTest('TEST853: lub_shared_key_promotes_to_wildcard', test853_lubSharedKeyPromotesToWildcard);
+  runTest('TEST853: lub_shared_key_keeps_the_values', test853_lubSharedKeyKeepsTheValues);
   runTest('TEST854: lub_partial_overlap', test854_lubPartialOverlap);
   runTest('TEST855: lub_list_vs_scalar', test855_lubListVsScalar);
   runTest('TEST856: lub_empty', test856_lubEmpty);
   runTest('TEST857: lub_single', test857_lubSingle);
   runTest('TEST858: lub_three_inputs', test858_lubThreeInputs);
   runTest('TEST859: lub_valued_tags', test859_lubValuedTags);
+  runTest('TEST7231: a_media_type_splits_into_its_shapes_and_ends_on_their_bookends',
+    test7231_aMediaTypeSplitsIntoItsShapesAndEndsOnTheirBookends);
 
   // cap_urn.rs: TEST1303-TEST1307 (CapUrn tier tests)
   console.log('\n--- cap_urn.rs (tier tests) ---');
