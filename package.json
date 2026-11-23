@@ -3,7 +3,7 @@
   "dependencies": {
     "lungo-ts": "1.127.0",
     "peggy": "^5.1.0",
-    "tagged-urn": "^1.167.7"
+    "tagged-urn": "^1.174.46"
   },
   "description": "JavaScript implementation of Cap URN (Capability Uniform Resource Names) with strict validation and matching",
   "engines": {
@@ -50,5 +50,5 @@
     "test": "node capdag.test.js && node machine.test.js"
   },
   "type": "module",
-  "version": "1.529.180"
+  "version": "1.530.190"
 }
