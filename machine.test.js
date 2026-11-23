@@ -2117,6 +2117,50 @@ function test7217_aGivenNodeBindsBySatisfactionAtANegativeDistance() {
   assert(isAbstraction(error, AE.UNMATCHED_SOURCE_IN_CAP_ARGS), error.stack);
 }
 
+// JSON to YAML as the fabric publishes it: a patch that keeps the shape it is
+// given and gives content, not a file.
+const JSON_TO_YAML = 'cap:convert-format;effect=patch;in="media:enc=utf8;fmt=json";json-to-yaml;out="media:enc=utf8;!ext;fmt=yaml"';
+const jsonToYaml = () => definition(JSON_TO_YAML, 'json to yaml', [stdinArg('media:enc=utf8;fmt=json', 'input')],
+  [outputOf('media:enc=utf8;!ext;fmt=yaml', 'output', 'YAML')]);
+
+// TEST7244: a machine read back from its text types a patch step's nodes by
+// what the step gives: JSON to YAML then a save that takes a YAML list of
+// records types the node between them a YAML list of records, content and no
+// file, and the input of the machine a JSON list of records.
+function test7244_aPatchStepsNodesAreTypedByWhatItGivesWhenReadBack() {
+  const save = 'cap:in="media:enc=utf8;fmt=yaml;list;record;!ext";out="media:enc=utf8;ext=yaml;fmt=yaml;list;record";save-as-yaml';
+  const definitions = notationDefinitions().addCaps([
+    jsonToYaml(),
+    definition(save, 'save as yaml list of records', [stdinArg('media:enc=utf8;fmt=yaml;list;record;!ext', 'input')],
+      [outputOf('media:enc=utf8;ext=yaml;fmt=yaml;list;record', 'output', 'The file')]),
+  ]);
+  const [machine, names] = withNames(`[to_yaml ${JSON_TO_YAML}][save ${save}][json -> to_yaml -> yaml][yaml -> save -> file]`, definitions);
+  const strand = machine.strands()[0];
+  const json = strand.nodeUrn(names[0].json);
+  assert(json.isEquivalent(media('media:enc=utf8;fmt=json;list;record')), `the input is ${json}`);
+  const yaml = strand.nodeUrn(names[0].yaml);
+  assert(yaml.isEquivalent(media('media:enc=utf8;!ext;fmt=yaml;list;record')), `the node between the steps is ${yaml}`);
+}
+
+// TEST7245: what a patch gives a complete thing is a complete thing: a JSON
+// record a step gives, converted to YAML, is a YAML record and no list, and
+// feeds a save that takes a record and refuses lists.
+function test7245_aPatchOfACompleteThingIsACompleteThing() {
+  const make = 'cap:in="media:enc=utf8";make-record;out="media:enc=utf8;fmt=json;record"';
+  const save = 'cap:in="media:enc=utf8;fmt=yaml;!list;record;!ext";out="media:enc=utf8;ext=yaml;fmt=yaml;record";save-as-yaml';
+  const definitions = notationDefinitions().addCaps([
+    definition(make, 'make a record', [stdinArg('media:enc=utf8', 'input')],
+      [outputOf('media:enc=utf8;fmt=json;record', 'output', 'A record')]),
+    jsonToYaml(),
+    definition(save, 'save as yaml record', [stdinArg('media:enc=utf8;fmt=yaml;!list;record;!ext', 'input')],
+      [outputOf('media:enc=utf8;ext=yaml;fmt=yaml;record', 'output', 'The file')]),
+  ]);
+  const [machine] = withNames(
+    `[make ${make}][to_yaml ${JSON_TO_YAML}][save ${save}][text -> make -> json][json -> to_yaml -> yaml][yaml -> save -> file]`,
+    definitions);
+  assertEqual(machine.strands()[0].edges().length, 3, 'the YAML record feeds the save');
+}
+
 // TEST7222: the node a patch cap produces holds what the cap gives for the node
 // it is sent, not its declared output: a series (a JSON list of records)
 // converted to YAML is a YAML list of records, so a step that takes YAML lists
@@ -2799,6 +2843,8 @@ function runTests() {
   runTest('TEST1180: match_sources_unmatched_source_fails_hard', test1180_matchSourcesUnmatchedSourceFailsHard);
   runTest('TEST1182: match_sources_ambiguous_raises_ambiguous_error', test1182_matchSourcesAmbiguousRaisesAmbiguousError);
   runTest('TEST7217: a_given_node_binds_by_satisfaction_at_a_negative_distance', test7217_aGivenNodeBindsBySatisfactionAtANegativeDistance);
+  runTest('TEST7244: a_patch_steps_nodes_are_typed_by_what_it_gives_when_read_back', test7244_aPatchStepsNodesAreTypedByWhatItGivesWhenReadBack);
+  runTest('TEST7245: a_patch_of_a_complete_thing_is_a_complete_thing', test7245_aPatchOfACompleteThingIsACompleteThing);
   runTest('TEST7222: a_patch_output_node_holds_what_the_cap_gives', test7222_aPatchOutputNodeHoldsWhatTheCapGives);
   runTest('TEST1308: cyclic_strand_fails_hard', test1308_cyclicStrandFailsHard);
   runTest('TEST1171: machine_parse_error_wraps_syntax_error', test1171_machineParseErrorWrapsSyntaxError);

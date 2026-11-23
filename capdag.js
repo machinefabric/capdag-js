@@ -9951,6 +9951,25 @@ function mainOutputIsGiven(definition) {
 }
 
 /**
+ * The node a wiring sends on its cap's main input, when the wiring says which:
+ * the member named for the main input, or the wiring's one unnamed member.
+ * `null` when the cap takes no input, or when only matching by type can tell.
+ *
+ * @param {Object} wiring
+ * @param {Cap} definition
+ * @returns {number|null}
+ */
+function mainInputNode(wiring, definition) {
+  const inSpec = MediaUrn.fromString(definition.urn.getInSpec());
+  if (inSpec.isEquivalent(mustMedia(MEDIA_VOID, 'media:void'))) return null;
+  const main = definition.mainInputArg();
+  if (main === null) return null;
+  const named = wiring.namedSources.find(([name]) => name === main.name);
+  if (named !== undefined) return named[1].isConstant ? null : named[1].node;
+  return wiring.sourceNodeIds.length === 1 ? wiring.sourceNodeIds[0] : null;
+}
+
+/**
  * Whether `output` is the cap's main output.
  *
  * @param {Cap} definition
@@ -10163,8 +10182,10 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
   // A node some wiring produces from a declared output holds what that step
   // gives, a complete thing. The main output of an effect=none or
   // effect=patch cap says how what it gives follows from what it takes, not
-  // what it gives, so a node it produces holds a type, as every node nothing
-  // produces does: one the text or an input anchor wrote.
+  // what it gives, so a node it produces holds what it gives for what it is
+  // sent: a complete thing when what it is sent is one (read below), and
+  // otherwise a type, as every node nothing produces holds: one the text or an
+  // input anchor wrote.
   const nodeIsSequence = new Array(nodes.length).fill(false);
   const nodeIsGiven = new Array(nodes.length).fill(false);
   const defs = [];
@@ -10205,6 +10226,34 @@ function resolveWirings(nodes, nodeNames, wirings, definitions, strandIndex) {
     // Canonical order, like the assignment's.
     outputs.sort((a, b) => compareMediaUrns(a.outputMediaUrn, b.outputMediaUrn));
     wiringOutputs.push(outputs);
+  }
+
+  // What an effect=none or effect=patch step gives a complete thing is a
+  // complete thing: its main output's node holds what the step gives for what
+  // it is sent, so it is given when the node it is sent on its main input is.
+  // Read again until nothing changes, so a chain of such steps is typed
+  // whatever order it is written in.
+  const passesThrough = [];
+  wirings.forEach((wiring, index) => {
+    const definition = defs[index];
+    if (mainOutputIsGiven(definition)) return;
+    const sent = mainInputNode(wiring, definition);
+    if (sent === null) return;
+    const main = definition.mainOutput();
+    for (const target of wiring.targets) {
+      if (target.name === null || (main !== null && main.name === target.name)) {
+        passesThrough.push([sent, target.node]);
+      }
+    }
+  });
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [sent, given] of passesThrough) {
+      if (nodeIsGiven[sent] && !nodeIsGiven[given]) {
+        nodeIsGiven[given] = true;
+        changed = true;
+      }
+    }
   }
 
   // Step 1: per-wiring binding of sources to cap args. Named members bind
