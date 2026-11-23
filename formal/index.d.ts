@@ -337,12 +337,7 @@ export function stepReportType(): L.Type<StepReport>;
 /** Lean's TaggedUrn.Constraint. */
 export type Constraint =
   | { readonly kind: "missing" }
-  | { readonly kind: "unconstrained" }
-  | { readonly kind: "optionalNot"; readonly value: string }
-  | { readonly kind: "present" }
-  | { readonly kind: "presentNot"; readonly value: string }
-  | { readonly kind: "exact"; readonly value: string }
-  | { readonly kind: "absent" }
+  | { readonly kind: "written"; readonly absent: boolean; readonly values: Values }
 ;
 export function constraintType(): L.Type<Constraint>;
 
@@ -380,6 +375,13 @@ export type RunAct =
   | { readonly kind: "finish" }
 ;
 export function runActType(): L.Type<RunAct>;
+
+/** Lean's TaggedUrn.Values. */
+export type Values =
+  | { readonly kind: "oneOf"; readonly vs: Array<string> }
+  | { readonly kind: "noneOf"; readonly vs: Array<string> }
+;
+export function valuesType(): L.Type<Values>;
 
 /** The layout fingerprint and descriptor of each type, by Lean name, for modules using them. */
 export const leanTypes: {
@@ -499,6 +501,8 @@ export class CapdagFormal {
   dispatch(candidate: WfCap, request: WfCap): boolean;
   /** Lean's CapDAG.Exec.effectOk : CapDAG.Effect → CapDAG.Effect → Bool */
   effectOk(candidate: Effect, request: Effect): boolean;
+  /** Lean's CapDAG.Exec.endsOn : List TaggedUrn.Exec.Wf → TaggedUrn.Exec.Wf → Option (List TaggedUrn.Exec.Wf) */
+  endsOn(bookends: Array<Wf>, node: Wf): L.Option<Array<Wf>>;
   /** Lean's CapDAG.Exec.equivalent : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
   equivalent(a: WfCap, b: WfCap): boolean;
   /** Lean's CapDAG.Exec.flows : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
@@ -529,6 +533,8 @@ export class CapdagFormal {
   select(candidates: Array<WfCap>, request: WfCap): L.Option<WfCap>;
   /** Lean's CapDAG.Exec.specificity : CapDAG.Exec.WfCap → Nat */
   specificity(c: WfCap): bigint;
+  /** Lean's CapDAG.Exec.splits : TaggedUrn.Exec.Wf → List TaggedUrn.Exec.Wf */
+  splits(u: Wf): Array<Wf>;
   /** Lean's CapDAG.Run.Control.admits : CapDAG.Run.Control.RunPhase → Bool */
   admits(a: RunPhase): boolean;
   /** Lean's CapDAG.Run.Control.exitStatus : CapDAG.Run.Control.RunOutcome → Nat */

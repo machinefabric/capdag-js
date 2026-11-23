@@ -60,7 +60,9 @@ const ErrorCodes = {
   INVALID_OUT_SPEC: 14,
   INVALID_EFFECT: 15,
   INVALID_EFFECT_APPLICATION: 16,
-  ILLEGAL_DECLARATION: 17
+  ILLEGAL_DECLARATION: 17,
+  // A value given twice in one set of values.
+  DUPLICATE_VALUE: 18
 };
 
 // Note: All parsing is delegated to TaggedUrn from tagged-urn-js
@@ -79,6 +81,7 @@ const CAP_CODE_OF_TAGGED_CODE = Object.freeze({
   [TaggedUrnErrorCodes.EMPTY_PREFIX]: ErrorCodes.MISSING_CAP_PREFIX,
   [TaggedUrnErrorCodes.PREFIX_MISMATCH]: ErrorCodes.MISSING_CAP_PREFIX,
   [TaggedUrnErrorCodes.WHITESPACE_IN_INPUT]: ErrorCodes.INVALID_CHARACTER,
+  [TaggedUrnErrorCodes.DUPLICATE_VALUE]: ErrorCodes.DUPLICATE_VALUE,
 });
 
 function capUrnErrorFromTaggedUrn(e) {
@@ -152,11 +155,12 @@ function directionSpec(side, raw) {
  * any other form is refused.
  */
 function processDirectionTag(constraint, side) {
-  if (constraint === undefined || constraint.kind === 'present') {
+  if (constraint === undefined || Constraint.equals(constraint, Constraint.present())) {
     return 'media:';
   }
-  if (constraint.kind === 'exact') {
-    return directionMedia(side, constraint.value);
+  const exact = Constraint.exactValue(constraint);
+  if (exact !== null) {
+    return directionMedia(side, exact);
   }
   throw new CapUrnError(directionCode(side),
     `Invalid '${side}' media URN: ${writtenTag(side, constraint)}. Must start with 'media:' or be '*'`);
@@ -206,10 +210,11 @@ const CapEffect = Object.freeze({
  */
 function normalizeEffectValue(constraint) {
   if (constraint === undefined) return CapEffect.DECLARED;
-  if (constraint.kind === 'present' || constraint.kind === 'unconstrained') return CapEffect.ANY;
-  if (constraint.kind === 'exact'
-      && [CapEffect.DECLARED, CapEffect.NONE, CapEffect.PATCH].includes(constraint.value)) {
-    return constraint.value;
+  if (Constraint.equals(constraint, Constraint.present())
+      || Constraint.equals(constraint, Constraint.unconstrained())) return CapEffect.ANY;
+  const exact = Constraint.exactValue(constraint);
+  if ([CapEffect.DECLARED, CapEffect.NONE, CapEffect.PATCH].includes(exact)) {
+    return exact;
   }
   throw new CapUrnError(
     ErrorCodes.INVALID_EFFECT,
@@ -269,6 +274,11 @@ function modelUrn(urn) {
 function urnOfModel(made) {
   const [prefix, tags] = model.parts(made);
   return new TaggedUrn(prefix, Object.fromEntries(tags));
+}
+
+/** A media URN the model gave back for media URNs it was handed. */
+function mediaOfModel(made) {
+  return new MediaUrn(urnOfModel(made));
 }
 
 const MODEL_EFFECTS = Object.freeze({
@@ -517,7 +527,8 @@ class CapUrn {
    */
   exactValue(key) {
     const constraint = this.getTag(key);
-    return constraint !== undefined && constraint.kind === 'exact' ? constraint.value : undefined;
+    const exact = constraint === undefined ? null : Constraint.exactValue(constraint);
+    return exact === null ? undefined : exact;
   }
 
   /**
@@ -541,8 +552,7 @@ class CapUrn {
    * @returns {boolean}
    */
   hasMarkerTag(tagName) {
-    const constraint = this.getTag(tagName);
-    return constraint !== undefined && constraint.kind === 'present';
+    return Constraint.equals(this.getTag(tagName), Constraint.present());
   }
 
   /**
@@ -657,14 +667,14 @@ class CapUrn {
    *             + WEIGHT_IN  * spec_U(c.in)
    *             +              spec_U(c.y)
    *
-   * Per-tag ladder:
+   * Per-tag score, by what the tag allows:
    *
-   *   "?"            -> 0   (no constraint)
-   *   starts "?="    -> 1   (absent or not v)
-   *   "*"            -> 2   (must-have-any)
-   *   starts "!="    -> 3   (present and not v)
-   *   exact value    -> 4   (exact match)
-   *   "!"            -> 5   (must-not-have)
+   *   absence and every value                 `?x`                      -> 0
+   *   absence and some values, not every one  `x?=v`, `x?=a|b`, `x=a|!` -> 1
+   *   every value                             `x` (`x=*`)               -> 2
+   *   two or more values, not every value     `x!=v`, `x=a|b`           -> 3
+   *   exactly one value                       `x=v`                     -> 4
+   *   only absence                            `!x`                      -> 5
    *
    * The lexicographic priority `(out, in, y)` reflects the routing
    * intent: producing different things is the largest semantic
@@ -1833,7 +1843,8 @@ class MediaUrn {
    */
   exactValue(key) {
     const constraint = this._urn.getTag(key);
-    return constraint !== undefined && constraint.kind === 'exact' ? constraint.value : undefined;
+    const exact = constraint === undefined ? null : Constraint.exactValue(constraint);
+    return exact === null ? undefined : exact;
   }
 
   /**
@@ -1883,15 +1894,44 @@ class MediaUrn {
    * of different media converge.
    *
    * Made by tagged-urn's proved model (`TaggedUrn.leastUpperBound`): key by key,
-   * the bound allows every state some input allows, and where no single form says
-   * exactly that, it is the least bound that excludes only values the inputs name.
-   * `[media:document;ext=pdf, media:ext=png;image]` gives `media:ext`; no inputs
-   * give `media:`.
+   * the bound allows exactly the states some input allows, and a key some input
+   * allows every state of is left out.
+   * `[media:document;ext=pdf, media:ext=png;image]` gives `media:ext=pdf|png`; no
+   * inputs give `media:`.
    * @param {MediaUrn[]} urns
    * @returns {MediaUrn}
    */
   static leastUpperBound(urns) {
     return new MediaUrn(TaggedUrn.leastUpperBound('media', urns.map((u) => u._urn)));
+  }
+
+  /**
+   * The shapes this media type may have: at every key it writes, absence apart
+   * from presence, and each value of a finite set apart from the others; a key
+   * allowing every value but some stays whole. Read complete, the parts hold
+   * exactly what this type holds. Made by the proved model (CapDAG.Exec.splits).
+   *
+   * - `media:enc=utf8;fmt=json;?list` gives `media:enc=utf8;fmt=json;!list` and
+   *   `media:enc=utf8;fmt=json;list`
+   * - `media:ext=jpeg|png;image` gives `media:ext=jpeg;image` and `media:ext=png;image`
+   * @returns {MediaUrn[]}
+   */
+  splits() {
+    return model.splits(modelUrn(this._urn)).map(mediaOfModel);
+  }
+
+  /**
+   * The bookends a node of this type ends on: for each of its parts (splits),
+   * the first of `bookends` that is the same as the part read complete; null
+   * when some part is none of them. A route reaching a node that ends on
+   * bookends may give a file of any of them. Decided by the proved model
+   * (CapDAG.Exec.endsOn).
+   * @param {MediaUrn[]} bookends
+   * @returns {MediaUrn[]|null}
+   */
+  endsOn(bookends) {
+    const ends = model.endsOn(bookends.map((b) => modelUrn(b._urn)), modelUrn(this._urn));
+    return ends === null ? null : ends.map(mediaOfModel);
   }
 
   /**
@@ -8472,7 +8512,7 @@ const abstractionError = Object.freeze({
     `cap URN '${capUrn}' has no cached definition — cannot emit a display title for render payload`, { capUrn }),
   nodeMediaConflict: (node, first, second) => new MachineAbstractionError(
     AE.NODE_MEDIA_CONFLICT,
-    `node '${node}' is given media URNs that are not on one specialization chain: '${first}' and '${second}'`,
+    `node '${node}' is given media URNs neither of which is inside the other: '${first}' and '${second}'`,
     { node, first, second }),
 });
 
@@ -10475,8 +10515,8 @@ function includedMachineOf(machine, names) {
 //   type of the step's main input — at most one such member per wiring, and
 //   only while no named member bound the main input (UntypedMachineInput
 //   otherwise);
-// - URNs given to one node must be on one specialization chain
-//   (NodeMediaConflict otherwise); the node has the most specific.
+// - of two URNs given to one node, one must be inside the other
+//   (NodeMediaConflict otherwise); the node has the narrower.
 // ============================================================================
 
 function rawSourceNodes(wiring) {
@@ -10542,8 +10582,10 @@ function componentsOf(wirings) {
 }
 
 /**
- * Give `node` the URN `media`, beside any URN it was already given: the two
- * must be on one specialization chain, and the node holds the more specific.
+ * Give `node` the URN `media`, beside any URN it was already given: one of the
+ * two must be inside the other, and the node holds the narrower. Two types can
+ * score the same and still differ (`ext=a|b` and `ext=a|b|c`), so specificity
+ * never decides it.
  */
 function giveMedia(nodeMedia, node, media) {
   const existing = nodeMedia.get(node);
@@ -10551,10 +10593,24 @@ function giveMedia(nodeMedia, node, media) {
     nodeMedia.set(node, media);
     return;
   }
-  if (!existing.isComparable(media)) {
+  const narrower = narrowerOf(existing, media);
+  if (narrower === null) {
     throw abstractionError.nodeMediaConflict(node, existing.toString(), media.toString());
   }
-  if (media.specificity() > existing.specificity()) nodeMedia.set(node, media);
+  if (narrower) nodeMedia.set(node, media);
+}
+
+/**
+ * Whether `given` should replace `held` as one node's type: true when `given`
+ * is strictly inside `held`, false when `held` is inside `given` (equivalent
+ * types included), null when neither is inside the other.
+ */
+function narrowerOf(held, given) {
+  const givenInside = given.conformsTo(held);
+  const heldInside = held.conformsTo(given);
+  if (heldInside) return false;
+  if (givenInside) return true;
+  return null;
 }
 
 /**
