@@ -1997,17 +1997,72 @@ function renderPageImageUrn(inputMedia) {
     .build();
 }
 
+/** What converting to YAML gives: YAML content, not a file. */
+const MEDIA_YAML_CONTENT = 'media:enc=utf8;fmt=yaml;!ext';
+/** What converting to JSON gives: JSON content, not a file. */
+const MEDIA_JSON_CONTENT = 'media:enc=utf8;fmt=json;!ext';
+
 /**
- * Build URN for format conversion capability
- * @param {string} inMedia - The input media URN string
- * @param {string} outMedia - The output media URN string
+ * All format conversion paths between JSON, YAML, CSV and text lists. `effect`
+ * is CapEffect.PATCH for a conversion that keeps the shape it is given (JSON <->
+ * YAML: a list stays a list, a record a record), and CapEffect.DECLARED for one
+ * whose output names what it gives. `marker` is the marker its published cap
+ * carries beside `convert-format`, naming the conversion (`json-to-yaml`,
+ * `yaml-to-json`), or null when the cap has only `convert-format`.
+ * @returns {Array<{inMedia: string, outMedia: string, effect: string, marker: (string|null), title: string, description: string}>}
+ */
+function allFormatConversionPaths() {
+  const path = (inMedia, outMedia, effect, marker, title, description) =>
+    ({ inMedia, outMedia, effect, marker, title, description });
+  return [
+    // JSON <-> YAML: one patch each way, keeping whatever shape it is given
+    path(MEDIA_JSON_VALUE, MEDIA_YAML_CONTENT, CapEffect.PATCH, 'json-to-yaml',
+      'Convert JSON to YAML', 'Re-serialize any JSON value as YAML, keeping its shape'),
+    path(MEDIA_YAML_VALUE, MEDIA_JSON_CONTENT, CapEffect.PATCH, 'yaml-to-json',
+      'Convert YAML to JSON', 'Re-serialize any YAML value as JSON, keeping its shape'),
+    // JSON list of records <-> CSV
+    path(MEDIA_JSON_LIST_RECORD, MEDIA_CSV, CapEffect.DECLARED, null,
+      'Convert JSON Array of Objects to CSV', 'Convert a JSON array of objects to CSV format'),
+    path(MEDIA_CSV, MEDIA_JSON_LIST_RECORD, CapEffect.DECLARED, null,
+      'Convert CSV to JSON Array of Objects', 'Convert CSV data to a JSON array of objects'),
+    // YAML list of records <-> CSV
+    path(MEDIA_YAML_LIST_RECORD, MEDIA_CSV, CapEffect.DECLARED, null,
+      'Convert YAML List of Mappings to CSV', 'Convert a YAML list of mappings to CSV format'),
+    path(MEDIA_CSV, MEDIA_YAML_LIST_RECORD, CapEffect.DECLARED, null,
+      'Convert CSV to YAML List of Mappings', 'Convert CSV data to a YAML list of mappings'),
+    // Text list <-> JSON list
+    path(MEDIA_STRING_LIST, MEDIA_JSON_LIST, CapEffect.DECLARED, null,
+      'Convert Text List to JSON Array', 'Convert a list of text values to a JSON array'),
+    path(MEDIA_JSON_LIST, MEDIA_STRING_LIST, CapEffect.DECLARED, null,
+      'Convert JSON Array to Text List', 'Convert a JSON array to a list of text values'),
+    // Text list <-> YAML list
+    path(MEDIA_STRING_LIST, MEDIA_YAML_LIST, CapEffect.DECLARED, null,
+      'Convert Text List to YAML Sequence', 'Convert a list of text values to a YAML sequence'),
+    path(MEDIA_YAML_LIST, MEDIA_STRING_LIST, CapEffect.DECLARED, null,
+      'Convert YAML Sequence to Text List', 'Convert a YAML sequence to a list of text values'),
+    // Text list <-> CSV
+    path(MEDIA_STRING_LIST, MEDIA_CSV, CapEffect.DECLARED, null,
+      'Convert Text List to CSV', 'Convert a list of text values to CSV format'),
+    path(MEDIA_CSV, MEDIA_STRING_LIST, CapEffect.DECLARED, null,
+      'Convert CSV to Text List', 'Convert CSV data to a list of text values'),
+  ];
+}
+
+/**
+ * Build the URN of a format conversion: its published cap's URN. Every format
+ * conversion carries the `convert-format` marker, and the one its path names.
+ * @param {{inMedia: string, outMedia: string, effect: string, marker: (string|null)}} path - A path of allFormatConversionPaths()
  * @returns {CapUrn}
  */
-function formatConversionUrn(inMedia, outMedia) {
-  return new CapUrnBuilder()
-    .marker('convert-format')
-    .inSpec(inMedia)
-    .outSpec(outMedia)
+function formatConversionUrn(path) {
+  const builder = new CapUrnBuilder().marker('convert-format');
+  if (path.marker !== null) {
+    builder.marker(path.marker);
+  }
+  return builder
+    .inSpec(path.inMedia)
+    .outSpec(path.outMedia)
+    .effect(path.effect)
     .build();
 }
 
@@ -13478,6 +13533,9 @@ export {
   llmGenerateTextUrn,
   renderPageImageUrn,
   formatConversionUrn,
+  allFormatConversionPaths,
+  MEDIA_YAML_CONTENT,
+  MEDIA_JSON_CONTENT,
   mediaUrnForType,
   modelAvailabilityUrn,
   modelPathUrn,

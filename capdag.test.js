@@ -57,6 +57,7 @@ import {
   parseMachine,
   machineFromCapPath,
   MachineAbstractionError, MachineAbstractionErrorCodes, MachineSyntaxError, MachineSyntaxErrorCodes,
+  allFormatConversionPaths, formatConversionUrn,
 } from './capdag.js';
 import * as capdagModule from './capdag.js';
 
@@ -4408,6 +4409,32 @@ function test7215_aPatternFitsWhatACapGives() {
   for (const cap of [givesPdf, givesPdfDocument, givesAnything]) {
     assert(any.accepts(cap), cap.toString());
   }
+}
+
+// TEST7243: every format conversion's URN is its published cap's: the JSON<->YAML
+// patches carry the json-to-yaml and yaml-to-json markers their caps carry, so a
+// request for either names a cap that the path's URN serves
+function test7243_formatConversionUrnsAreThePublishedCaps() {
+  const published = [
+    'cap:convert-format;effect=patch;in="media:enc=utf8;fmt=json";json-to-yaml;out="media:enc=utf8;!ext;fmt=yaml"',
+    'cap:convert-format;effect=patch;in="media:enc=utf8;fmt=yaml";out="media:enc=utf8;!ext;fmt=json";yaml-to-json',
+    'cap:convert-format;in="media:enc=utf8;fmt=json;list;record";out="media:enc=utf8;fmt=csv;list;record"',
+    'cap:convert-format;in="media:enc=utf8;fmt=csv;list;record";out="media:enc=utf8;fmt=json;list;record"',
+    'cap:convert-format;in="media:enc=utf8;fmt=yaml;list;record";out="media:enc=utf8;fmt=csv;list;record"',
+    'cap:convert-format;in="media:enc=utf8;fmt=csv;list;record";out="media:enc=utf8;fmt=yaml;list;record"',
+    'cap:convert-format;in="media:enc=utf8;list";out="media:enc=utf8;fmt=json;list"',
+    'cap:convert-format;in="media:enc=utf8;fmt=json;list";out="media:enc=utf8;list"',
+    'cap:convert-format;in="media:enc=utf8;list";out="media:enc=utf8;fmt=yaml;list"',
+    'cap:convert-format;in="media:enc=utf8;fmt=yaml;list";out="media:enc=utf8;list"',
+    'cap:convert-format;in="media:enc=utf8;list";out="media:enc=utf8;fmt=csv;list;record"',
+    'cap:convert-format;in="media:enc=utf8;fmt=csv;list;record";out="media:enc=utf8;list"',
+  ];
+  const paths = allFormatConversionPaths();
+  assertEqual(paths.length, published.length, 'one path per published conversion');
+  paths.forEach((path, i) => {
+    const urn = formatConversionUrn(path);
+    assert(urn.isEquivalent(CapUrn.fromString(published[i])), `${urn} is not the published ${published[i]}`);
+  });
 }
 
 // TEST128: omitted effect means declared; unconstrained effect must be explicit
@@ -8831,6 +8858,7 @@ async function runTests() {
   runTest('TEST7213: declared_output_is_read_complete_in_dispatch', test7213_declaredOutputIsReadCompleteInDispatch);
   runTest('TEST7214: dispatch_compares_what_the_cap_gives_for_what_is_sent', test7214_dispatchComparesWhatTheCapGivesForWhatIsSent);
   runTest('TEST7215: a_pattern_fits_what_a_cap_gives', test7215_aPatternFitsWhatACapGives);
+  runTest('TEST7243: format_conversion_urns_are_the_published_caps', test7243_formatConversionUrnsAreThePublishedCaps);
 
   // machine module: parser tests (mirrors parser.rs)
   console.log('\n--- machine/parser.rs ---');
