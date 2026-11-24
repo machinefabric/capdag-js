@@ -973,6 +973,23 @@ class CapUrn {
   }
 
   /**
+   * What a need on what this cap gives asks of what it is sent: the widest
+   * type inside the cap's input whose things the cap gives inside `need`, or
+   * null when nothing it is sent could be. A declared cap gives its output
+   * whatever it is sent, so it asks its input when its output is inside
+   * `need`; an effect=none cap asks its input met with `need`; a patch asks its
+   * input met with `need` at every key it does not write, when what it writes
+   * is inside `need`. Computed by the proved model (CapDAG.Exec.capRequires,
+   * which is Cap.requires, sound and widest).
+   * @param {MediaUrn} need
+   * @returns {MediaUrn|null}
+   */
+  requires(need) {
+    const required = model.capRequires(this.formal, modelUrn(need._urn));
+    return required === null ? null : mediaOfModel(required);
+  }
+
+  /**
    * THE effect-audit predicate: does an actually-emitted runtime output keep
    * this cap's effect contract for the given runtime input? Every check of
    * "did the cap emit what its effect promised" goes through this, so the
@@ -10718,6 +10735,108 @@ function narrowerOf(held, given) {
 }
 
 /**
+ * Every place each node is bound into, as `{accepts, mainOf}`: what it is
+ * accepted as there, and, when the node is a cap step's main member, that
+ * step's index among the steps (null otherwise). A node is bound by name into a
+ * cap's arg or a machine's input, or unnamed into a cap's main input, as its
+ * one unnamed member or as one of the members its main input gathers when it
+ * takes a sequence. Only a member bound by the main arg's name, or the step's
+ * one unnamed member, is the step's main member.
+ */
+function nodeBindings(wirings, steps, machines, media) {
+  const bindings = new Map();
+  const bind = (node, binding) => {
+    if (!bindings.has(node)) bindings.set(node, []);
+    bindings.get(node).push(binding);
+  };
+  for (const wiring of wirings) {
+    const machine = machines.get(wiring.capAlias);
+    if (machine === undefined) continue;
+    for (const member of wiring.sources) {
+      if (member.name === null || member.value.isConstant) continue;
+      const accepts = machine.input(member.name);
+      if (accepts !== null) bind(member.value.node, { accepts, mainOf: null });
+    }
+  }
+  steps.forEach(({ wiring, definition, inMedia }, index) => {
+    const mainArg = inMedia === null ? undefined : definition.args.find(arg => arg.isMainInput(inMedia));
+    let mainNamed = false;
+    for (const member of wiring.sources) {
+      if (member.name === null || member.value.isConstant) continue;
+      // A name no arg has was refused above.
+      const arg = definition.argNamed(member.name);
+      if (arg === null) continue;
+      const main = mainArg !== undefined && mainArg.name === arg.name;
+      mainNamed = mainNamed || main;
+      bind(member.value.node, { accepts: media(arg.acceptedUrn()), mainOf: main ? index : null });
+    }
+    if (inMedia === null || mainArg === undefined || mainNamed) return;
+    const unnamed = rawUnnamedNodes(wiring);
+    if (unnamed.length === 1) {
+      bind(unnamed[0], { accepts: inMedia, mainOf: index });
+    } else if (mainArg.is_sequence) {
+      for (const node of unnamed) bind(node, { accepts: inMedia, mainOf: null });
+    }
+  });
+  return bindings;
+}
+
+/**
+ * What `node` must be for every step it is bound into: what each accepts it
+ * as, and, where it is a step's main member, what that step requires of what
+ * it is sent for what its own main output must be. null when nothing binds it,
+ * or when none of those is inside every other. Worked out once per node
+ * (`need`); a node met again on its own way back is a cycle, which the
+ * resolver refuses, and says nothing here.
+ */
+function nodeNeed(node, bindings, steps, need, visiting) {
+  if (need.has(node)) return need.get(node);
+  if (visiting.has(node)) return null;
+  visiting.add(node);
+  const needs = [];
+  for (const binding of bindings.get(node) || []) {
+    needs.push(binding.accepts);
+    if (binding.mainOf === null) continue;
+    const step = steps[binding.mainOf];
+    for (const target of step.wiring.targets) {
+      if (!isMainTarget(step.definition, target)) continue;
+      const outNeed = nodeNeed(target.node, bindings, steps, need, visiting);
+      if (outNeed === null) continue;
+      const required = step.capUrn.requires(outNeed);
+      if (required !== null) needs.push(required);
+    }
+  }
+  visiting.delete(node);
+  const narrowest = narrowestInsideAll(needs);
+  need.set(node, narrowest);
+  return narrowest;
+}
+
+/**
+ * The one of `types` that is inside every other, or null when there are none
+ * or no one of them is.
+ */
+function narrowestInsideAll(types) {
+  if (types.length === 0) return null;
+  let narrowest = types[0];
+  for (const each of types.slice(1)) {
+    const narrower = narrowerOf(narrowest, each);
+    if (narrower === null) return null;
+    if (narrower) narrowest = each;
+  }
+  return types.every(each => narrowest.conformsTo(each)) ? narrowest : null;
+}
+
+/**
+ * Whether a target takes an output of the cap that carries the cap's input.
+ */
+function carriesInput(definition, target) {
+  if (target.name === null) return false;
+  const output = definition.outputNamed(target.name);
+  return output !== null && output.carries !== null;
+}
+
+/**
  * Give every node of one strand its media URN. The result does not depend on
  * the order of the wirings: what produces a node and what names it are read
  * first, for every wiring; only then is each wiring asked for the one unnamed
@@ -10850,70 +10969,42 @@ function typeNodes(wirings, aliasMap, machines, includedMedia, definitions, stra
   }
   for (const [node, given] of fromMainInput) giveMedia(nodeMedia, node, given);
 
-  // What an effect=none or effect=patch cap gives follows from what it is sent
-  // (07 §What a cap gives), so the types on either side of one are read
-  // through it, both ways:
-  // - forward, its main output's node holds what the cap gives for the type
-  //   of the node feeding its main input, which refines the declared output
-  //   it was given above: a JSON list of records sent to a patch to YAML gives
-  //   a YAML list of records;
-  // - backward, a step's main input says what the patches feeding it must
-  //   give, and so what the input of the machine at the start of them must be:
-  //   walked back through each, its input put back where its output changes
-  //   it. A YAML input of the machine converted to JSON for a step that takes
-  //   JSON lists of records is a YAML list of records.
-  // Read again until nothing changes, so a chain of such caps is typed
-  // whatever order it is written in.
+  // The machine's text writes no types, so a node is read with the types its
+  // steps need (09 §The URN of a node), in two passes that only narrow a node
+  // along its chain; a type on no chain with the node's is left, for the
+  // binding check to report:
+  // - back: what a node must be is what every step it is bound into accepts
+  //   there, and where it is a step's main member, what that step requires of
+  //   what it is sent for what its own main output must be (CapUrn.requires),
+  //   all on one chain. An input of the machine is narrowed to it: a YAML input
+  //   converted to JSON for a step that gathers JSON records that are not lists
+  //   is a YAML record that is not a list.
+  // - forward: a step that passes on or patches what it is sent gives its main
+  //   output's node what it gives for what its main member holds, when that is
+  //   inside its input; an output that carries the input holds what the main
+  //   member holds. Read again until nothing changes, so a chain of such steps
+  //   is typed whatever order it is written in.
   const steps = wirings.filter(wiring => !machines.has(wiring.capAlias)).map(wiring => {
     const [capUrn, definition] = capOf(wiring);
     return { wiring, capUrn, definition, inMedia: mainInputOf(wiring, capUrn) };
   });
-  const patches = new Map();
-  for (const step of steps) {
-    if (mainOutputIsGiven(step.definition)) continue;
-    for (const target of step.wiring.targets) {
-      if (isMainTarget(step.definition, target)) patches.set(target.node, step);
-    }
+  const bindings = nodeBindings(wirings, steps, machines, media);
+  const need = new Map();
+  for (const node of bindings.keys()) nodeNeed(node, bindings, steps, need, new Set());
+  for (const [node, must] of need) {
+    if (must === null || produced.has(node)) continue;
+    const held = nodeMedia.get(node);
+    if (held !== undefined && narrowerOf(held, must) === true) nodeMedia.set(node, must);
   }
-  for (let round = 0; round < wirings.length; round += 1) {
+  for (let round = 0; round <= wirings.length; round += 1) {
     let changed = false;
     for (const { wiring, capUrn, definition, inMedia } of steps) {
-      if (inMedia === null) continue;
+      if (mainOutputIsGiven(definition) || inMedia === null) continue;
       const source = mainSource(wiring, definition, inMedia);
       if (source === null) continue;
-
-      // Backward, from this step's main input to the input of the machine at
-      // the start of the patches feeding it.
-      let required = inMedia;
-      let start = source;
-      let walked = 0;
-      while (patches.has(start) && walked < wirings.length) {
-        walked += 1;
-        const patch = patches.get(start);
-        if (patch.inMedia === null) break;
-        let patchOut;
-        try {
-          patchOut = patch.capUrn.outMediaUrn();
-        } catch (error) {
-          throw syntaxError.invalidMediaUrn(patch.wiring.capAlias, `out= spec: ${error.message}`, patch.wiring.stepLocation);
-        }
-        required = required.applyDelta(patch.inMedia.deltaFrom(patchOut));
-        const feeding = mainSource(patch.wiring, patch.definition, patch.inMedia);
-        if (feeding === null) break;
-        start = feeding;
-      }
-      const held = nodeMedia.get(start);
-      if (walked > 0 && !produced.has(start) && held !== undefined && held.isComparable(required)) {
-        const before = held.toString();
-        giveMedia(nodeMedia, start, required);
-        changed = changed || before !== nodeMedia.get(start).toString();
-      }
-
-      // Forward, from what this step is sent to what it gives.
-      if (mainOutputIsGiven(definition)) continue;
       const sent = nodeMedia.get(source);
-      // A member that does not fit the input is the resolver's to refuse.
-      if (sent === undefined || !sent.satisfies(inMedia)) continue;
+      // A member that is not inside the input is the resolver's to refuse.
+      if (sent === undefined || !sent.conformsTo(inMedia)) continue;
       let given;
       try {
         given = capUrn.inferRuntimeOutputMedia(sent);
@@ -10921,9 +11012,12 @@ function typeNodes(wirings, aliasMap, machines, includedMedia, definitions, stra
         throw abstractionError.runtimeMediaInference(strandIndex, capUrn.toString(), sent.toString(), error.message);
       }
       for (const target of wiring.targets) {
-        if (!isMainTarget(definition, target)) continue;
+        let holds;
+        if (isMainTarget(definition, target)) holds = given;
+        else if (carriesInput(definition, target)) holds = sent;
+        else continue;
         const before = nodeMedia.has(target.node) ? nodeMedia.get(target.node).toString() : null;
-        giveMedia(nodeMedia, target.node, given);
+        giveMedia(nodeMedia, target.node, holds);
         changed = changed || before !== nodeMedia.get(target.node).toString();
       }
     }

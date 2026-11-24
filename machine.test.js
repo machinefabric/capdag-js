@@ -2142,6 +2142,59 @@ function test7244_aPatchStepsNodesAreTypedByWhatItGivesWhenReadBack() {
   assert(yaml.isEquivalent(media('media:enc=utf8;!ext;fmt=yaml;list;record')), `the node between the steps is ${yaml}`);
 }
 
+const YAML_TO_JSON = 'cap:convert-format;effect=patch;in="media:enc=utf8;fmt=yaml";yaml-to-json;out="media:enc=utf8;fmt=json;!ext"';
+
+// TEST7246: a machine read back from its text types an input of the machine by
+// what the steps after it need, carried back through a patch: JSON to YAML,
+// then a save that takes a YAML list of records, types the input a JSON list of
+// records and the node between them a YAML list of records, content and no
+// file, whether its members are named or not.
+function test7246_anInputIsTypedByWhatTheStepsAfterAPatchNeed() {
+  const save = 'cap:in="media:enc=utf8;fmt=yaml;list;record;!ext";out="media:enc=utf8;ext=yaml;fmt=yaml;list;record";save-as-yaml';
+  const definitions = notationDefinitions().addCaps([
+    jsonToYaml(),
+    definition(save, 'save', [stdinArg('media:enc=utf8;fmt=yaml;list;record;!ext', 'input')],
+      [outputOf('media:enc=utf8;ext=yaml;fmt=yaml;list;record', 'output', 'The file')]),
+  ]);
+  for (const wirings of [
+    '[(input=n0) -> to_yaml -> (output=n1)][(input=n1) -> save -> (output=n2)]',
+    '[n1 -> save -> n2][n0 -> to_yaml -> n1]',
+  ]) {
+    const [machine, names] = withNames(`[to_yaml ${JSON_TO_YAML}][save ${save}]${wirings}`, definitions);
+    const strand = machine.strands()[0];
+    const n0 = strand.nodeUrn(names[0].n0);
+    const n1 = strand.nodeUrn(names[0].n1);
+    assert(n0.isEquivalent(media('media:enc=utf8;fmt=json;list;record')), `${wirings}: n0 is ${n0}`);
+    assert(n1.isEquivalent(media('media:enc=utf8;!ext;fmt=yaml;list;record')), `${wirings}: n1 is ${n1}`);
+  }
+}
+
+// TEST7247: what an input of the machine must be is carried back from every
+// step its patch's output is bound into, a gather included: YAML converted to
+// JSON and gathered with JSON records that are not lists types the YAML input a
+// YAML record that is not a list, and what the patch gives a JSON record that
+// is not a list, content and no file.
+function test7247_anInputIsTypedThroughAPatchByTheGatherAfterIt() {
+  const collect = 'cap:in="media:enc=utf8;fmt=json;!list;record";collect-json-objects;out="media:enc=utf8;fmt=json;list;record"';
+  const definitions = notationDefinitions().addCaps([
+    definition(YAML_TO_JSON, 'yaml to json', [stdinArg('media:enc=utf8;fmt=yaml', 'input')],
+      [outputOf('media:enc=utf8;fmt=json;!ext', 'output', 'JSON')]),
+    definition(collect, 'collect', [stdinArg('media:enc=utf8;fmt=json;!list;record', 'input', true)],
+      [outputOf('media:enc=utf8;fmt=json;list;record', 'output', 'The records')]),
+  ]);
+  for (const wirings of [
+    '[from_yaml -> yaml_to_json -> converted][(converted, already_json) -> collect -> collected]',
+    '[(converted, already_json) -> collect -> collected][from_yaml -> yaml_to_json -> converted]',
+  ]) {
+    const [machine, names] = withNames(`[yaml_to_json ${YAML_TO_JSON}][collect ${collect}]${wirings}`, definitions);
+    const strand = machine.strands()[0];
+    const fromYaml = strand.nodeUrn(names[0].from_yaml);
+    const converted = strand.nodeUrn(names[0].converted);
+    assert(fromYaml.isEquivalent(media('media:enc=utf8;fmt=yaml;!list;record')), `${wirings}: from_yaml is ${fromYaml}`);
+    assert(converted.isEquivalent(media('media:enc=utf8;!ext;fmt=json;!list;record')), `${wirings}: converted is ${converted}`);
+  }
+}
+
 // TEST7245: what a patch gives a complete thing is a complete thing: a JSON
 // record a step gives, converted to YAML, is a YAML record and no list, and
 // feeds a save that takes a record and refuses lists.
@@ -2845,6 +2898,8 @@ function runTests() {
   runTest('TEST7217: a_given_node_binds_by_satisfaction_at_a_negative_distance', test7217_aGivenNodeBindsBySatisfactionAtANegativeDistance);
   runTest('TEST7244: a_patch_steps_nodes_are_typed_by_what_it_gives_when_read_back', test7244_aPatchStepsNodesAreTypedByWhatItGivesWhenReadBack);
   runTest('TEST7245: a_patch_of_a_complete_thing_is_a_complete_thing', test7245_aPatchOfACompleteThingIsACompleteThing);
+  runTest('TEST7246: an_input_is_typed_by_what_the_steps_after_a_patch_need', test7246_anInputIsTypedByWhatTheStepsAfterAPatchNeed);
+  runTest('TEST7247: an_input_is_typed_through_a_patch_by_the_gather_after_it', test7247_anInputIsTypedThroughAPatchByTheGatherAfterIt);
   runTest('TEST7222: a_patch_output_node_holds_what_the_cap_gives', test7222_aPatchOutputNodeHoldsWhatTheCapGives);
   runTest('TEST1308: cyclic_strand_fails_hard', test1308_cyclicStrandFailsHard);
   runTest('TEST1171: machine_parse_error_wraps_syntax_error', test1171_machineParseErrorWrapsSyntaxError);

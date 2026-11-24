@@ -495,6 +495,8 @@ export class CapdagFormal {
   capGives(c: WfCap, x: Wf): Wf;
   /** Lean's CapDAG.Exec.capIllegal : CapDAG.Exec.WfCap → Option CapDAG.Illegal */
   capIllegal(c: WfCap): L.Option<Illegal>;
+  /** Lean's CapDAG.Exec.capRequires : CapDAG.Exec.WfCap → TaggedUrn.Exec.Wf → Option TaggedUrn.Exec.Wf */
+  capRequires(c: WfCap, r_: Wf): L.Option<Wf>;
   /** Lean's CapDAG.Exec.comparable : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
   comparable(a: WfCap, b: WfCap): boolean;
   /** Lean's CapDAG.Exec.dispatch : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Bool */
