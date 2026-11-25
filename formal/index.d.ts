@@ -531,6 +531,8 @@ export class CapdagFormal {
   queryProducing(output: Wf, tags: Wf): WfQuery;
   /** Lean's CapDAG.Exec.rankingKey : CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Nat × Nat */
   rankingKey(candidate: WfCap, request: WfCap): [bigint, bigint];
+  /** Lean's CapDAG.Exec.routesInOrder : TaggedUrn.Exec.Wf → List (List CapDAG.Exec.WfCap × TaggedUrn.Exec.Wf) → List Nat */
+  routesInOrder(target: Wf, routes: Array<[Array<WfCap>, Wf]>): Array<bigint>;
   /** Lean's CapDAG.Exec.select : List CapDAG.Exec.WfCap → CapDAG.Exec.WfCap → Option CapDAG.Exec.WfCap */
   select(candidates: Array<WfCap>, request: WfCap): L.Option<WfCap>;
   /** Lean's CapDAG.Exec.specificity : CapDAG.Exec.WfCap → Nat */
