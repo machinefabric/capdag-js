@@ -1,7 +1,7 @@
 {
   "author": "Bahram Joharshamshiri",
   "dependencies": {
-    "lungo-ts": "1.127.0",
+    "lungo-ts": "1.131.83",
     "peggy": "^5.1.0",
     "tagged-urn": "^1.174.46"
   },
@@ -50,5 +50,5 @@
     "test": "node capdag.test.js && node machine.test.js"
   },
   "type": "module",
-  "version": "1.534.0"
+  "version": "1.535.0"
 }
