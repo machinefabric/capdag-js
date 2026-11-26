@@ -24,13 +24,13 @@
     "<package:lungo>/Lungo/Trace.lean": "f6f0735df8f533ef42e71cc5f5be73462fcac902c38f56f3d3411b28816a57bf",
     "<package:lungo>/lakefile.toml": "57abcf8dfaafd1339335d30216342b7f7892b1cecea42ee0a9f4056673f53b73",
     "<package:tagged_urn_formal>/TaggedUrn.lean": "8f1e3db492357da3c6e5b733ad5f010ebdbee77d9efa3a578858e017b017b412",
-    "<package:tagged_urn_formal>/TaggedUrn/Constraint.lean": "2f99b8ccd528131a22f5c9eb398d9ce9f12ffb79c119c35192302acc716cca9e",
+    "<package:tagged_urn_formal>/TaggedUrn/Constraint.lean": "2b3fbe0cfc8bf88a9f03cc6335f937caf58cda4958090773f1bc8b948af7c6ad",
     "<package:tagged_urn_formal>/TaggedUrn/Exec.lean": "b404ab7ea5d41c4fef79d8ac7787e7d9b8e9da630f8b271bfa56ee7e4fdba97c",
     "<package:tagged_urn_formal>/TaggedUrn/Join.lean": "0e9b1e6de23902bfae8ea844cf7e4d3599294b040060bcb9199873fb42e059ba",
     "<package:tagged_urn_formal>/TaggedUrn/Patch.lean": "e1d950494040a36b2bbc26402ba4be57e4720b7d247d75baa712bd73985723ad",
     "<package:tagged_urn_formal>/TaggedUrn/Sorted.lean": "b20cb55a53046a686f98a85baab2758ef541adafb94729afed2c94fae0e7288b",
     "<package:tagged_urn_formal>/TaggedUrn/Split.lean": "f65ebdd673c7e895cedc48f44abf6f58dc8446c53705806ca34a79f2240486c2",
-    "<package:tagged_urn_formal>/TaggedUrn/Urn.lean": "3c25021883e595005cdd792225e02c5b1e4e9df2b9fee3188e9b12bdcfc0d3dc",
+    "<package:tagged_urn_formal>/TaggedUrn/Urn.lean": "6738702f276c103c5c680f9fae3994a80b4b1b354ba6878a22e5ae06ef8b3236",
     "<package:tagged_urn_formal>/lakefile.toml": "d84612abc4598b3b2ed8436aaa4ffe8f3b5cf85caf44866489a482be4e558501",
     "CapDAG/Bifaci/Credit.lean": "aca7f1c2904127a3b4c626fd5f366c4dd84dddc0348c68864d9871ac212723ad",
     "CapDAG/Bifaci/Flow.lean": "9252bdf3800a983cc9419bf1d477b73e8295067414b7dbe507c62c771e7ec8bf",
@@ -42,11 +42,11 @@
     "CapDAG/Bifaci/Laws/Request.lean": "887845dcfce21892f90414b32521b07bb95c85c4bf7117412477a73af3b42cd9",
     "CapDAG/Bifaci/Pools.lean": "d908a12c733e27c4801581bedae058898e702ea27ad9e597a28cd123a94c8ace",
     "CapDAG/Bifaci/Request.lean": "604c9ab7c41ee1d61431c2a4bcaafd172b8dc8db5d31bda2f47feb226024b674",
-    "CapDAG/Cap.lean": "256fe2967fab5dffb96a8bd24f83965012dc3fbe2edb047a86980a8956c98ece",
+    "CapDAG/Cap.lean": "868f89bcb97726027af28ac18bae3409a8ea0244bf32e5133d8ab0b21de63dd6",
     "CapDAG/Detect.lean": "7b5905cb1e1a02b1c950532e57d69fc8bf4ba6ff48adfa8d2f5c01c752b52f23",
     "CapDAG/Exec.lean": "9a1f6614fd34b839b96caa29335b6284838224045a0900435980dac6411ac4ae",
     "CapDAG/Meet.lean": "a1cd6dd8972e48579260f68eb7fdc9e5e45fa0c1c72729faa44919b754d8126d",
-    "CapDAG/Query.lean": "6c7ca78db3e6b23b94fec39eca4b512398d36325af7afabcd3f0b24512cda031",
+    "CapDAG/Query.lean": "3663b4e5643fbad67ed5ba881b61c2d27ae4c359005777e45bcb13792d8d7f99",
     "CapDAG/Ranking.lean": "bc91e49b36aa687a2eaa72164ed4c9040e759b3a31f3a705b57932a584f8abf5",
     "CapDAG/Route.lean": "480055d187d89b8e4316d9ca45c3decca01fc5ec3372313edcc2a40a32a7c907",
     "CapDAG/RouteOrder.lean": "4e54ccc7fb092d32c171a956a045b1c996292ca2e35bd0249c88b0d81265b7fd",
@@ -61,9 +61,9 @@
   "project": ".",
   "link_directives": [],
   "output_digests": {
-    "assurance.json": "55f1be683bb3fde38d7a82c6ec542ce5261722d2a399a0b4e0a93bfcdfcfad63",
+    "assurance.json": "cae09b82f6ef14af81f1e797b12d661f32bda50436b1cf98990ab73e3c3c4d57",
     "index.d.ts": "b0694540ffd216e02703ac88ce09474362cba82026e415c3ac128a5612361791",
-    "index.js": "aed4e664cf8c2b11b704a80f071aad6423843a0961788c72ce9294dae2954650"
+    "index.js": "e1879121dc339602c29612383003869672b7e2df130e9efb528f97ba622a1a18"
   },
   "platform_products": [
     "program.wasm"

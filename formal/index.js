@@ -1456,11 +1456,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Cap.lean",
         "start": {
-          "line": 127,
+          "line": 128,
           "column": 1
         },
         "end": {
-          "line": 133,
+          "line": 134,
           "column": 50
         }
       }
@@ -1476,11 +1476,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Cap.lean",
         "start": {
-          "line": 183,
+          "line": 184,
           "column": 1
         },
         "end": {
-          "line": 188,
+          "line": 189,
           "column": 12
         }
       }
@@ -1496,11 +1496,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Cap.lean",
         "start": {
-          "line": 267,
+          "line": 268,
           "column": 1
         },
         "end": {
-          "line": 275,
+          "line": 276,
           "column": 67
         }
       }
@@ -1696,11 +1696,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Query.lean",
         "start": {
-          "line": 660,
+          "line": 693,
           "column": 1
         },
         "end": {
-          "line": 665,
+          "line": 698,
           "column": 18
         }
       }
@@ -1796,11 +1796,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Cap.lean",
         "start": {
-          "line": 65,
+          "line": 66,
           "column": 1
         },
         "end": {
-          "line": 74,
+          "line": 75,
           "column": 38
         }
       }
@@ -1836,11 +1836,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "capdagFormal",
         "file": "CapDAG/Cap.lean",
         "start": {
-          "line": 50,
+          "line": 51,
           "column": 1
         },
         "end": {
-          "line": 52,
+          "line": 53,
           "column": 53
         }
       }
@@ -2056,11 +2056,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Constraint.lean",
         "start": {
-          "line": 232,
+          "line": 233,
           "column": 1
         },
         "end": {
-          "line": 236,
+          "line": 237,
           "column": 37
         }
       }
@@ -2076,11 +2076,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Urn.lean",
         "start": {
-          "line": 90,
+          "line": 106,
           "column": 1
         },
         "end": {
-          "line": 91,
+          "line": 107,
           "column": 63
         }
       }
@@ -2096,11 +2096,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Urn.lean",
         "start": {
-          "line": 92,
+          "line": 108,
           "column": 1
         },
         "end": {
-          "line": 93,
+          "line": 109,
           "column": 63
         }
       }
@@ -2116,11 +2116,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Urn.lean",
         "start": {
-          "line": 158,
+          "line": 184,
           "column": 1
         },
         "end": {
-          "line": 163,
+          "line": 189,
           "column": 70
         }
       }
@@ -2136,11 +2136,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Urn.lean",
         "start": {
-          "line": 276,
+          "line": 324,
           "column": 1
         },
         "end": {
-          "line": 282,
+          "line": 330,
           "column": 77
         }
       }
@@ -2176,11 +2176,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Urn.lean",
         "start": {
-          "line": 324,
+          "line": 372,
           "column": 1
         },
         "end": {
-          "line": 327,
+          "line": 375,
           "column": 84
         }
       }
@@ -2196,11 +2196,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Urn.lean",
         "start": {
-          "line": 218,
+          "line": 255,
           "column": 1
         },
         "end": {
-          "line": 221,
+          "line": 258,
           "column": 77
         }
       }
@@ -2216,11 +2216,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Urn.lean",
         "start": {
-          "line": 399,
+          "line": 447,
           "column": 1
         },
         "end": {
-          "line": 406,
+          "line": 454,
           "column": 61
         }
       }
@@ -2236,11 +2236,11 @@ export const ASSURANCE = L.parseAssurance({
         "package": "tagged_urn_formal",
         "file": "TaggedUrn/Urn.lean",
         "start": {
-          "line": 415,
+          "line": 463,
           "column": 1
         },
         "end": {
-          "line": 418,
+          "line": 466,
           "column": 49
         }
       }

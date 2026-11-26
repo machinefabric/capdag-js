@@ -766,7 +766,8 @@ function test042_matchingSemanticsCapHasExtraTag() {
 // A request that says only "some ext" is not a pdf, so a pattern requiring
 // ext=pdf does not accept it: `ext` promises presence, not a value, and
 // reading it as "whatever the pattern wants" made `ext` and `ext=pdf`
-// equivalent (capdag/formal, Legacy.marker_equivalent_to_exact).
+// equivalent (tagged-urn formal, marker_is_not_exact). The test is kept so this
+// path is not taken again.
 function test043_matchingSemanticsRequestHasWildcard() {
   const cap = CapUrn.fromString(test6204_Urn('generate;ext=pdf'));
   const request = CapUrn.fromString(test6204_Urn('generate;ext=*'));
@@ -809,7 +810,8 @@ function test047_matchingSemanticsThumbnailVoidInput() {
 // are unknown, not the type "anything", so it fits a cap that takes text and
 // gives a record. Read as a type, its open output would be covered only by a
 // cap that gives `media:` — which is how a pattern search came to find nothing
-// (capdag/formal, Query.ofPattern and Legacy.skipping_top_output_is_fits).
+// (capdag/formal, Query.ofPattern and fits_asks_what_the_cap_gives). The test is
+// kept so this path is not taken again.
 function test048_matchingSemanticsWildcardDirection() {
   const cap = CapUrn.fromString('cap:generate');
   const request = CapUrn.fromString(test6204_Urn('generate;ext=pdf'));
@@ -4098,8 +4100,9 @@ function test648_wildcardAcceptsSpecific() {
 // anything, and only a candidate that takes anything serves it
 //
 // A call that did not say what it sent was routed to a candidate that might not
-// take it (capdag/formal, Legacy.wildcard_input_is_not_serves). An unknown input
-// is a search's (CapQuery.producing), never a call's.
+// take it (capdag/formal, serves_needs_what_is_sent). An unknown input is a
+// search's (CapQuery.producing), never a call's. The test is kept so this path
+// is not taken again.
 function test825_dispatchRequestUnconstrainedInput() {
   const pdfOnly = CapUrn.fromString('cap:in="media:document;ext=pdf";analyze;out="media:enc=utf8;record"');
   const acceptsAnything = CapUrn.fromString('cap:in="media:";analyze;out="media:enc=utf8;record"');
@@ -4395,6 +4398,11 @@ function test7214_dispatchComparesWhatTheCapGivesForWhatIsSent() {
 // TEST7215: a pattern over caps fits a cap when everything the cap gives is of
 // the type the pattern's output names; a pattern that names no output asks
 // nothing of it
+//
+// It is kept so this path is not taken again: the old rule asked a cap's output
+// to cover the pattern's, and skipped a pattern's `media:` output. It accepted a
+// cap that gives nothing named for a pattern asking for pdfs, refused one that
+// gives pdf documents, and was not transitive (capdag/formal, fits_asks_what_the_cap_gives).
 function test7215_aPatternFitsWhatACapGives() {
   const givesPdf = CapUrn.fromString('cap:op=a;out="media:ext=pdf"');
   const givesPdfDocument = CapUrn.fromString('cap:op=a;out="media:document;ext=pdf"');
